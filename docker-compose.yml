@@ -1,0 +1,61 @@
+services:
+  starrocks-fe:
+    image: starrocks/fe-ubuntu:3.3-latest
+    ports:
+      - "8030:8030"
+      - "9030:9030"
+
+  starrocks-be:
+    image: starrocks/be-ubuntu:3.3-latest
+    depends_on:
+      - starrocks-fe
+    ports:
+      - "8040:8040"
+
+  spark:
+    image: bitnami/spark:3.5
+    environment:
+      SPARK_MODE: master
+    ports:
+      - "8080:8080"
+
+  hive-metastore:
+    image: apache/hive:4.0.0
+    environment:
+      SERVICE_NAME: metastore
+    ports:
+      - "9083:9083"
+
+  minio:
+    image: minio/minio:RELEASE.2024-06-13T22-53-53Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    ports:
+      - "3000:3000"
+
+  benchmark-runner:
+    image: eclipse-temurin:17-jre
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    command: ["java", "-jar", "target/data-benchmark-0.1.0-SNAPSHOT.jar", "run", "--run-id", "compose-smoke"]
+    ports:
+      - "9108:9108"
+    depends_on:
+      - minio
+      - prometheus

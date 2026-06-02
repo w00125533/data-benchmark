@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: benchmark-runner
+    static_configs:
+      - targets: ["benchmark-runner:9108"]
+
+  - job_name: starrocks-fe
+    static_configs:
+      - targets: ["starrocks-fe:8030"]
+
+  - job_name: starrocks-be
+    static_configs:
+      - targets: ["starrocks-be:8040"]
+
+  - job_name: minio
+    static_configs:
+      - targets: ["minio:9000"]
