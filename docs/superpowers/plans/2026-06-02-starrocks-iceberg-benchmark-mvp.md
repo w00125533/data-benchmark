@@ -241,7 +241,7 @@ public class BenchmarkRunnerApp implements Callable<Integer> {
         return 0;
     }
 
-    @Command(name = "generate", description = "Generate wireless KPI Parquet data.")
+    @Command(name = "generate", description = "Generate deterministic wireless KPI data skeleton.")
     static class GenerateCommand implements Callable<Integer> {
         @Override
         public Integer call() {
@@ -840,7 +840,7 @@ This MVP writes deterministic text content to a `.parquet` path so orchestration
 Modify `src/main/java/com/example/databenchmark/BenchmarkRunnerApp.java` so `GenerateCommand` is:
 
 ```java
-@Command(name = "generate", description = "Generate wireless KPI Parquet data.")
+@Command(name = "generate", description = "Generate deterministic wireless KPI data skeleton.")
 static class GenerateCommand implements Callable<Integer> {
     @CommandLine.Option(names = "--config", defaultValue = "configs/benchmark-smoke.yml")
     Path configPath;
