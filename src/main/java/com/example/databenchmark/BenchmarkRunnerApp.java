@@ -29,7 +29,7 @@ public class BenchmarkRunnerApp implements Callable<Integer> {
         return 0;
     }
 
-    @Command(name = "generate", description = "Generate wireless KPI Parquet data.")
+    @Command(name = "generate", description = "Generate deterministic wireless KPI data skeleton.")
     static class GenerateCommand implements Callable<Integer> {
         @Spec
         CommandSpec spec;
