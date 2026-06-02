@@ -40,6 +40,21 @@ public record BenchmarkConfig(
         );
     }
 
+    public BenchmarkConfig withRowCap(long rowCap) {
+        if (rowCap <= 0) {
+            throw new IllegalArgumentException("rowCap must be positive");
+        }
+        return withDataset(dataset.withRowCap(rowCap));
+    }
+
+    public BenchmarkConfig withoutRowCap() {
+        return withDataset(dataset.withRowCap(null));
+    }
+
+    private BenchmarkConfig withDataset(DatasetConfig dataset) {
+        return new BenchmarkConfig(profile, seed, dataset, query, report, monitoring);
+    }
+
     public record DatasetConfig(
         int cells,
         int days,
@@ -47,7 +62,11 @@ public record BenchmarkConfig(
         String startTime,
         String output,
         Long rowCap
-    ) {}
+    ) {
+        private DatasetConfig withRowCap(Long rowCap) {
+            return new DatasetConfig(cells, days, columns, startTime, output, rowCap);
+        }
+    }
 
     public record QueryConfig(int coldRuns, int warmRuns, int concurrency) {}
 
