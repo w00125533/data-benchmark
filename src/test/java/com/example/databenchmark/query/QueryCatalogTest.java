@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
 class QueryCatalogTest {
@@ -57,10 +60,7 @@ class QueryCatalogTest {
             for (QueryDefinition query : QueryCatalog.queries()) {
                 String rendered = QueryCatalog.render(query.name(), engine);
 
-                assertThat(rendered).doesNotContain("cell-");
-                assertThat(rendered).doesNotContain("n78");
-                assertThat(rendered).doesNotContain("Hangzhou");
-                assertThat(rendered).doesNotContain("Zhejiang");
+                assertDimensionLiteralsMatchGeneratedValues(rendered);
             }
         }
     }
@@ -99,4 +99,59 @@ class QueryCatalogTest {
     private String normalizeSql(String sql) {
         return sql.replaceAll("\\s+", " ").trim();
     }
+
+    private void assertDimensionLiteralsMatchGeneratedValues(String sql) {
+        Matcher matcher = Pattern.compile("'([^']*)'").matcher(sql);
+        while (matcher.find()) {
+            String literal = matcher.group(1);
+            if (isNonDimensionSqlLiteral(literal)) {
+                continue;
+            }
+
+            if (literal.startsWith("CELL-")) {
+                assertThat(literal).matches("CELL-\\d{6}");
+            } else if (literal.startsWith("province-")) {
+                int province = Integer.parseInt(literal.substring("province-".length()));
+                assertThat(literal).matches("province-\\d{2}");
+                assertThat(province).isBetween(0, 30);
+            } else if (literal.startsWith("city-")) {
+                int city = Integer.parseInt(literal.substring("city-".length()));
+                assertThat(literal).matches("city-\\d{3}");
+                assertThat(city).isBetween(0, 199);
+            } else if (VENDORS.contains(literal)) {
+                assertThat(literal).isIn(VENDORS);
+            } else if (literal.endsWith("G")) {
+                assertThat(literal).isIn("4G", "5G");
+            } else if (literal.startsWith("B") || literal.startsWith("N")) {
+                assertThat(literal).isIn(BANDS);
+            } else {
+                assertThat(literal)
+                    .as("single-quoted SQL literal should be a generated dimension value or ignored SQL literal")
+                    .isIn(GENERATED_DIMENSION_LITERALS);
+            }
+        }
+    }
+
+    private boolean isNonDimensionSqlLiteral(String literal) {
+        return literal.matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}")
+            || Set.of("minute", "hour", "day").contains(literal);
+    }
+
+    private static final Set<String> VENDORS = Set.of("Huawei", "ZTE", "Ericsson", "Nokia", "Samsung");
+    private static final Set<String> BANDS = Set.of("B3", "B7", "B8", "B20", "N78", "N41");
+    private static final Set<String> GENERATED_DIMENSION_LITERALS = Set.of(
+        "4G",
+        "5G",
+        "Huawei",
+        "ZTE",
+        "Ericsson",
+        "Nokia",
+        "Samsung",
+        "B3",
+        "B7",
+        "B8",
+        "B20",
+        "N78",
+        "N41"
+    );
 }
