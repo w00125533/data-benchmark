@@ -1,5 +1,6 @@
 package com.example.databenchmark;
 
+import java.nio.file.Path;
 import java.util.concurrent.Callable;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -33,9 +34,37 @@ public class BenchmarkRunnerApp implements Callable<Integer> {
         @Spec
         CommandSpec spec;
 
+        @CommandLine.Option(names = "--config", defaultValue = "configs/benchmark-smoke.yml")
+        Path configPath;
+
+        @CommandLine.Option(names = "--cells")
+        Integer cells;
+
+        @CommandLine.Option(names = "--days")
+        Integer days;
+
+        @CommandLine.Option(names = "--seed")
+        Long seed;
+
+        @CommandLine.Option(names = "--output")
+        String output;
+
+        @CommandLine.Option(names = "--row-cap")
+        Long rowCap;
+
         @Override
-        public Integer call() {
+        public Integer call() throws Exception {
+            var config = new com.example.databenchmark.config.BenchmarkConfigLoader()
+                .load(configPath)
+                .withOverrides(cells, days, seed, output, rowCap);
+            var result = new com.example.databenchmark.generator.KpiDataGenerator().generate(config);
             spec.commandLine().getOut().println("generate command is available");
+            spec.commandLine().getOut().printf(
+                "rows=%d bytes=%d output=%s%n",
+                result.rows(),
+                result.bytesWritten(),
+                result.outputPath()
+            );
             return 0;
         }
     }
