@@ -1,5 +1,7 @@
 package com.example.databenchmark.report;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 public record BenchmarkReport(
@@ -30,7 +32,7 @@ public record BenchmarkReport(
             2_048L,
             List.of(new LoadSummary("generate", 14_400L, 2_048L, 1.2)),
             List.of(new QuerySummary("spark_iceberg", "iceberg_db.cell_kpi_1min", "topn_high_load_cells", 10.0, 12.0, 15.0, 0)),
-            "http://localhost:3000/d/benchmark?var-run_id=" + runId,
+            "http://localhost:3000/d/benchmark?var-run_id=" + URLEncoder.encode(runId, StandardCharsets.UTF_8),
             false
         );
     }
