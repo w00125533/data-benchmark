@@ -19,7 +19,7 @@ public final class QueryCatalog {
             """
             SELECT event_time, cell_id, rsrp_avg, sinr_avg, prb_dl_util, active_users
             FROM {table}
-            WHERE cell_id = 'cell-000001'
+            WHERE cell_id = 'CELL-000001'
               AND event_time >= TIMESTAMP '2026-01-01 00:00:00'
               AND event_time < TIMESTAMP '2026-01-02 00:00:00'
             ORDER BY event_time
@@ -34,7 +34,7 @@ public final class QueryCatalog {
                    AVG(sinr_avg) AS sinr_avg,
                    AVG(load_score) AS load_score
             FROM {table}
-            WHERE cell_id = 'cell-000001'
+            WHERE cell_id = 'CELL-000001'
               AND event_time >= TIMESTAMP '2026-01-01 00:00:00'
               AND event_time < TIMESTAMP '2026-01-08 00:00:00'
             GROUP BY DATE_TRUNC('day', event_time), cell_id
@@ -52,7 +52,7 @@ public final class QueryCatalog {
                    AVG(prb_dl_util) AS prb_dl_util,
                    SUM(active_users) AS active_users
             FROM {table}
-            WHERE city = 'Hangzhou'
+            WHERE city = 'city-001'
             GROUP BY DATE_TRUNC('minute', event_time), city, vendor, band, rat
             ORDER BY event_minute, vendor, band, rat
             """
@@ -60,10 +60,12 @@ public final class QueryCatalog {
         new QueryDefinition(
             "topn_high_load_cells",
             """
-            SELECT event_time, cell_id, city, vendor, rat, band, load_score, active_users
+            SELECT cell_id,
+                   MAX(prb_dl_util) AS prb_dl_util,
+                   MAX(active_users) AS active_users,
+                   MAX(load_score) AS load_score
             FROM {table}
-            WHERE event_time >= TIMESTAMP '2026-01-01 00:00:00'
-              AND event_time < TIMESTAMP '2026-01-02 00:00:00'
+            GROUP BY cell_id
             ORDER BY load_score DESC
             LIMIT 100
             """
@@ -73,14 +75,13 @@ public final class QueryCatalog {
             """
             SELECT cell_id,
                    city,
-                   district,
                    AVG(rsrp_avg) AS rsrp_avg,
                    AVG(sinr_avg) AS sinr_avg,
                    COUNT(*) AS samples
             FROM {table}
             WHERE rsrp_avg < -110
                OR sinr_avg < 0
-            GROUP BY cell_id, city, district
+            GROUP BY cell_id, city
             ORDER BY rsrp_avg ASC, sinr_avg ASC
             LIMIT 100
             """
@@ -132,20 +133,19 @@ public final class QueryCatalog {
             """
             SELECT province,
                    city,
-                   district,
                    vendor,
                    rat,
                    band,
                    COUNT(*) AS samples,
                    AVG(active_users) AS active_users,
-                   AVG(dl_throughput_mbps) AS dl_throughput_mbps
+                   AVG(load_score) AS load_score
             FROM {table}
-            WHERE province = 'Zhejiang'
+            WHERE province = 'province-01'
               AND vendor IN ('Huawei', 'ZTE')
               AND rat IN ('4G', '5G')
-              AND band IN ('n78', 'B3')
+              AND band IN ('N78', 'B3')
               AND prb_dl_util BETWEEN 40 AND 95
-            GROUP BY province, city, district, vendor, rat, band
+            GROUP BY province, city, vendor, rat, band
             ORDER BY samples DESC
             """
         ),
@@ -173,8 +173,8 @@ public final class QueryCatalog {
                    load_score
             FROM {table}
             WHERE cell_id IN (
-                'cell-000001', 'cell-000010', 'cell-000100', 'cell-001000',
-                'cell-002000', 'cell-003000', 'cell-004000', 'cell-005000'
+                'CELL-000001', 'CELL-000010', 'CELL-000100', 'CELL-001000',
+                'CELL-002000', 'CELL-003000', 'CELL-004000', 'CELL-005000'
             )
             ORDER BY cell_id, event_time
             """

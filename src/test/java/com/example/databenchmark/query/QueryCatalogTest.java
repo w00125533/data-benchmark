@@ -26,13 +26,42 @@ class QueryCatalogTest {
     }
 
     @Test
-    void rendersTopnQueryForEveryEngine() {
+    void rendersEveryQueryForEveryEngine() {
         for (BenchmarkEngine engine : QueryCatalog.engines()) {
-            String rendered = QueryCatalog.render("topn_high_load_cells", engine);
+            for (QueryDefinition query : QueryCatalog.queries()) {
+                String rendered = QueryCatalog.render(query.name(), engine);
 
-            assertThat(rendered).contains("FROM " + engine.tableName());
-            assertThat(rendered).contains("ORDER BY load_score DESC");
-            assertThat(rendered).doesNotContain("{table}");
+                assertThat(rendered).contains(engine.tableName());
+                assertThat(rendered).doesNotContain("{table}");
+            }
+        }
+    }
+
+    @Test
+    void topnHighLoadCellsAggregatesByCell() {
+        BenchmarkEngine engine = QueryCatalog.engines().get(0);
+
+        String normalized = normalizeSql(QueryCatalog.render("topn_high_load_cells", engine));
+
+        assertThat(normalized)
+            .isEqualTo(
+                "SELECT cell_id, MAX(prb_dl_util) AS prb_dl_util, "
+                    + "MAX(active_users) AS active_users, MAX(load_score) AS load_score "
+                    + "FROM iceberg_db.cell_kpi_1min GROUP BY cell_id ORDER BY load_score DESC LIMIT 100"
+            );
+    }
+
+    @Test
+    void renderedQueriesUseGeneratorCompatibleLiterals() {
+        for (BenchmarkEngine engine : QueryCatalog.engines()) {
+            for (QueryDefinition query : QueryCatalog.queries()) {
+                String rendered = QueryCatalog.render(query.name(), engine);
+
+                assertThat(rendered).doesNotContain("cell-");
+                assertThat(rendered).doesNotContain("n78");
+                assertThat(rendered).doesNotContain("Hangzhou");
+                assertThat(rendered).doesNotContain("Zhejiang");
+            }
         }
     }
 
@@ -65,5 +94,9 @@ class QueryCatalogTest {
         assertThat(queries).hasSize(10);
         assertThat(queries)
             .allSatisfy(query -> assertThat(query.template()).contains("{table}"));
+    }
+
+    private String normalizeSql(String sql) {
+        return sql.replaceAll("\\s+", " ").trim();
     }
 }
