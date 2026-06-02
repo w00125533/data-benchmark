@@ -74,9 +74,22 @@ public class BenchmarkRunnerApp implements Callable<Integer> {
         @Spec
         CommandSpec spec;
 
+        @CommandLine.Option(names = "--config", defaultValue = "configs/benchmark-smoke.yml")
+        Path configPath;
+
+        @CommandLine.Option(names = "--run-id")
+        String runId;
+
         @Override
-        public Integer call() {
-            spec.commandLine().getOut().println("run command is available");
+        public Integer call() throws Exception {
+            var config = new com.example.databenchmark.config.BenchmarkConfigLoader().load(configPath);
+            var result = new com.example.databenchmark.runner.LocalBenchmarkRunner()
+                .run(config, Path.of(config.report().output()), runId);
+            spec.commandLine().getOut().printf(
+                "rows=%d report=%s%n",
+                result.dataset().rows(),
+                result.reportPath()
+            );
             return 0;
         }
     }
