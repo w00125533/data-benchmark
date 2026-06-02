@@ -38,6 +38,7 @@ class LocalBenchmarkRunnerTest {
         String html = Files.readString(result.reportPath());
         assertThat(html).contains("http://localhost:3000/d/benchmark?var-run_id=run-local-test");
         assertThat(html).contains("local");
+        assertThat(html).contains("generated_parquet");
         assertThat(html).contains("catalog_render_check");
         assertThat(html).contains("not a 4.032B row full-profile validation");
     }

@@ -37,7 +37,7 @@ public class LocalBenchmarkRunner {
                 dataset.bytesWritten(),
                 Math.round(durationSeconds * 1000.0) / 1000.0
             )),
-            List.of(new BenchmarkReport.QuerySummary("local", "local", "catalog_render_check", 0.0, 0.0, 0.0, 0)),
+            List.of(new BenchmarkReport.QuerySummary("local", "generated_parquet", "catalog_render_check", 0.0, 0.0, 0.0, 0)),
             grafanaUrl(actualRunId),
             "full".equals(config.profile())
         );
