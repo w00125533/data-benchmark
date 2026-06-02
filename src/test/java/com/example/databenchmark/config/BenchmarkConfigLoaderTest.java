@@ -64,6 +64,38 @@ class BenchmarkConfigLoaderTest {
     }
 
     @Test
+    void overridesRejectZeroRowCap() {
+        assertThatThrownBy(() -> BenchmarkConfig.defaultSmoke()
+            .withOverrides(null, null, null, null, 0L))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("rowCap");
+    }
+
+    @Test
+    void overridesRejectNegativeRowCap() {
+        assertThatThrownBy(() -> BenchmarkConfig.defaultSmoke()
+            .withOverrides(null, null, null, null, -1L))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("rowCap");
+    }
+
+    @Test
+    void overridesRejectNonPositiveCells() {
+        assertThatThrownBy(() -> BenchmarkConfig.defaultSmoke()
+            .withOverrides(0, null, null, null, null))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("cells");
+    }
+
+    @Test
+    void overridesRejectBlankOutput() {
+        assertThatThrownBy(() -> BenchmarkConfig.defaultSmoke()
+            .withOverrides(null, null, null, " ", null))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("output");
+    }
+
+    @Test
     void withoutRowCapClearsDefaultSmokeCap() {
         BenchmarkConfig config = BenchmarkConfig.defaultSmoke().withoutRowCap();
 

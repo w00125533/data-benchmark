@@ -20,6 +20,12 @@ public record BenchmarkConfig(
     }
 
     public BenchmarkConfig withOverrides(Integer cells, Integer days, Long seed, String output, Long rowCap) {
+        requirePositive(cells, "cells");
+        requirePositive(days, "days");
+        requirePositive(seed, "seed");
+        requireNonBlank(output, "output");
+        requirePositive(rowCap, "rowCap");
+
         DatasetConfig current = dataset;
         DatasetConfig updatedDataset = new DatasetConfig(
             cells == null ? current.cells() : cells,
@@ -53,6 +59,18 @@ public record BenchmarkConfig(
 
     private BenchmarkConfig withDataset(DatasetConfig dataset) {
         return new BenchmarkConfig(profile, seed, dataset, query, report, monitoring);
+    }
+
+    private static void requirePositive(Number value, String field) {
+        if (value != null && value.longValue() <= 0) {
+            throw new IllegalArgumentException(field + " must be positive");
+        }
+    }
+
+    private static void requireNonBlank(String value, String field) {
+        if (value != null && value.isBlank()) {
+            throw new IllegalArgumentException(field + " must not be blank");
+        }
     }
 
     public record DatasetConfig(
