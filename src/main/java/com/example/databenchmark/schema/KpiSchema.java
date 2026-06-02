@@ -1,5 +1,7 @@
 package com.example.databenchmark.schema;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -61,11 +63,7 @@ public final class KpiSchema {
         .map(KpiColumn::name)
         .toList();
 
-    private static final Map<String, String> TABLE_SHAPES = Map.of(
-        "spark_iceberg", "iceberg_db.cell_kpi_1min",
-        "starrocks_internal", "sr_internal.cell_kpi_1min",
-        "starrocks_external_iceberg", "sr_external_iceberg.cell_kpi_1min"
-    );
+    private static final Map<String, String> TABLE_SHAPES = tableShapesInSpecOrder();
 
     private KpiSchema() {}
 
@@ -79,5 +77,13 @@ public final class KpiSchema {
 
     public static Map<String, String> tableShapes() {
         return TABLE_SHAPES;
+    }
+
+    private static Map<String, String> tableShapesInSpecOrder() {
+        Map<String, String> tableShapes = new LinkedHashMap<>();
+        tableShapes.put("spark_iceberg", "iceberg_db.cell_kpi_1min");
+        tableShapes.put("starrocks_internal", "sr_internal.cell_kpi_1min");
+        tableShapes.put("starrocks_external_iceberg", "sr_external_iceberg.cell_kpi_1min");
+        return Collections.unmodifiableMap(tableShapes);
     }
 }
