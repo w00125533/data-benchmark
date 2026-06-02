@@ -32,6 +32,7 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_PROMETHEUS_AUTH_TYPE: public
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -53,9 +54,8 @@ services:
     working_dir: /workspace
     volumes:
       - .:/workspace
+    # Run mvn package before docker compose up so target/...jar exists.
     command: ["java", "-jar", "target/data-benchmark-0.1.0-SNAPSHOT.jar", "run", "--run-id", "compose-smoke"]
-    ports:
-      - "9108:9108"
     depends_on:
       - minio
       - prometheus

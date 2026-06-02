@@ -2,10 +2,11 @@ package com.example.databenchmark;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -14,24 +15,107 @@ class ComposeTopologyTest {
 
     @SuppressWarnings("unchecked")
     @Test
-    void composeDefinesRequiredServices() throws Exception {
+    void composeDefinesPlaceholderTopology() throws Exception {
         Map<String, Object> compose = mapper.readValue(
             Path.of("docker-compose.yml").toFile(),
             new TypeReference<>() {}
         );
         Map<String, Object> services = (Map<String, Object>) compose.get("services");
 
-        assertThat(services.keySet()).contains(
+        assertThat(services.keySet()).containsExactlyInAnyOrder(
             "starrocks-fe", "starrocks-be", "spark", "hive-metastore",
             "minio", "prometheus", "grafana", "benchmark-runner"
         );
+
+        Map<String, Object> runner = service(services, "benchmark-runner");
+        assertThat(runner.get("image").toString()).containsAnyOf("temurin", "java").contains("17");
+        assertThat(runner.get("working_dir")).isEqualTo("/workspace");
+        assertThat(stringList(runner, "volumes")).contains(".:/workspace");
+        assertThat(stringList(runner, "command"))
+            .contains("target/data-benchmark-0.1.0-SNAPSHOT.jar", "compose-smoke");
+        assertThat(stringList(runner, "ports")).doesNotContain("9108:9108");
+
+        Map<String, Object> prometheus = service(services, "prometheus");
+        assertThat(stringList(prometheus, "volumes"))
+            .contains("./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro");
+        assertThat(stringList(prometheus, "ports")).contains("9090:9090");
+
+        Map<String, Object> grafana = service(services, "grafana");
+        assertThat(stringList(grafana, "ports")).contains("3000:3000");
+
+        Map<String, Object> minio = service(services, "minio");
+        assertThat(stringList(minio, "ports")).contains("9000:9000", "9001:9001");
+        Map<String, Object> minioEnvironment = map(minio.get("environment"));
+        assertThat(minioEnvironment)
+            .containsEntry("MINIO_ROOT_USER", "minioadmin")
+            .containsEntry("MINIO_ROOT_PASSWORD", "minioadmin")
+            .containsEntry("MINIO_PROMETHEUS_AUTH_TYPE", "public");
     }
 
+    @SuppressWarnings("unchecked")
     @Test
-    void prometheusScrapesBenchmarkRunner() throws Exception {
-        Map<?, ?> prometheus = mapper.readValue(Path.of("monitoring/prometheus.yml").toFile(), Map.class);
+    void prometheusScrapesOnlyAvailablePlaceholderTargets() throws Exception {
+        Map<String, Object> prometheus = mapper.readValue(
+            Path.of("monitoring/prometheus.yml").toFile(),
+            new TypeReference<>() {}
+        );
+        List<Map<String, Object>> scrapeConfigs = (List<Map<String, Object>>) prometheus.get("scrape_configs");
 
-        assertThat(prometheus.toString()).contains("benchmark-runner");
-        assertThat(prometheus.toString()).contains("benchmark-runner:9108");
+        assertThat(scrapeConfigs)
+            .extracting(config -> config.get("job_name"))
+            .doesNotContain("benchmark-runner")
+            .contains("starrocks-fe", "starrocks-be", "minio");
+
+        assertThat(scrapeConfigs.toString()).doesNotContain("benchmark-runner:9108");
+
+        Map<String, Object> minio = scrapeJob(scrapeConfigs, "minio");
+        assertThat(minio).containsEntry("metrics_path", "/minio/v2/metrics/cluster");
+        assertThat(targets(minio)).containsExactly("minio:9000");
+
+        assertThat(targets(scrapeJob(scrapeConfigs, "starrocks-fe"))).containsExactly("starrocks-fe:8030");
+        assertThat(targets(scrapeJob(scrapeConfigs, "starrocks-be"))).containsExactly("starrocks-be:8040");
+    }
+
+    private Map<String, Object> service(Map<String, Object> services, String name) {
+        assertThat(services).containsKey(name);
+        return map(services.get(name));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> scrapeJob(List<Map<String, Object>> scrapeConfigs, String jobName) {
+        return scrapeConfigs.stream()
+            .filter(config -> jobName.equals(config.get("job_name")))
+            .findFirst()
+            .map(config -> (Map<String, Object>) config)
+            .orElseThrow(() -> new AssertionError("Missing Prometheus scrape job: " + jobName));
+    }
+
+    private List<String> targets(Map<String, Object> scrapeJob) {
+        Map<String, Object> staticConfig = map(list(scrapeJob, "static_configs").get(0));
+        return stringList(staticConfig, "targets");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> map(Object value) {
+        return (Map<String, Object>) value;
+    }
+
+    private List<Object> list(Map<String, Object> map, String key) {
+        Object value = map.get(key);
+        if (value == null) {
+            return List.of();
+        }
+        return list(value);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Object> list(Object value) {
+        return (List<Object>) value;
+    }
+
+    private List<String> stringList(Map<String, Object> map, String key) {
+        return list(map, key).stream()
+            .map(Object::toString)
+            .toList();
     }
 }
