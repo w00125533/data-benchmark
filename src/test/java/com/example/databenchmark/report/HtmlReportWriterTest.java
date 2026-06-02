@@ -10,6 +10,8 @@ import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class HtmlReportWriterTest {
     @TempDir
@@ -44,6 +46,20 @@ class HtmlReportWriterTest {
     @Test
     void unsafeGrafanaUrlIsRejected() {
         BenchmarkReport report = reportWith("run-test", "javascript:alert(1)", false);
+
+        assertThatThrownBy(() -> new HtmlReportWriter().write(report, tempDir))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("grafanaUrl");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "http:example.com",
+        "http:/example.com",
+        "https://exa mple.com/path"
+    })
+    void malformedGrafanaUrlsAreRejected(String grafanaUrl) {
+        BenchmarkReport report = reportWith("run-test", grafanaUrl, false);
 
         assertThatThrownBy(() -> new HtmlReportWriter().write(report, tempDir))
             .isInstanceOf(IllegalArgumentException.class)

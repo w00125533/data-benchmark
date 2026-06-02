@@ -60,7 +60,16 @@ public class HtmlReportWriter {
         try {
             URI uri = new URI(grafanaUrl);
             String scheme = uri.getScheme();
-            if (scheme == null || !Set.of("http", "https").contains(scheme.toLowerCase(Locale.ROOT))) {
+            if (
+                scheme == null
+                    || !Set.of("http", "https").contains(scheme.toLowerCase(Locale.ROOT))
+                    || uri.isOpaque()
+            ) {
+                throw new IllegalArgumentException("Invalid grafanaUrl: " + grafanaUrl);
+            }
+            URI serverUri = uri.parseServerAuthority();
+            String host = serverUri.getHost();
+            if (host == null || host.isBlank()) {
                 throw new IllegalArgumentException("Invalid grafanaUrl: " + grafanaUrl);
             }
         } catch (URISyntaxException | NullPointerException exception) {
