@@ -14,7 +14,7 @@
 
 The design spec spans multiple independent subsystems. This plan implements the first working Java slice:
 
-- Included: Java 17 Maven project, deterministic `cell_kpi_1min` schema, Parquet generation, config profiles, query catalog, Prometheus metric names, HTML report generation, Docker Compose service topology, smoke tests.
+- Included: Java 17 Maven project, deterministic `cell_kpi_1min` schema, deterministic data generation skeleton, config profiles, query catalog, Prometheus metric names, HTML report generation, Docker Compose service topology, smoke tests.
 - Excluded from this MVP plan: production-grade Spark Iceberg writes, StarRocks internal table load, StarRocks external Iceberg catalog refresh, Grafana dashboard JSON, and default local generation of all 14.4M smoke rows.
 - Follow-up plans should cover: `starrocks-spark-ingestion`, `query-execution-engines`, and `observability-dashboards`.
 
@@ -35,7 +35,7 @@ The design spec spans multiple independent subsystems. This plan implements the 
 - Create: `src/main/java/com/example/databenchmark/generator/DatasetResult.java`
   - Generation result record.
 - Create: `src/main/java/com/example/databenchmark/generator/KpiDataGenerator.java`
-  - Deterministic Parquet data generator.
+  - Deterministic KPI data generator skeleton that writes text content to a `.parquet` path until the follow-up Parquet writer task.
 - Create: `src/main/java/com/example/databenchmark/query/BenchmarkEngine.java`
   - Engine/table-shape record.
 - Create: `src/main/java/com/example/databenchmark/query/QueryDefinition.java`
