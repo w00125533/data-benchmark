@@ -4,10 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
 
 class BenchmarkRunnerAppTest {
+    @TempDir
+    Path tempDir;
+
     @Test
     void cliExposesCoreCommandsAndStandardOptions() {
         CommandLine commandLine = new CommandLine(new BenchmarkRunnerApp());
@@ -27,8 +32,23 @@ class BenchmarkRunnerAppTest {
     }
 
     @Test
-    void generateRunAndReportCommandsPrintAvailability() {
-        assertAvailabilityOutput("generate", "generate command is available");
+    void generateCommandWritesToConfiguredOutput() {
+        CommandResult result = execute(
+            "generate",
+            "--output", tempDir.toString(),
+            "--cells", "3",
+            "--days", "1",
+            "--row-cap", "12",
+            "--seed", "123"
+        );
+
+        assertThat(result.exitCode()).isZero();
+        assertThat(result.out()).contains("rows=12");
+        assertThat(result.out()).contains(tempDir.toString());
+    }
+
+    @Test
+    void runAndReportCommandsPrintAvailability() {
         assertAvailabilityOutput("run", "run command is available");
         assertAvailabilityOutput("report", "report command is available");
     }
