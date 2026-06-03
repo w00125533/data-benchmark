@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.Test;
 
 class ComposeTopologyTest {
     private final ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
+    private final ObjectMapper jsonMapper = new ObjectMapper();
 
     @SuppressWarnings("unchecked")
     @Test
@@ -90,10 +92,46 @@ class ComposeTopologyTest {
     }
 
     @Test
-    void grafanaDashboardProvisioningFilesExist() {
-        assertThat(Path.of("monitoring/grafana/provisioning/datasources/prometheus.yml")).exists();
-        assertThat(Path.of("monitoring/grafana/provisioning/dashboards/benchmark.yml")).exists();
-        assertThat(Path.of("monitoring/grafana/dashboards/benchmark.json")).exists();
+    @SuppressWarnings("unchecked")
+    void grafanaDashboardProvisioningFilesExist() throws Exception {
+        Path datasourcePath = Path.of("monitoring/grafana/provisioning/datasources/prometheus.yml");
+        Path dashboardProviderPath = Path.of("monitoring/grafana/provisioning/dashboards/benchmark.yml");
+        Path dashboardPath = Path.of("monitoring/grafana/dashboards/benchmark.json");
+
+        assertThat(datasourcePath).exists();
+        assertThat(dashboardProviderPath).exists();
+        assertThat(dashboardPath).exists();
+
+        assertThat(Files.readString(datasourcePath))
+            .contains("uid: prometheus")
+            .contains("type: prometheus")
+            .contains("url: http://prometheus:9090");
+
+        assertThat(Files.readString(dashboardProviderPath))
+            .contains("name: data-benchmark")
+            .contains("path: /var/lib/grafana/dashboards");
+
+        String dashboardText = Files.readString(dashboardPath);
+        Map<String, Object> dashboard = jsonMapper.readValue(dashboardText, new TypeReference<>() {});
+        assertThat(dashboard)
+            .containsEntry("uid", "benchmark")
+            .containsEntry("title", "Data Benchmark");
+
+        Map<String, Object> templating = map(dashboard.get("templating"));
+        assertThat(list(templating, "list"))
+            .anySatisfy(variable -> assertThat((Map<String, Object>) variable)
+                .containsEntry("name", "run_id")
+                .containsEntry("type", "textbox"));
+
+        assertThat(list(dashboard, "panels"))
+            .extracting(panel -> map(panel).get("title"))
+            .contains("Load Rows", "Load Duration Seconds", "Query Duration Seconds",
+                "Query Failures", "Query Rows", "Run Metadata");
+
+        assertThat(dashboardText).contains("\"uid\": \"prometheus\"");
+        assertThat(list(dashboard, "panels"))
+            .filteredOn(panel -> map(panel).containsKey("datasource"))
+            .allSatisfy(panel -> assertThat(map(map(panel).get("datasource"))).containsEntry("uid", "prometheus"));
     }
 
     private Map<String, Object> service(Map<String, Object> services, String name) {
