@@ -1,19 +1,33 @@
+name: databenchmark
+
 services:
   starrocks-fe:
     image: starrocks/fe-ubuntu:3.3-latest
+    hostname: starrocks-fe-0
+    command: ["/opt/starrocks/fe_entrypoint.sh", "starrocks-fe"]
+    environment:
+      LOG_CONSOLE: "1"
     ports:
       - "8030:8030"
       - "9030:9030"
 
   starrocks-be:
     image: starrocks/be-ubuntu:3.3-latest
+    hostname: starrocks-be-0
+    command: ["/opt/starrocks/be_entrypoint.sh", "starrocks-fe"]
+    environment:
+      LOG_CONSOLE: "1"
     depends_on:
       - starrocks-fe
     ports:
       - "8040:8040"
 
   spark:
-    image: bitnami/spark:3.5
+    image: apache/spark:3.5.8-java17
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    command: ["sleep", "infinity"]
     environment:
       SPARK_MODE: master
     depends_on:
@@ -21,18 +35,15 @@ services:
         condition: service_completed_successfully
       hive-metastore:
         condition: service_started
-    ports:
-      - "8080:8080"
 
   hive-metastore:
     image: apache/hive:4.0.0
+    hostname: hive-metastore
     environment:
       SERVICE_NAME: metastore
     depends_on:
       hdfs-init:
         condition: service_completed_successfully
-    ports:
-      - "9083:9083"
 
   hdfs-namenode:
     image: apache/hadoop:3.3.6
@@ -99,14 +110,14 @@ services:
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
 
   benchmark-runner:
-    image: bitnami/spark:3.5
+    image: apache/spark:3.5.8-java17
     working_dir: /workspace
     volumes:
       - .:/workspace
     environment:
       BENCHMARK_COMPOSE_IN_CONTAINER: "true"
-      STARROCKS_JDBC_URL: "jdbc:mysql://starrocks-fe:9030/?useSSL=false&allowPublicKeyRetrieval=true"
-      STARROCKS_STREAM_LOAD_URL: "http://starrocks-fe:8030/api/sr_internal/cell_kpi_1min/_stream_load"
+      STARROCKS_JDBC_URL: "jdbc:mysql://starrocks-fe:9030/?useSSL=false&allowPublicKeyRetrieval=true&allowMultiQueries=true"
+      STARROCKS_STREAM_LOAD_URL: "http://starrocks-be:8040/api/sr_internal/cell_kpi_1min/_stream_load"
     # Run mvn package before docker compose up so target/...jar exists.
     command: ["java", "-jar", "target/data-benchmark-0.1.0-SNAPSHOT.jar", "run", "--mode", "compose", "--run-id", "compose-smoke"]
     depends_on:
@@ -122,3 +133,7 @@ services:
         condition: service_started
       prometheus:
         condition: service_started
+
+networks:
+  default:
+    name: databenchmark

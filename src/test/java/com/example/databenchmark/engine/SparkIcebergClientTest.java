@@ -32,12 +32,14 @@ class SparkIcebergClientTest {
         assertThat(result.rows()).isEqualTo(42);
         List<String> command = runner.commands().get(0);
         assertThat(command).containsExactly(
-            "docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "spark", "spark-sql",
+            "docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "spark", "/opt/spark/bin/spark-sql",
+            "--conf", "spark.jars.ivy=/tmp/.ivy2",
+            "--packages", "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1",
             "--conf", "spark.sql.catalog.iceberg_catalog=org.apache.iceberg.spark.SparkCatalog",
             "--conf", "spark.sql.catalog.iceberg_catalog.type=hive",
             "--conf", "spark.sql.catalog.iceberg_catalog.uri=thrift://hive-metastore:9083",
             "--conf", "spark.sql.catalog.iceberg_catalog.warehouse=hdfs://hdfs-namenode:8020/warehouse/iceberg",
-            "-e", SqlTemplates.sparkCreateIcebergTable() + "\n" + SqlTemplates.sparkInsertFromParquet("/workspace/data/run-1")
+            "-e", SqlTemplates.sparkCreateIcebergTable() + "\n" + SqlTemplates.sparkInsertFromParquet("/workspace/data/run-1/part.parquet")
         );
     }
 
@@ -58,11 +60,13 @@ class SparkIcebergClientTest {
         assertThat(result.success()).isTrue();
         List<String> command = runner.commands().get(0);
         assertThat(command)
-            .startsWith("spark-sql")
+            .startsWith("/opt/spark/bin/spark-sql")
             .doesNotContain("docker", "compose", "exec");
         assertThat(command)
+            .contains("spark.jars.ivy=/tmp/.ivy2")
             .contains("spark.sql.catalog.iceberg_catalog.uri=thrift://hive-metastore:9083")
-            .contains("spark.sql.catalog.iceberg_catalog.warehouse=hdfs://hdfs-namenode:8020/warehouse/iceberg");
+            .contains("spark.sql.catalog.iceberg_catalog.warehouse=hdfs://hdfs-namenode:8020/warehouse/iceberg")
+            .contains("org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1");
     }
 
     @Test
@@ -71,7 +75,12 @@ class SparkIcebergClientTest {
         Path workspace = tempDir.resolve("workspace");
 
         EngineRunResult result = new SparkIcebergClient(runner, workspace, Duration.ofMinutes(1))
-            .load(new DatasetResult(workspace.resolve("data/run-1"), List.of(), 42, 128), "run-1", "smoke");
+            .load(new DatasetResult(
+                workspace.resolve("data/run-1"),
+                List.of(workspace.resolve("data/run-1/part.parquet")),
+                42,
+                128
+            ), "run-1", "smoke");
 
         assertThat(result.success()).isFalse();
         assertThat(result.error()).contains("spark failed");
@@ -99,9 +108,11 @@ class SparkIcebergClientTest {
 
         assertThat(results).hasSize(10).allSatisfy(result -> assertThat(result.success()).isTrue());
         assertThat(runner.commands()).hasSize(10);
-        assertThat(runner.commands().get(0)).contains("spark-sql", "-e");
+        assertThat(runner.commands().get(0)).contains("/opt/spark/bin/spark-sql", "-e");
+        assertThat(runner.commands().get(0)).contains("spark.jars.ivy=/tmp/.ivy2");
+        assertThat(runner.commands().get(0)).contains("org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1");
         assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
-            .contains("iceberg_catalog.iceberg_db.cell_kpi_1min");
+            .contains("SELECT COUNT(*) FROM iceberg_catalog.iceberg_db.cell_kpi_1min");
     }
 
     private static final class FakeCommandRunner extends CommandRunner {

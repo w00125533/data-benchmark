@@ -28,17 +28,24 @@ class ComposeTopologyTest {
             "starrocks-fe", "starrocks-be", "spark", "hive-metastore", "hdfs-namenode",
             "hdfs-datanode", "hdfs-init", "prometheus", "grafana", "benchmark-runner"
         );
+        assertThat(stringList(service(services, "starrocks-fe"), "command"))
+            .containsExactly("/opt/starrocks/fe_entrypoint.sh", "starrocks-fe");
+        assertThat(service(services, "starrocks-fe").get("hostname")).isEqualTo("starrocks-fe-0");
+        assertThat(stringList(service(services, "starrocks-be"), "command"))
+            .containsExactly("/opt/starrocks/be_entrypoint.sh", "starrocks-fe");
+        assertThat(service(services, "starrocks-be").get("hostname")).isEqualTo("starrocks-be-0");
         assertThat(services).containsKeys("hdfs-namenode", "hdfs-datanode", "hdfs-init");
         assertThat(services).doesNotContainKey("minio");
 
         Map<String, Object> runner = service(services, "benchmark-runner");
-        assertThat(runner.get("image").toString()).isEqualTo("bitnami/spark:3.5");
+        assertThat(runner.get("image").toString()).isEqualTo("apache/spark:3.5.8-java17");
         assertThat(runner.get("working_dir")).isEqualTo("/workspace");
         assertThat(stringList(runner, "volumes")).contains(".:/workspace");
         assertThat(map(runner.get("environment")))
             .containsEntry("BENCHMARK_COMPOSE_IN_CONTAINER", "true")
-            .containsEntry("STARROCKS_JDBC_URL", "jdbc:mysql://starrocks-fe:9030/?useSSL=false&allowPublicKeyRetrieval=true")
-            .containsEntry("STARROCKS_STREAM_LOAD_URL", "http://starrocks-fe:8030/api/sr_internal/cell_kpi_1min/_stream_load");
+            .containsEntry("STARROCKS_JDBC_URL",
+                "jdbc:mysql://starrocks-fe:9030/?useSSL=false&allowPublicKeyRetrieval=true&allowMultiQueries=true")
+            .containsEntry("STARROCKS_STREAM_LOAD_URL", "http://starrocks-be:8040/api/sr_internal/cell_kpi_1min/_stream_load");
         assertThat(stringList(runner, "command"))
             .containsExactly("java", "-jar", "target/data-benchmark-0.1.0-SNAPSHOT.jar",
                 "run", "--mode", "compose", "--run-id", "compose-smoke");
@@ -51,8 +58,13 @@ class ComposeTopologyTest {
 
         assertThat(dependencyCondition(service(services, "spark"), "hdfs-init"))
             .isEqualTo("service_completed_successfully");
+        assertThat(service(services, "spark").get("image")).isEqualTo("apache/spark:3.5.8-java17");
+        assertThat(service(services, "spark").get("working_dir")).isEqualTo("/workspace");
+        assertThat(stringList(service(services, "spark"), "volumes")).contains(".:/workspace");
+        assertThat(stringList(service(services, "spark"), "command")).containsExactly("sleep", "infinity");
         assertThat(dependencyCondition(service(services, "hive-metastore"), "hdfs-init"))
             .isEqualTo("service_completed_successfully");
+        assertThat(service(services, "hive-metastore").get("hostname")).isEqualTo("hive-metastore");
 
         Map<String, Object> hdfsNamenode = service(services, "hdfs-namenode");
         assertThat(stringList(hdfsNamenode, "ports")).contains("9870:9870", "8020:8020");
@@ -84,6 +96,8 @@ class ComposeTopologyTest {
         assertThat(stringList(grafana, "volumes"))
             .contains("./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro")
             .contains("./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro");
+
+        assertThat(map(map(compose.get("networks")).get("default"))).containsEntry("name", "databenchmark");
     }
 
     @SuppressWarnings("unchecked")

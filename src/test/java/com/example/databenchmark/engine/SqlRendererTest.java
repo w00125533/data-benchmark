@@ -14,6 +14,17 @@ class SqlRendererTest {
     }
 
     @Test
+    void starrocksQueriesUseDatetimeCastsInsteadOfSparkTimestampLiterals() {
+        String sparkSql = SqlRenderer.render("single_cell_day_trend", "spark_iceberg");
+        String starRocksSql = SqlRenderer.render("single_cell_day_trend", "starrocks_internal");
+
+        assertThat(sparkSql).contains("TIMESTAMP '2026-01-01 00:00:00'");
+        assertThat(starRocksSql)
+            .contains("CAST('2026-01-01 00:00:00' AS DATETIME)")
+            .doesNotContain("TIMESTAMP '");
+    }
+
+    @Test
     void unknownEngineOrQueryThrowsIllegalArgumentException() {
         assertThatThrownBy(() -> SqlRenderer.render("single_cell_day_trend", "missing_engine"))
             .isInstanceOf(IllegalArgumentException.class)

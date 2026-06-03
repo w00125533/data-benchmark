@@ -15,9 +15,29 @@ class StarRocksClientTest {
     void jdbcExecutorUsesStarRocksDefaults() {
         JdbcExecutor executor = new JdbcExecutor();
 
-        assertThat(executor.jdbcUrl()).isEqualTo("jdbc:mysql://localhost:9030/?useSSL=false&allowPublicKeyRetrieval=true");
+        assertThat(executor.jdbcUrl()).isEqualTo(
+            "jdbc:mysql://localhost:9030/?useSSL=false&allowPublicKeyRetrieval=true&allowMultiQueries=true"
+        );
         assertThat(executor.user()).isEqualTo("root");
         assertThat(executor.password()).isEmpty();
+    }
+
+    @Test
+    void jdbcExecutorSplitsMultiStatementSqlForStarRocksProtocolCompatibility() {
+        assertThat(JdbcExecutor.splitStatements("""
+            CREATE DATABASE IF NOT EXISTS sr_internal;
+
+            CREATE TABLE IF NOT EXISTS sr_internal.cell_kpi_1min (
+              event_time DATETIME
+            );
+            """))
+            .containsExactly(
+                "CREATE DATABASE IF NOT EXISTS sr_internal",
+                """
+                CREATE TABLE IF NOT EXISTS sr_internal.cell_kpi_1min (
+                  event_time DATETIME
+                )""".stripIndent().trim()
+            );
     }
 
     @Test
@@ -29,7 +49,7 @@ class StarRocksClientTest {
         streamLoad.loadCsv(Path.of("cell_kpi_1min.csv"), "run_1_label");
 
         assertThat(streamLoad.request().url())
-            .isEqualTo(URI.create("http://localhost:8030/api/sr_internal/cell_kpi_1min/_stream_load"));
+            .isEqualTo(URI.create("http://localhost:8040/api/sr_internal/cell_kpi_1min/_stream_load"));
         assertThat(streamLoad.request().headers())
             .containsEntry("Authorization", "Basic cm9vdDo=")
             .containsEntry("label", "run_1_label")

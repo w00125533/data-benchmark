@@ -17,6 +17,10 @@ public final class SqlRenderer {
             .filter(candidate -> candidate.name().equals(queryName))
             .findFirst()
             .orElseThrow(() -> new IllegalArgumentException("Unknown query: " + queryName));
-        return query.template().replace("{table}", table);
+        String sql = query.template().replace("{table}", table);
+        if (engineKey.startsWith("starrocks")) {
+            return sql.replaceAll("TIMESTAMP '([^']+)'", "CAST('$1' AS DATETIME)");
+        }
+        return sql;
     }
 }

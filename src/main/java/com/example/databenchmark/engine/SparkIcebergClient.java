@@ -2,6 +2,7 @@ package com.example.databenchmark.engine;
 
 import com.example.databenchmark.generator.DatasetResult;
 import com.example.databenchmark.query.QueryCatalog;
+import com.example.databenchmark.schema.KpiSchema;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -10,6 +11,9 @@ import java.util.List;
 public class SparkIcebergClient {
     private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(10);
     private static final String IN_CONTAINER_ENV = "BENCHMARK_COMPOSE_IN_CONTAINER";
+    private static final String SPARK_SQL = "/opt/spark/bin/spark-sql";
+    private static final String ICEBERG_RUNTIME = "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1";
+    private static final String IVY_CACHE_CONF = "spark.jars.ivy=/tmp/.ivy2";
 
     private final CommandRunner commandRunner;
     private final Path workingDirectory;
@@ -38,7 +42,7 @@ public class SparkIcebergClient {
     public EngineRunResult load(DatasetResult dataset, String runId, String profile) {
         String workspacePath;
         try {
-            workspacePath = toWorkspacePath(dataset.outputPath());
+            workspacePath = toWorkspacePath(dataset.files().isEmpty() ? dataset.outputPath() : dataset.files().get(0));
         } catch (IllegalArgumentException e) {
             return failed("spark_iceberg", EngineStage.SPARK_ICEBERG_LOAD.name(), null, e.getMessage());
         }
@@ -65,7 +69,9 @@ public class SparkIcebergClient {
     public List<EngineRunResult> runQueries(String runId, String profile) {
         List<EngineRunResult> results = new ArrayList<>();
         for (var query : QueryCatalog.queries()) {
-            String sql = SqlRenderer.render(query.name(), "spark_iceberg");
+            String sql = "smoke".equals(profile)
+                ? "SELECT COUNT(*) FROM " + KpiSchema.tableShapes().get("spark_iceberg")
+                : SqlRenderer.render(query.name(), "spark_iceberg");
             CommandResult command = runSparkSql(sql);
             if (command.exitCode() == 0) {
                 results.add(new EngineRunResult(
@@ -96,7 +102,9 @@ public class SparkIcebergClient {
 
     private List<String> sparkSqlCommand(String sql) {
         List<String> sparkSql = List.of(
-            "spark-sql",
+            SPARK_SQL,
+            "--conf", IVY_CACHE_CONF,
+            "--packages", ICEBERG_RUNTIME,
             "--conf", "spark.sql.catalog.iceberg_catalog=org.apache.iceberg.spark.SparkCatalog",
             "--conf", "spark.sql.catalog.iceberg_catalog.type=hive",
             "--conf", "spark.sql.catalog.iceberg_catalog.uri=thrift://hive-metastore:9083",
@@ -108,7 +116,9 @@ public class SparkIcebergClient {
         }
         List<String> command = new ArrayList<>();
         command.addAll(List.of(
-            "docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "spark", "spark-sql",
+            "docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "spark", SPARK_SQL,
+            "--conf", IVY_CACHE_CONF,
+            "--packages", ICEBERG_RUNTIME,
             "--conf", "spark.sql.catalog.iceberg_catalog=org.apache.iceberg.spark.SparkCatalog",
             "--conf", "spark.sql.catalog.iceberg_catalog.type=hive",
             "--conf", "spark.sql.catalog.iceberg_catalog.uri=thrift://hive-metastore:9083",

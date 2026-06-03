@@ -62,7 +62,7 @@ public final class SqlTemplates {
     }
 
     public static String starRocksRefreshExternalCatalog() {
-        return "REFRESH EXTERNAL CATALOG sr_external_iceberg;";
+        return "REFRESH EXTERNAL TABLE sr_external_iceberg.iceberg_db.cell_kpi_1min;";
     }
 
     private static String sparkColumns() {
@@ -89,7 +89,7 @@ public final class SqlTemplates {
 
     private static String starRocksType(KpiColumn column) {
         return switch (column.logicalType()) {
-            case "timestamp_ms" -> "TIMESTAMP";
+            case "timestamp_ms" -> "DATETIME";
             case "string" -> "VARCHAR(64)";
             case "int" -> "INT";
             case "double" -> "DOUBLE";

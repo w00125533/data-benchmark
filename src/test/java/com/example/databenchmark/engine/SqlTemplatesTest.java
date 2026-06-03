@@ -40,6 +40,7 @@ class SqlTemplatesTest {
             previousIndex = index;
         }
         assertThat(sql).contains("DUPLICATE KEY(event_time, cell_id)");
+        assertThat(sql).contains("event_time DATETIME");
         assertThat(sql).contains("DISTRIBUTED BY HASH(cell_id)");
     }
 
@@ -57,6 +58,6 @@ class SqlTemplatesTest {
     @Test
     void starRocksRefreshExternalCatalogStatement() {
         assertThat(SqlTemplates.starRocksRefreshExternalCatalog())
-            .contains("REFRESH EXTERNAL CATALOG sr_external_iceberg");
+            .isEqualTo("REFRESH EXTERNAL TABLE sr_external_iceberg.iceberg_db.cell_kpi_1min;");
     }
 }
