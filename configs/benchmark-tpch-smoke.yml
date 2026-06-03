@@ -1,0 +1,23 @@
+profile: tpch-smoke
+seed: 20260602
+suite:
+  name: tpch
+  scaleFactor: 0.01
+  querySet: smoke
+dataset:
+  cells: 10000
+  days: 1
+  columns: 50
+  startTime: "2026-01-01T00:00:00"
+  output: "data/generated"
+  rowCap: 10000
+query:
+  coldRuns: 1
+  warmRuns: 1
+  concurrency: 1
+report:
+  format: html
+  output: "reports/runs"
+monitoring:
+  prometheus: true
+  grafana: true

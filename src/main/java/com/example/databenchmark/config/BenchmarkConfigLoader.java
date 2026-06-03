@@ -10,6 +10,17 @@ public class BenchmarkConfigLoader {
 
     public BenchmarkConfig load(Path path) throws IOException {
         BenchmarkConfig config = mapper.readValue(path.toFile(), BenchmarkConfig.class);
+        if (config.suite() == null) {
+            config = new BenchmarkConfig(
+                config.profile(),
+                config.seed(),
+                BenchmarkConfig.SuiteConfig.defaultSuite(),
+                config.dataset(),
+                config.query(),
+                config.report(),
+                config.monitoring()
+            );
+        }
         validate(config);
         return config;
     }
@@ -20,11 +31,29 @@ public class BenchmarkConfigLoader {
         }
         requireNonBlank(config.profile(), "profile");
         requirePositive(config.seed(), "seed");
+        validateSuite(config.suite());
         validateDataset(config.dataset());
         validateQuery(config.query());
         validateReport(config.report());
         if (config.monitoring() == null) {
             throw new IllegalArgumentException("monitoring must not be null");
+        }
+    }
+
+    private static void validateSuite(BenchmarkConfig.SuiteConfig suite) {
+        if (suite == null) {
+            throw new IllegalArgumentException("suite must not be null");
+        }
+        requireNonBlank(suite.name(), "suite.name");
+        requireNonBlank(suite.querySet(), "suite.querySet");
+        if (!suite.name().equals("kpi") && !suite.name().equals("tpch")) {
+            throw new IllegalArgumentException("suite.name must be kpi or tpch");
+        }
+        if (suite.scaleFactor() == null || suite.scaleFactor().signum() <= 0) {
+            throw new IllegalArgumentException("suite.scaleFactor must be positive");
+        }
+        if (!suite.querySet().equals("smoke") && !suite.querySet().equals("all")) {
+            throw new IllegalArgumentException("suite.querySet must be smoke or all");
         }
     }
 

@@ -13,6 +13,24 @@ class BenchmarkConfigLoaderTest {
     Path tempDir;
 
     @Test
+    void defaultSmokeUsesKpiSuite() {
+        BenchmarkConfig config = BenchmarkConfig.defaultSmoke();
+
+        assertThat(config.suite().name()).isEqualTo("kpi");
+        assertThat(config.suite().scaleFactor()).isEqualByComparingTo("0.01");
+        assertThat(config.suite().querySet()).isEqualTo("smoke");
+    }
+
+    @Test
+    void loadsTpchSmokeSuite() throws Exception {
+        BenchmarkConfig config = new BenchmarkConfigLoader().load(Path.of("configs/benchmark-tpch-smoke.yml"));
+
+        assertThat(config.suite().name()).isEqualTo("tpch");
+        assertThat(config.suite().scaleFactor()).isEqualByComparingTo("0.01");
+        assertThat(config.suite().querySet()).isEqualTo("smoke");
+    }
+
+    @Test
     void loadsSmokeDefaults() throws Exception {
         BenchmarkConfig config = new BenchmarkConfigLoader().load(Path.of("configs/benchmark-smoke.yml"));
 

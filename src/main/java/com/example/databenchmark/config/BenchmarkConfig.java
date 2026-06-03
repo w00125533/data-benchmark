@@ -3,6 +3,7 @@ package com.example.databenchmark.config;
 public record BenchmarkConfig(
     String profile,
     long seed,
+    SuiteConfig suite,
     DatasetConfig dataset,
     QueryConfig query,
     ReportConfig report,
@@ -12,6 +13,7 @@ public record BenchmarkConfig(
         return new BenchmarkConfig(
             "smoke",
             20260602L,
+            SuiteConfig.defaultSuite(),
             new DatasetConfig(10_000, 1, 50, "2026-01-01T00:00:00", "data/generated", 10_000L),
             new QueryConfig(1, 3, 1),
             new ReportConfig("html", "reports/runs"),
@@ -39,6 +41,7 @@ public record BenchmarkConfig(
         return new BenchmarkConfig(
             profile,
             seed == null ? this.seed : seed,
+            suite,
             updatedDataset,
             query,
             report,
@@ -58,7 +61,13 @@ public record BenchmarkConfig(
     }
 
     private BenchmarkConfig withDataset(DatasetConfig dataset) {
-        return new BenchmarkConfig(profile, seed, dataset, query, report, monitoring);
+        return new BenchmarkConfig(profile, seed, suite, dataset, query, report, monitoring);
+    }
+
+    public record SuiteConfig(String name, java.math.BigDecimal scaleFactor, String querySet) {
+        public static SuiteConfig defaultSuite() {
+            return new SuiteConfig("kpi", new java.math.BigDecimal("0.01"), "smoke");
+        }
     }
 
     private static void requirePositive(Number value, String field) {
