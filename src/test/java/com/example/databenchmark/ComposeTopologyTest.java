@@ -42,6 +42,9 @@ class ComposeTopologyTest {
 
         Map<String, Object> grafana = service(services, "grafana");
         assertThat(stringList(grafana, "ports")).contains("3000:3000");
+        assertThat(stringList(grafana, "volumes"))
+            .contains("./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro")
+            .contains("./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro");
 
         Map<String, Object> minio = service(services, "minio");
         assertThat(stringList(minio, "ports")).contains("9000:9000", "9001:9001");
@@ -54,7 +57,7 @@ class ComposeTopologyTest {
 
     @SuppressWarnings("unchecked")
     @Test
-    void prometheusScrapesOnlyAvailablePlaceholderTargets() throws Exception {
+    void prometheusScrapesBenchmarkStarRocksAndHdfsTargets() throws Exception {
         Map<String, Object> prometheus = mapper.readValue(
             Path.of("monitoring/prometheus.yml").toFile(),
             new TypeReference<>() {}
@@ -63,17 +66,34 @@ class ComposeTopologyTest {
 
         assertThat(scrapeConfigs)
             .extracting(config -> config.get("job_name"))
-            .doesNotContain("benchmark-runner")
-            .contains("starrocks-fe", "starrocks-be", "minio");
+            .contains("benchmark-runner", "starrocks-fe", "starrocks-be", "hdfs-namenode", "hdfs-datanode")
+            .doesNotContain("minio");
 
-        assertThat(scrapeConfigs.toString()).doesNotContain("benchmark-runner:9108");
+        String prometheusText = prometheus.toString();
+        assertThat(prometheusText).contains("benchmark-runner:9108");
+        assertThat(prometheusText).contains("hdfs-namenode:9870");
+        assertThat(prometheusText).contains("hdfs-datanode:9864");
+        assertThat(prometheusText).doesNotContain("minio");
 
-        Map<String, Object> minio = scrapeJob(scrapeConfigs, "minio");
-        assertThat(minio).containsEntry("metrics_path", "/minio/v2/metrics/cluster");
-        assertThat(targets(minio)).containsExactly("minio:9000");
+        assertThat(targets(scrapeJob(scrapeConfigs, "benchmark-runner"))).containsExactly("benchmark-runner:9108");
 
         assertThat(targets(scrapeJob(scrapeConfigs, "starrocks-fe"))).containsExactly("starrocks-fe:8030");
         assertThat(targets(scrapeJob(scrapeConfigs, "starrocks-be"))).containsExactly("starrocks-be:8040");
+
+        Map<String, Object> hdfsNamenode = scrapeJob(scrapeConfigs, "hdfs-namenode");
+        assertThat(hdfsNamenode).containsEntry("metrics_path", "/jmx");
+        assertThat(targets(hdfsNamenode)).containsExactly("hdfs-namenode:9870");
+
+        Map<String, Object> hdfsDatanode = scrapeJob(scrapeConfigs, "hdfs-datanode");
+        assertThat(hdfsDatanode).containsEntry("metrics_path", "/jmx");
+        assertThat(targets(hdfsDatanode)).containsExactly("hdfs-datanode:9864");
+    }
+
+    @Test
+    void grafanaDashboardProvisioningFilesExist() {
+        assertThat(Path.of("monitoring/grafana/provisioning/datasources/prometheus.yml")).exists();
+        assertThat(Path.of("monitoring/grafana/provisioning/dashboards/benchmark.yml")).exists();
+        assertThat(Path.of("monitoring/grafana/dashboards/benchmark.json")).exists();
     }
 
     private Map<String, Object> service(Map<String, Object> services, String name) {

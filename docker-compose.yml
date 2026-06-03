@@ -48,6 +48,9 @@ services:
     image: grafana/grafana:11.0.0
     ports:
       - "3000:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
 
   benchmark-runner:
     image: eclipse-temurin:17-jre
