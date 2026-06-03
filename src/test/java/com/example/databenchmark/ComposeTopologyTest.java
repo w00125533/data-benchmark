@@ -36,10 +36,32 @@ class ComposeTopologyTest {
         assertThat(runner.get("working_dir")).isEqualTo("/workspace");
         assertThat(stringList(runner, "volumes")).contains(".:/workspace");
         assertThat(stringList(runner, "command"))
-            .contains("target/data-benchmark-0.1.0-SNAPSHOT.jar", "--mode", "compose", "compose-smoke");
+            .containsExactly("java", "-jar", "target/data-benchmark-0.1.0-SNAPSHOT.jar",
+                "run", "--mode", "compose", "--run-id", "compose-smoke");
+        assertThat(stringList(runner, "command")).contains("--run-id");
         assertThat(stringList(runner, "depends_on"))
             .contains("hdfs-init", "hive-metastore", "spark", "starrocks-fe", "starrocks-be", "prometheus");
         assertThat(stringList(runner, "ports")).doesNotContain("9108:9108");
+
+        Map<String, Object> hdfsNamenode = service(services, "hdfs-namenode");
+        assertThat(stringList(hdfsNamenode, "ports")).contains("9870:9870", "8020:8020");
+        assertThat(map(hdfsNamenode.get("environment")))
+            .containsEntry("CORE-SITE.XML_fs.defaultFS", "hdfs://hdfs-namenode:8020")
+            .containsEntry("HDFS-SITE.XML_dfs.replication", "1")
+            .containsEntry("HDFS-SITE.XML_dfs.namenode.rpc-address", "hdfs-namenode:8020");
+
+        Map<String, Object> hdfsDatanode = service(services, "hdfs-datanode");
+        assertThat(stringList(hdfsDatanode, "ports")).contains("9864:9864");
+        assertThat(map(hdfsDatanode.get("environment")))
+            .containsEntry("CORE-SITE.XML_fs.defaultFS", "hdfs://hdfs-namenode:8020")
+            .containsEntry("HDFS-SITE.XML_dfs.replication", "1");
+
+        Map<String, Object> hdfsInit = service(services, "hdfs-init");
+        String hdfsInitCommand = String.join(" ", stringList(hdfsInit, "command"));
+        assertThat(hdfsInitCommand)
+            .contains("hdfs dfs -fs hdfs://hdfs-namenode:8020 -mkdir -p /warehouse/iceberg")
+            .contains("hdfs dfs -fs hdfs://hdfs-namenode:8020 -chmod -R 777 /warehouse");
+        assertThat(stringList(hdfsInit, "depends_on")).contains("hdfs-namenode", "hdfs-datanode");
 
         Map<String, Object> prometheus = service(services, "prometheus");
         assertThat(stringList(prometheus, "volumes"))
