@@ -16,6 +16,9 @@ services:
     image: bitnami/spark:3.5
     environment:
       SPARK_MODE: master
+    depends_on:
+      - hdfs-init
+      - hive-metastore
     ports:
       - "8080:8080"
 
@@ -23,19 +26,59 @@ services:
     image: apache/hive:4.0.0
     environment:
       SERVICE_NAME: metastore
+    depends_on:
+      - hdfs-init
     ports:
       - "9083:9083"
 
-  minio:
-    image: minio/minio:RELEASE.2024-06-13T22-53-53Z
-    command: ["server", "/data", "--console-address", ":9001"]
+  hdfs-namenode:
+    image: apache/hadoop:3.3.6
+    hostname: hdfs-namenode
+    command: ["hdfs", "namenode"]
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-      MINIO_PROMETHEUS_AUTH_TYPE: public
+      ENSURE_NAMENODE_DIR: "/tmp/hadoop-root/dfs/name"
+      HADOOP_HOME: "/opt/hadoop"
+      HADOOP_CONF_DIR: "/opt/hadoop/etc/hadoop"
+      CORE-SITE.XML_fs.defaultFS: "hdfs://hdfs-namenode:8020"
+      HDFS-SITE.XML_dfs.replication: "1"
+      HDFS-SITE.XML_dfs.namenode.rpc-address: "hdfs-namenode:8020"
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9870:9870"
+      - "8020:8020"
+
+  hdfs-datanode:
+    image: apache/hadoop:3.3.6
+    hostname: hdfs-datanode
+    command: ["hdfs", "datanode"]
+    environment:
+      HADOOP_HOME: "/opt/hadoop"
+      HADOOP_CONF_DIR: "/opt/hadoop/etc/hadoop"
+      CORE-SITE.XML_fs.defaultFS: "hdfs://hdfs-namenode:8020"
+      HDFS-SITE.XML_dfs.replication: "1"
+    depends_on:
+      - hdfs-namenode
+    ports:
+      - "9864:9864"
+
+  hdfs-init:
+    image: apache/hadoop:3.3.6
+    command:
+      - bash
+      - -lc
+      - |
+        for i in $(seq 1 60); do
+          hdfs dfs -fs hdfs://hdfs-namenode:8020 -mkdir -p /warehouse/iceberg && \
+          hdfs dfs -fs hdfs://hdfs-namenode:8020 -chmod -R 777 /warehouse && exit 0
+          sleep 2
+        done
+        exit 1
+    environment:
+      HADOOP_HOME: "/opt/hadoop"
+      HADOOP_CONF_DIR: "/opt/hadoop/etc/hadoop"
+      CORE-SITE.XML_fs.defaultFS: "hdfs://hdfs-namenode:8020"
+    depends_on:
+      - hdfs-namenode
+      - hdfs-datanode
 
   prometheus:
     image: prom/prometheus:v2.52.0
@@ -58,7 +101,11 @@ services:
     volumes:
       - .:/workspace
     # Run mvn package before docker compose up so target/...jar exists.
-    command: ["java", "-jar", "target/data-benchmark-0.1.0-SNAPSHOT.jar", "run", "--run-id", "compose-smoke"]
+    command: ["java", "-jar", "target/data-benchmark-0.1.0-SNAPSHOT.jar", "run", "--mode", "compose", "--run-id", "compose-smoke"]
     depends_on:
-      - minio
+      - hdfs-init
+      - hive-metastore
+      - spark
+      - starrocks-fe
+      - starrocks-be
       - prometheus

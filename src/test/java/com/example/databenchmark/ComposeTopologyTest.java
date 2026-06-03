@@ -17,7 +17,7 @@ class ComposeTopologyTest {
 
     @SuppressWarnings("unchecked")
     @Test
-    void composeDefinesPlaceholderTopology() throws Exception {
+    void composeUsesHdfsWarehouseInsteadOfMinio() throws Exception {
         Map<String, Object> compose = mapper.readValue(
             Path.of("docker-compose.yml").toFile(),
             new TypeReference<>() {}
@@ -25,16 +25,20 @@ class ComposeTopologyTest {
         Map<String, Object> services = (Map<String, Object>) compose.get("services");
 
         assertThat(services.keySet()).containsExactlyInAnyOrder(
-            "starrocks-fe", "starrocks-be", "spark", "hive-metastore",
-            "minio", "prometheus", "grafana", "benchmark-runner"
+            "starrocks-fe", "starrocks-be", "spark", "hive-metastore", "hdfs-namenode",
+            "hdfs-datanode", "hdfs-init", "prometheus", "grafana", "benchmark-runner"
         );
+        assertThat(services).containsKeys("hdfs-namenode", "hdfs-datanode", "hdfs-init");
+        assertThat(services).doesNotContainKey("minio");
 
         Map<String, Object> runner = service(services, "benchmark-runner");
         assertThat(runner.get("image").toString()).containsAnyOf("temurin", "java").contains("17");
         assertThat(runner.get("working_dir")).isEqualTo("/workspace");
         assertThat(stringList(runner, "volumes")).contains(".:/workspace");
         assertThat(stringList(runner, "command"))
-            .contains("target/data-benchmark-0.1.0-SNAPSHOT.jar", "compose-smoke");
+            .contains("target/data-benchmark-0.1.0-SNAPSHOT.jar", "--mode", "compose", "compose-smoke");
+        assertThat(stringList(runner, "depends_on"))
+            .contains("hdfs-init", "hive-metastore", "spark", "starrocks-fe", "starrocks-be", "prometheus");
         assertThat(stringList(runner, "ports")).doesNotContain("9108:9108");
 
         Map<String, Object> prometheus = service(services, "prometheus");
@@ -47,14 +51,6 @@ class ComposeTopologyTest {
         assertThat(stringList(grafana, "volumes"))
             .contains("./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro")
             .contains("./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro");
-
-        Map<String, Object> minio = service(services, "minio");
-        assertThat(stringList(minio, "ports")).contains("9000:9000", "9001:9001");
-        Map<String, Object> minioEnvironment = map(minio.get("environment"));
-        assertThat(minioEnvironment)
-            .containsEntry("MINIO_ROOT_USER", "minioadmin")
-            .containsEntry("MINIO_ROOT_PASSWORD", "minioadmin")
-            .containsEntry("MINIO_PROMETHEUS_AUTH_TYPE", "public");
     }
 
     @SuppressWarnings("unchecked")
