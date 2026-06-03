@@ -37,9 +37,9 @@ class ComposeTopologyTest {
         assertThat(stringList(runner, "volumes")).contains(".:/workspace");
         assertThat(stringList(runner, "command"))
             .containsExactly("java", "-jar", "target/data-benchmark-0.1.0-SNAPSHOT.jar",
-                "run", "--run-id", "compose-smoke");
+                "run", "--mode", "compose", "--run-id", "compose-smoke");
         assertThat(stringList(runner, "command")).contains("--run-id");
-        assertThat(stringList(runner, "command")).doesNotContain("--mode");
+        assertThat(stringList(runner, "command")).contains("--mode", "compose");
         assertThat(dependencyNames(runner))
             .contains("hdfs-init", "hive-metastore", "spark", "starrocks-fe", "starrocks-be", "prometheus");
         assertThat(dependencyCondition(runner, "hdfs-init")).isEqualTo("service_completed_successfully");

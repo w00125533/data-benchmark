@@ -1,10 +1,14 @@
 package com.example.databenchmark;
 
+import com.example.databenchmark.config.BenchmarkConfig;
+import com.example.databenchmark.runner.ComposeBenchmarkRunner;
+import com.example.databenchmark.runner.LocalBenchmarkRunner;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
+import picocli.CommandLine.ParentCommand;
 import picocli.CommandLine.Spec;
 
 @Command(
@@ -18,6 +22,16 @@ import picocli.CommandLine.Spec;
         BenchmarkRunnerApp.ReportCommand.class
     })
 public class BenchmarkRunnerApp implements Callable<Integer> {
+    private final RunnerFactory runnerFactory;
+
+    public BenchmarkRunnerApp() {
+        this(new DefaultRunnerFactory());
+    }
+
+    BenchmarkRunnerApp(RunnerFactory runnerFactory) {
+        this.runnerFactory = runnerFactory;
+    }
+
     public static void main(String[] args) {
         int exitCode = new CommandLine(new BenchmarkRunnerApp()).execute(args);
         System.exit(exitCode);
@@ -71,11 +85,17 @@ public class BenchmarkRunnerApp implements Callable<Integer> {
 
     @Command(name = "run", description = "Run the local benchmark workflow.")
     static class RunCommand implements Callable<Integer> {
+        @ParentCommand
+        BenchmarkRunnerApp parent;
+
         @Spec
         CommandSpec spec;
 
         @CommandLine.Option(names = "--config", defaultValue = "configs/benchmark-smoke.yml")
         Path configPath;
+
+        @CommandLine.Option(names = "--mode", defaultValue = "local", description = "Run mode: local or compose.")
+        String mode;
 
         @CommandLine.Option(names = "--run-id")
         String runId;
@@ -83,14 +103,24 @@ public class BenchmarkRunnerApp implements Callable<Integer> {
         @Override
         public Integer call() throws Exception {
             var config = new com.example.databenchmark.config.BenchmarkConfigLoader().load(configPath);
-            var result = new com.example.databenchmark.runner.LocalBenchmarkRunner()
-                .run(config, Path.of(config.report().output()), runId);
+            Path reportRoot = Path.of(config.report().output());
+            CliRunResult result;
+            if ("local".equals(mode)) {
+                result = parent.runnerFactory.runLocal(config, reportRoot, runId);
+            } else if ("compose".equals(mode)) {
+                result = parent.runnerFactory.runCompose(config, reportRoot, runId);
+            } else {
+                throw new CommandLine.ParameterException(
+                    spec.commandLine(),
+                    "Unknown mode: " + mode + ". Valid values: local, compose."
+                );
+            }
             spec.commandLine().getOut().printf(
                 "rows=%d report=%s%n",
-                result.dataset().rows(),
+                result.rows(),
                 result.reportPath()
             );
-            return 0;
+            return result.success() ? 0 : 1;
         }
     }
 
@@ -103,6 +133,29 @@ public class BenchmarkRunnerApp implements Callable<Integer> {
         public Integer call() {
             spec.commandLine().getOut().println("report command is available");
             return 0;
+        }
+    }
+
+    interface RunnerFactory {
+        CliRunResult runLocal(BenchmarkConfig config, Path reportRoot, String runId) throws Exception;
+
+        CliRunResult runCompose(BenchmarkConfig config, Path reportRoot, String runId) throws Exception;
+    }
+
+    record CliRunResult(long rows, Path reportPath, boolean success) {}
+
+    private static final class DefaultRunnerFactory implements RunnerFactory {
+        @Override
+        public CliRunResult runLocal(BenchmarkConfig config, Path reportRoot, String runId) throws Exception {
+            LocalBenchmarkRunner.LocalRunResult result = new LocalBenchmarkRunner().run(config, reportRoot, runId);
+            return new CliRunResult(result.dataset().rows(), result.reportPath(), true);
+        }
+
+        @Override
+        public CliRunResult runCompose(BenchmarkConfig config, Path reportRoot, String runId) throws Exception {
+            ComposeBenchmarkRunner.ComposeRunResult result = new ComposeBenchmarkRunner().run(config, reportRoot, runId);
+            long rows = result.dataset() == null ? 0L : result.dataset().rows();
+            return new CliRunResult(rows, result.reportPath(), result.success());
         }
     }
 }

@@ -1,0 +1,233 @@
+package com.example.databenchmark.runner;
+
+import com.example.databenchmark.config.BenchmarkConfig;
+import com.example.databenchmark.engine.EngineRunResult;
+import com.example.databenchmark.engine.EngineStage;
+import com.example.databenchmark.engine.SparkIcebergClient;
+import com.example.databenchmark.engine.StarRocksClient;
+import com.example.databenchmark.engine.StarRocksCsvExporter;
+import com.example.databenchmark.generator.DatasetResult;
+import com.example.databenchmark.generator.KpiDataGenerator;
+import com.example.databenchmark.report.BenchmarkReport;
+import com.example.databenchmark.report.HtmlReportWriter;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+
+public class ComposeBenchmarkRunner {
+    private final DatasetGenerator generator;
+    private final CsvExporter csvExporter;
+    private final SparkClient sparkClient;
+    private final StarRocksClientFacade starRocksClient;
+    private final ReportWriter reportWriter;
+
+    public ComposeBenchmarkRunner() {
+        this(
+            new KpiDataGenerator()::generate,
+            new StarRocksCsvExporter()::export,
+            new SparkClientAdapter(new SparkIcebergClient()),
+            new StarRocksClientAdapter(new StarRocksClient()),
+            new HtmlReportWriter()::write
+        );
+    }
+
+    ComposeBenchmarkRunner(
+        DatasetGenerator generator,
+        CsvExporter csvExporter,
+        SparkClient sparkClient,
+        StarRocksClientFacade starRocksClient,
+        ReportWriter reportWriter
+    ) {
+        this.generator = generator;
+        this.csvExporter = csvExporter;
+        this.sparkClient = sparkClient;
+        this.starRocksClient = starRocksClient;
+        this.reportWriter = reportWriter;
+    }
+
+    public ComposeRunResult run(BenchmarkConfig config, Path reportRoot, String runId) throws Exception {
+        String actualRunId = runId == null ? generatedRunId() : runId;
+        Instant started = Instant.now();
+        List<EngineRunResult> loadResults = new ArrayList<>();
+        List<EngineRunResult> queryResults = new ArrayList<>();
+        DatasetResult dataset = null;
+        Path csvPath = null;
+
+        long generateStarted = System.nanoTime();
+        try {
+            dataset = generator.generate(config);
+            loadResults.add(new EngineRunResult(
+                "local",
+                "generated_parquet",
+                EngineStage.GENERATE.name(),
+                null,
+                dataset.rows(),
+                dataset.bytesWritten(),
+                elapsedSeconds(generateStarted),
+                true,
+                ""
+            ));
+        } catch (Exception exception) {
+            loadResults.add(failed("local", "generated_parquet", EngineStage.GENERATE.name(), exception));
+        }
+
+        if (dataset != null) {
+            try {
+                csvPath = csvExporter.export(dataset, Path.of(config.dataset().output()).resolve("starrocks-csv"));
+                loadResults.add(sparkClient.load(dataset, actualRunId, config.profile()));
+                loadResults.add(starRocksClient.loadInternal(csvPath, actualRunId, config.profile()));
+                loadResults.add(starRocksClient.refreshExternalCatalog(actualRunId, config.profile()));
+                queryResults.addAll(sparkClient.runQueries(actualRunId, config.profile()));
+                queryResults.addAll(starRocksClient.runQueries(actualRunId, config.profile()));
+            } catch (Exception exception) {
+                loadResults.add(failed("compose", "prepare", "compose_prepare", exception));
+            }
+        }
+
+        BenchmarkReport report = buildReport(config, actualRunId, started, Instant.now(), dataset, loadResults, queryResults);
+        Path reportPath = reportWriter.write(report, reportRoot);
+        return new ComposeRunResult(dataset, csvPath, reportPath, report.status().equals("SUCCESS"));
+    }
+
+    private BenchmarkReport buildReport(
+        BenchmarkConfig config,
+        String runId,
+        Instant started,
+        Instant ended,
+        DatasetResult dataset,
+        List<EngineRunResult> loadResults,
+        List<EngineRunResult> queryResults
+    ) {
+        long rows = dataset == null ? 0L : dataset.rows();
+        long bytes = dataset == null ? 0L : dataset.bytesWritten();
+        return new BenchmarkReport(
+            runId,
+            config.profile(),
+            started.toString(),
+            ended.toString(),
+            config.dataset().cells(),
+            config.dataset().days(),
+            rows,
+            config.dataset().columns(),
+            bytes,
+            loadResults.stream().map(this::toLoadSummary).toList(),
+            queryResults.stream().map(this::toQuerySummary).toList(),
+            grafanaUrl(runId),
+            "full".equals(config.profile())
+        );
+    }
+
+    private BenchmarkReport.LoadSummary toLoadSummary(EngineRunResult result) {
+        return new BenchmarkReport.LoadSummary(
+            result.engine(),
+            result.tableShape(),
+            result.stage(),
+            result.rows(),
+            result.bytes(),
+            roundSeconds(result.durationSeconds()),
+            result.success(),
+            result.error()
+        );
+    }
+
+    private BenchmarkReport.QuerySummary toQuerySummary(EngineRunResult result) {
+        double millis = roundMillis(result.durationSeconds() * 1000.0);
+        return new BenchmarkReport.QuerySummary(
+            result.engine(),
+            result.tableShape(),
+            result.queryName(),
+            millis,
+            millis,
+            millis,
+            result.rows(),
+            result.success() ? 0 : 1,
+            result.success(),
+            result.error()
+        );
+    }
+
+    private EngineRunResult failed(String engine, String tableShape, String stage, Exception exception) {
+        return new EngineRunResult(engine, tableShape, stage, null, 0L, 0L, 0.0, false, exception.getMessage());
+    }
+
+    private String generatedRunId() {
+        return "compose-" + Instant.now().toEpochMilli();
+    }
+
+    private String grafanaUrl(String runId) {
+        return "http://localhost:3000/d/benchmark?var-run_id="
+            + URLEncoder.encode(runId, StandardCharsets.UTF_8);
+    }
+
+    private static double elapsedSeconds(long startedNanos) {
+        return (System.nanoTime() - startedNanos) / 1_000_000_000.0;
+    }
+
+    private static double roundSeconds(double seconds) {
+        return Math.round(seconds * 1000.0) / 1000.0;
+    }
+
+    private static double roundMillis(double millis) {
+        return Math.round(millis * 1000.0) / 1000.0;
+    }
+
+    interface DatasetGenerator {
+        DatasetResult generate(BenchmarkConfig config) throws Exception;
+    }
+
+    interface CsvExporter {
+        Path export(DatasetResult dataset, Path outputDir) throws Exception;
+    }
+
+    interface SparkClient {
+        EngineRunResult load(DatasetResult dataset, String runId, String profile);
+
+        List<EngineRunResult> runQueries(String runId, String profile);
+    }
+
+    interface StarRocksClientFacade {
+        EngineRunResult loadInternal(Path csv, String runId, String profile);
+
+        EngineRunResult refreshExternalCatalog(String runId, String profile);
+
+        List<EngineRunResult> runQueries(String runId, String profile);
+    }
+
+    interface ReportWriter {
+        Path write(BenchmarkReport report, Path outputRoot) throws Exception;
+    }
+
+    private record SparkClientAdapter(SparkIcebergClient delegate) implements SparkClient {
+        @Override
+        public EngineRunResult load(DatasetResult dataset, String runId, String profile) {
+            return delegate.load(dataset, runId, profile);
+        }
+
+        @Override
+        public List<EngineRunResult> runQueries(String runId, String profile) {
+            return delegate.runQueries(runId, profile);
+        }
+    }
+
+    private record StarRocksClientAdapter(StarRocksClient delegate) implements StarRocksClientFacade {
+        @Override
+        public EngineRunResult loadInternal(Path csv, String runId, String profile) {
+            return delegate.loadInternal(csv, runId, profile);
+        }
+
+        @Override
+        public EngineRunResult refreshExternalCatalog(String runId, String profile) {
+            return delegate.refreshExternalCatalog(runId, profile);
+        }
+
+        @Override
+        public List<EngineRunResult> runQueries(String runId, String profile) {
+            return delegate.runQueries(runId, profile);
+        }
+    }
+
+    public record ComposeRunResult(DatasetResult dataset, Path csvPath, Path reportPath, boolean success) {}
+}
