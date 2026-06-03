@@ -26,6 +26,8 @@ class HtmlReportWriterTest {
         String html = Files.readString(output);
         assertThat(output).isEqualTo(tempDir.resolve("run-test").resolve("index.html"));
         assertThat(html).contains("Run Metadata");
+        assertThat(html).contains("Suite: kpi");
+        assertThat(html).contains("Query Set: smoke");
         assertThat(html).contains("Dataset Summary");
         assertThat(html).contains("Load Summary");
         assertThat(html).contains("Query Summary");
@@ -71,6 +73,8 @@ class HtmlReportWriterTest {
         BenchmarkReport report = new BenchmarkReport(
             "run-xss",
             "<script>alert(1)</script>",
+            "<script>suite</script>",
+            "<script>query-set</script>",
             "2026-06-02T00:00:00Z",
             "2026-06-02T00:01:00Z",
             10,
@@ -108,6 +112,8 @@ class HtmlReportWriterTest {
 
         assertThat(html).doesNotContain("<script>");
         assertThat(html).contains("&lt;script&gt;alert(1)&lt;/script&gt;");
+        assertThat(html).contains("&lt;script&gt;suite&lt;/script&gt;");
+        assertThat(html).contains("&lt;script&gt;query-set&lt;/script&gt;");
         assertThat(html).contains("&lt;script&gt;engine&lt;/script&gt;");
         assertThat(html).contains("&lt;script&gt;shape&lt;/script&gt;");
         assertThat(html).contains("&lt;script&gt;stage&lt;/script&gt;");
@@ -118,6 +124,8 @@ class HtmlReportWriterTest {
     void degradedReportRendersStatusAndErrors() throws Exception {
         BenchmarkReport report = new BenchmarkReport(
             "run-degraded",
+            "smoke",
+            "kpi",
             "smoke",
             "2026-06-02T00:00:00Z",
             "2026-06-02T00:01:00Z",
@@ -276,7 +284,7 @@ class HtmlReportWriterTest {
     void metricsExposeRequiredNamesAndLabels() {
         assertThat(Modifier.isFinal(BenchmarkMetrics.class.getModifiers())).isTrue();
         assertThat(BenchmarkMetrics.LABELS)
-            .isEqualTo(List.of("run_id", "profile", "engine", "table_shape", "stage", "query_name"));
+            .isEqualTo(List.of("run_id", "profile", "suite", "query_set", "engine", "table_shape", "stage", "query_name"));
         assertThat(BenchmarkMetrics.LOAD_DURATION_SECONDS).isEqualTo("benchmark_load_duration_seconds");
         assertThat(BenchmarkMetrics.LOAD_ROWS_TOTAL).isEqualTo("benchmark_load_rows_total");
         assertThat(BenchmarkMetrics.LOAD_BYTES_TOTAL).isEqualTo("benchmark_load_bytes_total");
@@ -304,6 +312,8 @@ class HtmlReportWriterTest {
     ) {
         return new BenchmarkReport(
             runId,
+            "smoke",
+            "kpi",
             "smoke",
             "2026-06-02T00:00:00Z",
             "2026-06-02T00:01:00Z",

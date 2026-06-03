@@ -9,7 +9,7 @@
   <h1>Benchmark Report ${report.runId()}</h1>
 
   <h2>Run Metadata</h2>
-  <p>Profile: ${report.profile()} | Status: ${report.status()} | Started: ${report.startedAt()} | Ended: ${report.endedAt()}</p>
+  <p>Profile: ${report.profile()} | Suite: ${report.suite()} | Query Set: ${report.querySet()} | Status: ${report.status()} | Started: ${report.startedAt()} | Ended: ${report.endedAt()}</p>
   <#if !report.fullProfile()>
   <p>This run is not a 4.032B row full-profile validation.</p>
   </#if>

@@ -7,6 +7,8 @@ import java.util.List;
 public record BenchmarkReport(
     String runId,
     String profile,
+    String suite,
+    String querySet,
     String startedAt,
     String endedAt,
     int cells,
@@ -22,6 +24,8 @@ public record BenchmarkReport(
     public static BenchmarkReport sample(String runId) {
         return new BenchmarkReport(
             runId,
+            "smoke",
+            "kpi",
             "smoke",
             "2026-06-02T00:00:00Z",
             "2026-06-02T00:01:00Z",

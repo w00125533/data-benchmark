@@ -16,6 +16,8 @@ public final class BenchmarkMetrics {
     public static final List<String> LABELS = List.of(
         "run_id",
         "profile",
+        "suite",
+        "query_set",
         "engine",
         "table_shape",
         "stage",
@@ -28,6 +30,8 @@ public final class BenchmarkMetrics {
         MeterRegistry registry,
         String runId,
         String profile,
+        String suite,
+        String querySet,
         String engine,
         String tableShape,
         String stage,
@@ -39,7 +43,7 @@ public final class BenchmarkMetrics {
         requireNonNegative("bytes", bytes);
         requireNonNegative("durationSeconds", durationSeconds);
 
-        Tags tags = tags(runId, profile, engine, tableShape, stage, "");
+        Tags tags = tags(runId, profile, suite, querySet, engine, tableShape, stage, "");
         registry.timer(LOAD_DURATION_SECONDS, tags).record(duration(durationSeconds));
         registry.counter(LOAD_ROWS_TOTAL, tags).increment(rows);
         registry.counter(LOAD_BYTES_TOTAL, tags).increment(bytes);
@@ -49,6 +53,8 @@ public final class BenchmarkMetrics {
         MeterRegistry registry,
         String runId,
         String profile,
+        String suite,
+        String querySet,
         String engine,
         String tableShape,
         String stage,
@@ -61,7 +67,7 @@ public final class BenchmarkMetrics {
         requireNonNegative("failures", failures);
         requireNonNegative("durationSeconds", durationSeconds);
 
-        Tags tags = tags(runId, profile, engine, tableShape, stage, queryName);
+        Tags tags = tags(runId, profile, suite, querySet, engine, tableShape, stage, queryName);
         registry.timer(QUERY_DURATION_SECONDS, tags).record(duration(durationSeconds));
         registry.counter(QUERY_ROWS_TOTAL, tags).increment(rows);
         registry.counter(QUERY_FAILURES_TOTAL, tags).increment(failures);
@@ -70,6 +76,8 @@ public final class BenchmarkMetrics {
     private static Tags tags(
         String runId,
         String profile,
+        String suite,
+        String querySet,
         String engine,
         String tableShape,
         String stage,
@@ -78,6 +86,8 @@ public final class BenchmarkMetrics {
         return Tags.of(
             "run_id", value(runId),
             "profile", value(profile),
+            "suite", value(suite),
+            "query_set", value(querySet),
             "engine", value(engine),
             "table_shape", value(tableShape),
             "stage", value(stage),

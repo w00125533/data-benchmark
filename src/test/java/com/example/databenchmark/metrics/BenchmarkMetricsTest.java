@@ -18,6 +18,8 @@ class BenchmarkMetricsTest {
             registry,
             "run-1",
             "smoke",
+            "kpi",
+            "smoke",
             "spark_iceberg",
             "iceberg_db.cell_kpi_1min",
             "spark_iceberg_load",
@@ -52,6 +54,8 @@ class BenchmarkMetricsTest {
             registry,
             "run-1",
             "smoke",
+            "kpi",
+            "smoke",
             "starrocks_external_iceberg",
             "iceberg_db.cell_kpi_1min",
             "query",
@@ -82,7 +86,7 @@ class BenchmarkMetricsTest {
     @Test
     void exposesRequiredMetricNamesAndLabels() {
         assertThat(BenchmarkMetrics.LABELS)
-            .isEqualTo(List.of("run_id", "profile", "engine", "table_shape", "stage", "query_name"));
+            .isEqualTo(List.of("run_id", "profile", "suite", "query_set", "engine", "table_shape", "stage", "query_name"));
         assertThat(BenchmarkMetrics.LOAD_DURATION_SECONDS).isEqualTo("benchmark_load_duration_seconds");
         assertThat(BenchmarkMetrics.LOAD_ROWS_TOTAL).isEqualTo("benchmark_load_rows_total");
         assertThat(BenchmarkMetrics.LOAD_BYTES_TOTAL).isEqualTo("benchmark_load_bytes_total");
@@ -125,6 +129,8 @@ class BenchmarkMetricsTest {
         return new String[] {
             "run_id", "run-1",
             "profile", "smoke",
+            "suite", "kpi",
+            "query_set", "smoke",
             "engine", queryName.isEmpty() ? "spark_iceberg" : "starrocks_external_iceberg",
             "table_shape", "iceberg_db.cell_kpi_1min",
             "stage", stage,
@@ -136,6 +142,8 @@ class BenchmarkMetricsTest {
         BenchmarkMetrics.recordLoad(
             registry,
             "run-1",
+            "smoke",
+            "kpi",
             "smoke",
             "spark_iceberg",
             "iceberg_db.cell_kpi_1min",
@@ -150,6 +158,8 @@ class BenchmarkMetricsTest {
         BenchmarkMetrics.recordQuery(
             registry,
             "run-1",
+            "smoke",
+            "kpi",
             "smoke",
             "starrocks_external_iceberg",
             "iceberg_db.cell_kpi_1min",

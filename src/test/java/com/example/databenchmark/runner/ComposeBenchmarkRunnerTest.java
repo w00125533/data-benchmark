@@ -27,7 +27,7 @@ class ComposeBenchmarkRunnerTest {
         List<String> calls = new ArrayList<>();
         DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
         CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
-        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls, "smoke");
+        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls, "smoke", "kpi", "smoke");
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             config -> {
@@ -77,6 +77,8 @@ class ComposeBenchmarkRunnerTest {
             "write HTML report"
         );
         assertThat(metricsRecorder.closed).isTrue();
+        assertThat(reportWriter.report.suite()).isEqualTo("kpi");
+        assertThat(reportWriter.report.querySet()).isEqualTo("smoke");
         assertThat(reportWriter.report.loadSummaries())
             .extracting(BenchmarkReport.LoadSummary::stage)
             .containsExactly(
@@ -95,7 +97,7 @@ class ComposeBenchmarkRunnerTest {
         List<String> calls = new ArrayList<>();
         DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
         CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
-        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls, "smoke");
+        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls, "smoke", "kpi", "smoke");
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             config -> {
@@ -153,7 +155,7 @@ class ComposeBenchmarkRunnerTest {
         TpchDatasetResult tpchDataset = TestTpchFixtures.dataset(tempDir.resolve("data/tpch/tpch-unit"));
         Map<String, Path> csvFiles = new LinkedHashMap<>(TestTpchFixtures.csvFiles(tpchDataset));
         CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/tpch-compose/index.html"));
-        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls, "tpch-smoke");
+        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls, "tpch-smoke", "tpch", "smoke");
         BenchmarkConfig config = new BenchmarkConfig(
             "tpch-smoke",
             20260602L,
@@ -215,6 +217,8 @@ class ComposeBenchmarkRunnerTest {
             "write HTML report"
         );
         assertThat(metricsRecorder.closed).isTrue();
+        assertThat(reportWriter.report.suite()).isEqualTo("tpch");
+        assertThat(reportWriter.report.querySet()).isEqualTo("smoke");
         assertThat(reportWriter.report.loadSummaries())
             .extracting(BenchmarkReport.LoadSummary::tableShape)
             .containsExactly(
@@ -232,7 +236,7 @@ class ComposeBenchmarkRunnerTest {
     void composeRunnerWritesTpchReportAndClosesMetricsWhenGenerationFails() throws Exception {
         List<String> calls = new ArrayList<>();
         CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/tpch-compose/index.html"));
-        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls, "tpch-smoke");
+        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls, "tpch-smoke", "tpch", "smoke");
         BenchmarkConfig config = new BenchmarkConfig(
             "tpch-smoke",
             20260602L,
@@ -291,7 +295,7 @@ class ComposeBenchmarkRunnerTest {
         List<String> calls = new ArrayList<>();
         TpchDatasetResult tpchDataset = TestTpchFixtures.dataset(tempDir.resolve("data/tpch/tpch-unit"));
         CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/tpch-compose/index.html"));
-        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls, "tpch-smoke");
+        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls, "tpch-smoke", "tpch", "smoke");
         BenchmarkConfig config = new BenchmarkConfig(
             "tpch-smoke",
             20260602L,
@@ -491,11 +495,15 @@ class ComposeBenchmarkRunnerTest {
     private static final class CapturingMetricsRecorder implements ComposeBenchmarkRunner.MetricsRecorder {
         private final List<String> calls;
         private final String expectedProfile;
+        private final String expectedSuite;
+        private final String expectedQuerySet;
         private boolean closed;
 
-        private CapturingMetricsRecorder(List<String> calls, String expectedProfile) {
+        private CapturingMetricsRecorder(List<String> calls, String expectedProfile, String expectedSuite, String expectedQuerySet) {
             this.calls = calls;
             this.expectedProfile = expectedProfile;
+            this.expectedSuite = expectedSuite;
+            this.expectedQuerySet = expectedQuerySet;
         }
 
         @Override
@@ -504,17 +512,21 @@ class ComposeBenchmarkRunnerTest {
         }
 
         @Override
-        public void recordLoad(String runId, String profile, EngineRunResult result) {
+        public void recordLoad(String runId, String profile, String suite, String querySet, EngineRunResult result) {
             calls.add("record load:" + result.stage());
             assertThat(runId).isEqualTo("compose-test");
             assertThat(profile).isEqualTo(expectedProfile);
+            assertThat(suite).isEqualTo(expectedSuite);
+            assertThat(querySet).isEqualTo(expectedQuerySet);
         }
 
         @Override
-        public void recordQuery(String runId, String profile, EngineRunResult result) {
+        public void recordQuery(String runId, String profile, String suite, String querySet, EngineRunResult result) {
             calls.add("record query:" + result.queryName());
             assertThat(runId).isEqualTo("compose-test");
             assertThat(profile).isEqualTo(expectedProfile);
+            assertThat(suite).isEqualTo(expectedSuite);
+            assertThat(querySet).isEqualTo(expectedQuerySet);
         }
 
         @Override

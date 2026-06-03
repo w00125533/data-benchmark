@@ -126,7 +126,14 @@ public class ComposeBenchmarkRunner {
                 }
             }
 
-            recordMetrics(actualRunId, config.profile(), loadResults, queryResults);
+            recordMetrics(
+                actualRunId,
+                config.profile(),
+                config.suite().name(),
+                config.suite().querySet(),
+                loadResults,
+                queryResults
+            );
             BenchmarkReport report = buildReport(
                 config,
                 actualRunId,
@@ -195,7 +202,14 @@ public class ComposeBenchmarkRunner {
             }
         }
 
-        recordMetrics(runId, config.profile(), loadResults, queryResults);
+        recordMetrics(
+            runId,
+            config.profile(),
+            config.suite().name(),
+            config.suite().querySet(),
+            loadResults,
+            queryResults
+        );
         BenchmarkReport report = buildReport(
             config,
             runId,
@@ -230,6 +244,8 @@ public class ComposeBenchmarkRunner {
         return new BenchmarkReport(
             runId,
             config.profile(),
+            config.suite().name(),
+            config.suite().querySet(),
             started.toString(),
             ended.toString(),
             config.dataset().cells(),
@@ -280,11 +296,13 @@ public class ComposeBenchmarkRunner {
     private void recordMetrics(
         String runId,
         String profile,
+        String suite,
+        String querySet,
         List<EngineRunResult> loadResults,
         List<EngineRunResult> queryResults
     ) {
-        loadResults.forEach(result -> metricsRecorder.recordLoad(runId, profile, result));
-        queryResults.forEach(result -> metricsRecorder.recordQuery(runId, profile, result));
+        loadResults.forEach(result -> metricsRecorder.recordLoad(runId, profile, suite, querySet, result));
+        queryResults.forEach(result -> metricsRecorder.recordQuery(runId, profile, suite, querySet, result));
     }
 
     private static MetricsRecorder defaultMetricsRecorder() {
@@ -375,9 +393,9 @@ public class ComposeBenchmarkRunner {
     interface MetricsRecorder extends AutoCloseable {
         void start();
 
-        void recordLoad(String runId, String profile, EngineRunResult result);
+        void recordLoad(String runId, String profile, String suite, String querySet, EngineRunResult result);
 
-        void recordQuery(String runId, String profile, EngineRunResult result);
+        void recordQuery(String runId, String profile, String suite, String querySet, EngineRunResult result);
 
         @Override
         void close();
@@ -388,10 +406,10 @@ public class ComposeBenchmarkRunner {
                 public void start() {}
 
                 @Override
-                public void recordLoad(String runId, String profile, EngineRunResult result) {}
+                public void recordLoad(String runId, String profile, String suite, String querySet, EngineRunResult result) {}
 
                 @Override
-                public void recordQuery(String runId, String profile, EngineRunResult result) {}
+                public void recordQuery(String runId, String profile, String suite, String querySet, EngineRunResult result) {}
 
                 @Override
                 public void close() {}
@@ -468,11 +486,13 @@ public class ComposeBenchmarkRunner {
         }
 
         @Override
-        public void recordLoad(String runId, String profile, EngineRunResult result) {
+        public void recordLoad(String runId, String profile, String suite, String querySet, EngineRunResult result) {
             BenchmarkMetrics.recordLoad(
                 registry,
                 runId,
                 profile,
+                suite,
+                querySet,
                 result.engine(),
                 result.tableShape(),
                 result.stage(),
@@ -483,11 +503,13 @@ public class ComposeBenchmarkRunner {
         }
 
         @Override
-        public void recordQuery(String runId, String profile, EngineRunResult result) {
+        public void recordQuery(String runId, String profile, String suite, String querySet, EngineRunResult result) {
             BenchmarkMetrics.recordQuery(
                 registry,
                 runId,
                 profile,
+                suite,
+                querySet,
                 result.engine(),
                 result.tableShape(),
                 result.stage(),

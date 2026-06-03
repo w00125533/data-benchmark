@@ -24,6 +24,8 @@ public class LocalBenchmarkRunner {
         BenchmarkReport report = new BenchmarkReport(
             actualRunId,
             config.profile(),
+            config.suite().name(),
+            config.suite().querySet(),
             started.toString(),
             ended.toString(),
             config.dataset().cells(),
