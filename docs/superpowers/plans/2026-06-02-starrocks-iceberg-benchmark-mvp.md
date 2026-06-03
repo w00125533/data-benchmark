@@ -35,7 +35,7 @@ The design spec spans multiple independent subsystems. This plan implements the 
 - Create: `src/main/java/com/example/databenchmark/generator/DatasetResult.java`
   - Generation result record.
 - Create: `src/main/java/com/example/databenchmark/generator/KpiDataGenerator.java`
-  - Deterministic KPI data generator skeleton that writes text content to a `.parquet` path until the follow-up Parquet writer task.
+  - Deterministic KPI data generator that writes partitioned real Parquet output.
 - Create: `src/main/java/com/example/databenchmark/query/BenchmarkEngine.java`
   - Engine/table-shape record.
 - Create: `src/main/java/com/example/databenchmark/query/QueryDefinition.java`
@@ -833,7 +833,7 @@ public class KpiDataGenerator {
 }
 ```
 
-This MVP writes deterministic text content to a `.parquet` path so orchestration, partitioning, and reporting are testable before the follow-up Parquet writer task replaces the internals with Apache Parquet records.
+Real Parquet generation is available in the Java 17 runner. Remaining follow-up work is Spark/Iceberg table writes, StarRocks internal/external load paths, and engine-level benchmark execution.
 
 - [ ] **Step 5: Wire CLI generate command to Java generator**
 
@@ -1762,7 +1762,7 @@ Expected:
 
 ## Self-Review
 
-- Spec coverage: This Java 17 MVP plan covers deterministic wireless KPI generation scaffolding, 50-column schema, smoke config, query catalog, Prometheus metric names, HTML report generation, and Docker Compose topology. It intentionally defers true Apache Parquet row writing, Spark Iceberg writes, StarRocks table loads, external catalog refresh, and Grafana dashboard JSON to follow-up plans because they are separate integration subsystems.
+- Spec coverage: This Java 17 MVP plan covers deterministic wireless KPI generation scaffolding, 50-column schema, smoke config, query catalog, Prometheus metric names, HTML report generation, and Docker Compose topology. Real Parquet generation is available in the Java 17 runner; Spark Iceberg writes, StarRocks internal/external load paths, engine-level benchmark execution, external catalog refresh, and Grafana dashboard JSON remain follow-up integration subsystems.
 - Placeholder scan: The plan does not use open-ended placeholders such as `TBD`, `TODO`, `implement later`, or undefined "appropriate" work. Follow-up subsystem names are scoped exclusions, not missing task steps.
 - Type consistency: `BenchmarkConfig`, `DatasetResult`, `KpiColumn`, `KpiSchema`, `BenchmarkEngine`, `QueryDefinition`, `BenchmarkReport`, and `LocalBenchmarkRunner` are introduced before use and referenced consistently.
 - Verification: Every implementation task includes a failing test, implementation content, a passing test command, and a commit step.

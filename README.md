@@ -40,4 +40,4 @@ Docker Compose uses the packaged runner jar from `target/`, so run `mvn package`
 docker compose -f docker-compose.yml up benchmark-runner
 ```
 
-The current generator is a deterministic text skeleton written to a `.parquet` path. A follow-up Parquet writer is still needed before these files are real Parquet datasets.
+The generator writes deterministic, partitioned Parquet files under `event_date=YYYY-MM-DD/part-00000.parquet`. The local MVP still needs Spark/Iceberg and StarRocks write paths before it becomes an end-to-end engine benchmark.
