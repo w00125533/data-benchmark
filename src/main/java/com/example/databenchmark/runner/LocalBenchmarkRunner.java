@@ -13,6 +13,8 @@ import java.util.List;
 
 public class LocalBenchmarkRunner {
     public LocalRunResult run(BenchmarkConfig config, Path reportRoot, String runId) throws Exception {
+        requireKpiSuite(config);
+
         String actualRunId = runId == null ? generatedRunId() : runId;
         Instant started = Instant.now();
         long startedNanos = System.nanoTime();
@@ -61,6 +63,15 @@ public class LocalBenchmarkRunner {
 
         Path reportPath = new HtmlReportWriter().write(report, reportRoot);
         return new LocalRunResult(dataset, reportPath);
+    }
+
+    private static void requireKpiSuite(BenchmarkConfig config) {
+        String suiteName = config.suite().name();
+        if (!"kpi".equals(suiteName)) {
+            throw new IllegalArgumentException(
+                "local mode supports only the kpi suite; use compose mode for tpch suite configs"
+            );
+        }
     }
 
     private String generatedRunId() {

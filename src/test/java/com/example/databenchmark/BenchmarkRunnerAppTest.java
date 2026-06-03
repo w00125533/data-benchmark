@@ -127,6 +127,19 @@ class BenchmarkRunnerAppTest {
     }
 
     @Test
+    void runCommandModeLocalRejectsTpchConfig() {
+        CommandResult result = execute(
+            "run", "--mode", "local", "--config", "configs/benchmark-tpch-smoke.yml", "--run-id", "tpch-local"
+        );
+
+        assertThat(result.exitCode()).isNotZero();
+        assertThat(result.err())
+            .contains("local mode")
+            .contains("kpi")
+            .contains("compose");
+    }
+
+    @Test
     void reportCommandPrintsAvailability() {
         assertAvailabilityOutput("report", "report command is available");
     }
