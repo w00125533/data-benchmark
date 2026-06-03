@@ -81,9 +81,9 @@ public final class KpiSchema {
 
     private static Map<String, String> tableShapesInSpecOrder() {
         Map<String, String> tableShapes = new LinkedHashMap<>();
-        tableShapes.put("spark_iceberg", "iceberg_db.cell_kpi_1min");
+        tableShapes.put("spark_iceberg", "iceberg_catalog.iceberg_db.cell_kpi_1min");
         tableShapes.put("starrocks_internal", "sr_internal.cell_kpi_1min");
-        tableShapes.put("starrocks_external_iceberg", "sr_external_iceberg.cell_kpi_1min");
+        tableShapes.put("starrocks_external_iceberg", "sr_external_iceberg.iceberg_db.cell_kpi_1min");
         return Collections.unmodifiableMap(tableShapes);
     }
 }

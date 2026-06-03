@@ -50,7 +50,8 @@ class QueryCatalogTest {
             .isEqualTo(
                 "SELECT cell_id, MAX(prb_dl_util) AS prb_dl_util, "
                     + "MAX(active_users) AS active_users, MAX(load_score) AS load_score "
-                    + "FROM iceberg_db.cell_kpi_1min GROUP BY cell_id ORDER BY load_score DESC LIMIT 100"
+                    + "FROM iceberg_catalog.iceberg_db.cell_kpi_1min "
+                    + "GROUP BY cell_id ORDER BY load_score DESC LIMIT 100"
             );
     }
 
@@ -77,12 +78,12 @@ class QueryCatalogTest {
     @Test
     void enginesUseSchemaTableShapesInRequiredOrder() {
         assertThat(QueryCatalog.engines()).containsExactly(
-            new BenchmarkEngine("spark_iceberg", "spark_iceberg", "iceberg_db.cell_kpi_1min"),
+            new BenchmarkEngine("spark_iceberg", "spark_iceberg", "iceberg_catalog.iceberg_db.cell_kpi_1min"),
             new BenchmarkEngine("starrocks_internal", "starrocks_internal", "sr_internal.cell_kpi_1min"),
             new BenchmarkEngine(
                 "starrocks_external_iceberg",
                 "starrocks_external_iceberg",
-                "sr_external_iceberg.cell_kpi_1min"
+                "sr_external_iceberg.iceberg_db.cell_kpi_1min"
             )
         );
     }

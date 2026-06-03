@@ -19,6 +19,15 @@ class SqlTemplatesTest {
     }
 
     @Test
+    void sparkInsertFromParquetEscapesSingleQuotes() {
+        String sql = SqlTemplates.sparkInsertFromParquet("hdfs://host/a'b/part.parquet");
+
+        assertThat(sql).contains("path 'hdfs://host/a''b/part.parquet'");
+        assertThat(sql).contains("INSERT INTO iceberg_catalog.iceberg_db.cell_kpi_1min");
+        assertThat(sql).contains("SELECT * FROM generated_kpi");
+    }
+
+    @Test
     void starrocksInternalDdlContainsAllColumnsInSchemaOrder() {
         String sql = SqlTemplates.starRocksCreateInternalTable();
 
@@ -43,5 +52,11 @@ class SqlTemplatesTest {
         assertThat(sql).contains("\"iceberg.catalog.type\" = \"hive\"");
         assertThat(sql).contains("\"iceberg.catalog.hive.metastore.uris\" = \"thrift://hive-metastore:9083\"");
         assertThat(sql).doesNotContain("aws").doesNotContain("s3").doesNotContain("minio");
+    }
+
+    @Test
+    void starRocksRefreshExternalCatalogStatement() {
+        assertThat(SqlTemplates.starRocksRefreshExternalCatalog())
+            .contains("REFRESH EXTERNAL CATALOG sr_external_iceberg");
     }
 }
