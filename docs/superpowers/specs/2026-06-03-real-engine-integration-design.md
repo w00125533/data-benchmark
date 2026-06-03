@@ -18,7 +18,7 @@
 本轮实现覆盖：
 
 - Docker Compose 真实服务编排和 readiness。
-- MinIO warehouse 初始化。
+- HDFS warehouse 初始化。
 - Spark SQL 写 Iceberg 表。
 - StarRocks internal table DDL 和数据导入。
 - StarRocks external Iceberg catalog DDL 和 refresh。
@@ -33,7 +33,7 @@
 - Kubernetes 部署。
 - 多节点 StarRocks BE 扩容。
 - 全量 4.032B 行默认执行。
-- 对所有 Iceberg catalog 类型的兼容；本轮固定使用本地 Compose 中的 Hive Metastore + MinIO S3 warehouse。
+- 对所有 Iceberg catalog 类型的兼容；本轮固定使用本地 Compose 中的 Hive Metastore + HDFS warehouse。
 
 ## 架构
 
@@ -44,8 +44,9 @@ Docker Compose 提供以下服务：
 - `starrocks-fe`：StarRocks SQL 入口，暴露 MySQL 协议端口 `9030` 和 HTTP 端口 `8030`。
 - `starrocks-be`：StarRocks Backend，提供存储和导入执行。
 - `spark`：Spark SQL 执行环境，用于读取 Parquet、写 Iceberg、执行 Spark 查询。
-- `hive-metastore`：Iceberg Hive catalog 元数据服务。
-- `minio`：S3 兼容 warehouse。
+- `hdfs-namenode`：HDFS NameNode，提供 Iceberg warehouse 的分布式文件系统入口。
+- `hdfs-datanode`：HDFS DataNode，保存 Iceberg warehouse 数据块。
+- `hive-metastore`：Iceberg Hive catalog 元数据服务，warehouse 指向 HDFS。
 - `prometheus`：采集 benchmark runner 和基础服务指标。
 - `grafana`：自动加载 datasource 和 dashboard。
 - `benchmark-runner`：Java 17 runner，编排数据生成、load、query、report 和 metrics。
@@ -83,14 +84,44 @@ data/generated/event_date=2026-01-01/part-00000.parquet
 
 smoke 默认仍使用 `rowCap: 10000`，避免本地验证生成全部 14,400,000 行。真实 engine integration 可通过 CLI 参数关闭 row cap。
 
+### HDFS warehouse 初始化
+
+Compose 启动时必须创建 HDFS warehouse 目录，并保证 Spark、Hive Metastore 和 StarRocks external catalog 使用同一个路径：
+
+```text
+hdfs://hdfs-namenode:8020/warehouse/iceberg
+```
+
+初始化命令应至少完成：
+
+```bash
+hdfs dfs -mkdir -p /warehouse/iceberg
+hdfs dfs -chmod -R 777 /warehouse
+```
+
+readiness 检查必须确认：
+
+- NameNode Web UI 可访问。
+- `hdfs dfs -ls /warehouse/iceberg` 成功。
+- Hive Metastore 能连接到 HDFS warehouse 路径。
+
 ### Spark Iceberg 写入
 
-Spark 读取 mounted `data/generated` 下的 Parquet，写入 Hive catalog 管理的 Iceberg 表：
+Spark 读取 mounted `data/generated` 下的 Parquet，写入 Hive catalog 管理的 Iceberg 表。Spark catalog 配置固定使用 HDFS warehouse：
+
+```text
+spark.sql.catalog.iceberg_catalog=org.apache.iceberg.spark.SparkCatalog
+spark.sql.catalog.iceberg_catalog.type=hive
+spark.sql.catalog.iceberg_catalog.uri=thrift://hive-metastore:9083
+spark.sql.catalog.iceberg_catalog.warehouse=hdfs://hdfs-namenode:8020/warehouse/iceberg
+```
+
+Spark SQL 表名使用 `iceberg_catalog.iceberg_db.cell_kpi_1min`：
 
 ```sql
-CREATE DATABASE IF NOT EXISTS iceberg_db;
+CREATE DATABASE IF NOT EXISTS iceberg_catalog.iceberg_db;
 
-CREATE TABLE IF NOT EXISTS iceberg_db.cell_kpi_1min (
+CREATE TABLE IF NOT EXISTS iceberg_catalog.iceberg_db.cell_kpi_1min (
   event_time TIMESTAMP,
   cell_id STRING,
   province STRING,
@@ -168,15 +199,11 @@ CREATE EXTERNAL CATALOG IF NOT EXISTS sr_external_iceberg
 PROPERTIES (
   "type" = "iceberg",
   "iceberg.catalog.type" = "hive",
-  "iceberg.catalog.hive.metastore.uris" = "thrift://hive-metastore:9083",
-  "aws.s3.endpoint" = "http://minio:9000",
-  "aws.s3.access_key" = "minioadmin",
-  "aws.s3.secret_key" = "minioadmin",
-  "aws.s3.enable_path_style_access" = "true"
+  "iceberg.catalog.hive.metastore.uris" = "thrift://hive-metastore:9083"
 );
 ```
 
-如果 StarRocks 镜像版本要求属性名不同，runner 必须把失败 SQL 和错误信息写入报告，不吞掉异常。
+Iceberg 数据文件存储在 HDFS，StarRocks FE/BE 必须能解析并访问 `hdfs://hdfs-namenode:8020/warehouse/iceberg`。如果 StarRocks 镜像版本要求额外 HDFS 或 catalog 属性，runner 必须把失败 SQL 和错误信息写入报告，不吞掉异常。
 
 ## 查询执行
 
@@ -301,7 +328,7 @@ Compose 中 `benchmark-runner` 默认使用真实集成模式。
 - 可选手动 smoke：
 
 ```powershell
-docker compose -f docker-compose.yml up -d minio hive-metastore spark starrocks-fe starrocks-be prometheus grafana
+docker compose -f docker-compose.yml up -d hdfs-namenode hdfs-datanode hive-metastore spark starrocks-fe starrocks-be prometheus grafana
 java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --run-id compose-smoke
 ```
 
@@ -342,7 +369,8 @@ java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --run-id c
 
 - StarRocks external Iceberg catalog 属性名随版本变化。应把 DDL 集中在一个 generator 中，并把失败 SQL 记录到报告。
 - bitnami Spark 镜像默认不一定包含 Iceberg runtime jar。实现时需要在 Compose 中通过 package 参数或 mounted jars 固定 Iceberg runtime。
-- Hive Metastore 和 MinIO warehouse 初始化顺序容易失败。需要 readiness 和初始化命令重试。
+- Hive Metastore 和 HDFS warehouse 初始化顺序容易失败。需要 readiness 和初始化命令重试。
+- StarRocks 访问 HDFS 上的 Iceberg 数据时可能需要镜像内 Hadoop client 配置。实现时需要把 HDFS endpoint、core-site.xml 或等价 catalog 属性集中管理，并把访问失败写入报告。
 - Windows 路径挂载到 Linux 容器时路径格式不同。所有容器内路径必须使用 `/workspace/data/generated`、`/workspace/reports/runs` 这类显式路径，Java 本地路径和容器路径要显式转换。
 - Full profile 不适合默认本地运行。CLI 必须继续要求显式 opt-in。
 
@@ -351,4 +379,4 @@ java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --run-id c
 - Placeholder scan: 本 spec 没有待填占位符。
 - Consistency check: local mode 和 compose mode 边界清楚；真实集成只在 compose mode 中启用。
 - Scope check: 本 spec 仍然较大，但所有工作服务于一个可验证端到端 smoke benchmark。实施计划应拆成多个 task，并优先让每个 task 可单独测试。
-- Ambiguity check: StarRocks internal load 路径明确选择 CSV + Stream Load；Spark Iceberg 使用 Hive Metastore + MinIO；Grafana dashboard uid 固定为 `benchmark`。
+- Ambiguity check: StarRocks internal load 路径明确选择 CSV + Stream Load；Spark Iceberg 使用 Hive Metastore + HDFS；Grafana dashboard uid 固定为 `benchmark`。
