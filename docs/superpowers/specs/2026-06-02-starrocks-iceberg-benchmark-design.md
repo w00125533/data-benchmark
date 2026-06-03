@@ -36,7 +36,7 @@
 
 工程由一个自包含的基准测试栈组成：
 
-- Docker Compose 启动 StarRocks、Spark、Iceberg catalog、MinIO、Prometheus、Grafana 和 benchmark runner。
+- Docker Compose 启动 StarRocks、Spark、Iceberg catalog、HDFS、Prometheus、Grafana 和 benchmark runner。
 - Benchmark runner 负责生成无线 KPI 数据、写入 Iceberg、导入 StarRocks 内表、执行查询集、采集指标并生成 HTML 报告。
 - Spark SQL 代表原生 Iceberg 的读写、表维护和批查询能力。
 - StarRocks 同时验证内表查询性能，以及通过 external catalog 查询 Iceberg 表的性能。
@@ -53,7 +53,7 @@ Compose 需要定义以下服务：
 - `starrocks-be`：StarRocks Backend。
 - `spark`：Spark SQL 运行环境，用于原生 Iceberg 读写和查询。
 - `hive-metastore`：Iceberg catalog 元数据服务。
-- `minio`：S3 兼容对象存储，作为 Iceberg warehouse。
+- `hdfs-namenode` / `hdfs-datanode`：HDFS 存储服务，作为 Iceberg warehouse。
 - `prometheus`：指标采集。
 - `grafana`：可视化看板。
 - `benchmark-runner`：编排数据生成、导入、查询、指标暴露和报告生成。
@@ -62,7 +62,7 @@ Compose 需要定义以下服务：
 
 - StarRocks SQL 连接端口。
 - Spark SQL 执行入口。
-- MinIO 控制台。
+- HDFS NameNode Web UI。
 - Prometheus UI。
 - Grafana UI。
 
@@ -185,7 +185,7 @@ Prometheus 需要采集：
 
 - Benchmark runner 自定义指标。
 - StarRocks FE 和 BE 指标。
-- MinIO 指标。
+- HDFS NameNode 和 DataNode 指标。
 - 通过 Docker 兼容 exporter 采集容器 CPU、内存、网络、磁盘指标。
 - Spark 指标，前提是所选镜像和配置能够稳定暴露。
 
@@ -215,7 +215,7 @@ Grafana 需要通过 provisioning 自动加载 dashboard，至少包含：
 - 无线 KPI 查询场景分组。
 - 错误率和失败查询。
 - StarRocks FE/BE 资源使用。
-- MinIO 请求量和吞吐。
+- HDFS NameNode/DataNode 容量、块状态、读写吞吐和错误指标。
 - Benchmark runner 进度和吞吐。
 
 ## HTML 测试报告
