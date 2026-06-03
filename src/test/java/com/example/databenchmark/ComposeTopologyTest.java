@@ -37,11 +37,18 @@ class ComposeTopologyTest {
         assertThat(stringList(runner, "volumes")).contains(".:/workspace");
         assertThat(stringList(runner, "command"))
             .containsExactly("java", "-jar", "target/data-benchmark-0.1.0-SNAPSHOT.jar",
-                "run", "--mode", "compose", "--run-id", "compose-smoke");
+                "run", "--run-id", "compose-smoke");
         assertThat(stringList(runner, "command")).contains("--run-id");
-        assertThat(stringList(runner, "depends_on"))
+        assertThat(stringList(runner, "command")).doesNotContain("--mode");
+        assertThat(dependencyNames(runner))
             .contains("hdfs-init", "hive-metastore", "spark", "starrocks-fe", "starrocks-be", "prometheus");
+        assertThat(dependencyCondition(runner, "hdfs-init")).isEqualTo("service_completed_successfully");
         assertThat(stringList(runner, "ports")).doesNotContain("9108:9108");
+
+        assertThat(dependencyCondition(service(services, "spark"), "hdfs-init"))
+            .isEqualTo("service_completed_successfully");
+        assertThat(dependencyCondition(service(services, "hive-metastore"), "hdfs-init"))
+            .isEqualTo("service_completed_successfully");
 
         Map<String, Object> hdfsNamenode = service(services, "hdfs-namenode");
         assertThat(stringList(hdfsNamenode, "ports")).contains("9870:9870", "8020:8020");
@@ -61,7 +68,7 @@ class ComposeTopologyTest {
         assertThat(hdfsInitCommand)
             .contains("hdfs dfs -fs hdfs://hdfs-namenode:8020 -mkdir -p /warehouse/iceberg")
             .contains("hdfs dfs -fs hdfs://hdfs-namenode:8020 -chmod -R 777 /warehouse");
-        assertThat(stringList(hdfsInit, "depends_on")).contains("hdfs-namenode", "hdfs-datanode");
+        assertThat(dependencyNames(hdfsInit)).contains("hdfs-namenode", "hdfs-datanode");
 
         Map<String, Object> prometheus = service(services, "prometheus");
         assertThat(stringList(prometheus, "volumes"))
@@ -193,5 +200,28 @@ class ComposeTopologyTest {
         return list(map, key).stream()
             .map(Object::toString)
             .toList();
+    }
+
+    private List<String> dependencyNames(Map<String, Object> service) {
+        Object dependsOn = service.get("depends_on");
+        if (dependsOn == null) {
+            return List.of();
+        }
+        if (dependsOn instanceof Map<?, ?> dependsOnMap) {
+            return dependsOnMap.keySet().stream()
+                .map(Object::toString)
+                .toList();
+        }
+        return list(dependsOn).stream()
+            .map(Object::toString)
+            .toList();
+    }
+
+    private String dependencyCondition(Map<String, Object> service, String dependency) {
+        Object dependsOn = service.get("depends_on");
+        assertThat(dependsOn).isInstanceOf(Map.class);
+        Map<String, Object> dependencies = map(dependsOn);
+        assertThat(dependencies).containsKey(dependency);
+        return map(dependencies.get(dependency)).get("condition").toString();
     }
 }
