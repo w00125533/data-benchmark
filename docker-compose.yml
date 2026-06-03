@@ -99,10 +99,14 @@ services:
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
 
   benchmark-runner:
-    image: eclipse-temurin:17-jre
+    image: bitnami/spark:3.5
     working_dir: /workspace
     volumes:
       - .:/workspace
+    environment:
+      BENCHMARK_COMPOSE_IN_CONTAINER: "true"
+      STARROCKS_JDBC_URL: "jdbc:mysql://starrocks-fe:9030/?useSSL=false&allowPublicKeyRetrieval=true"
+      STARROCKS_STREAM_LOAD_URL: "http://starrocks-fe:8030/api/sr_internal/cell_kpi_1min/_stream_load"
     # Run mvn package before docker compose up so target/...jar exists.
     command: ["java", "-jar", "target/data-benchmark-0.1.0-SNAPSHOT.jar", "run", "--mode", "compose", "--run-id", "compose-smoke"]
     depends_on:

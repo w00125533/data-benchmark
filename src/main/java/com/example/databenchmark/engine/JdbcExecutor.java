@@ -8,6 +8,7 @@ import java.sql.Statement;
 
 public class JdbcExecutor {
     public static final String DEFAULT_JDBC_URL = "jdbc:mysql://localhost:9030/?useSSL=false&allowPublicKeyRetrieval=true";
+    private static final String JDBC_URL_ENV = "STARROCKS_JDBC_URL";
     public static final String DEFAULT_USER = "root";
     public static final String DEFAULT_PASSWORD = "";
 
@@ -16,7 +17,7 @@ public class JdbcExecutor {
     private final String password;
 
     public JdbcExecutor() {
-        this(DEFAULT_JDBC_URL, DEFAULT_USER, DEFAULT_PASSWORD);
+        this(System.getenv().getOrDefault(JDBC_URL_ENV, DEFAULT_JDBC_URL), DEFAULT_USER, DEFAULT_PASSWORD);
     }
 
     public JdbcExecutor(String jdbcUrl, String user, String password) {

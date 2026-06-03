@@ -32,9 +32,13 @@ class ComposeTopologyTest {
         assertThat(services).doesNotContainKey("minio");
 
         Map<String, Object> runner = service(services, "benchmark-runner");
-        assertThat(runner.get("image").toString()).containsAnyOf("temurin", "java").contains("17");
+        assertThat(runner.get("image").toString()).isEqualTo("bitnami/spark:3.5");
         assertThat(runner.get("working_dir")).isEqualTo("/workspace");
         assertThat(stringList(runner, "volumes")).contains(".:/workspace");
+        assertThat(map(runner.get("environment")))
+            .containsEntry("BENCHMARK_COMPOSE_IN_CONTAINER", "true")
+            .containsEntry("STARROCKS_JDBC_URL", "jdbc:mysql://starrocks-fe:9030/?useSSL=false&allowPublicKeyRetrieval=true")
+            .containsEntry("STARROCKS_STREAM_LOAD_URL", "http://starrocks-fe:8030/api/sr_internal/cell_kpi_1min/_stream_load");
         assertThat(stringList(runner, "command"))
             .containsExactly("java", "-jar", "target/data-benchmark-0.1.0-SNAPSHOT.jar",
                 "run", "--mode", "compose", "--run-id", "compose-smoke");

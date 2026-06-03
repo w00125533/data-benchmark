@@ -9,10 +9,12 @@ import java.util.List;
 
 public class SparkIcebergClient {
     private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(10);
+    private static final String IN_CONTAINER_ENV = "BENCHMARK_COMPOSE_IN_CONTAINER";
 
     private final CommandRunner commandRunner;
     private final Path workingDirectory;
     private final Duration timeout;
+    private final boolean inContainer;
 
     public SparkIcebergClient() {
         this(new CommandRunner());
@@ -23,9 +25,14 @@ public class SparkIcebergClient {
     }
 
     public SparkIcebergClient(CommandRunner commandRunner, Path workingDirectory, Duration timeout) {
+        this(commandRunner, workingDirectory, timeout, defaultInContainer());
+    }
+
+    public SparkIcebergClient(CommandRunner commandRunner, Path workingDirectory, Duration timeout, boolean inContainer) {
         this.commandRunner = commandRunner;
         this.workingDirectory = workingDirectory;
         this.timeout = timeout;
+        this.inContainer = inContainer;
     }
 
     public EngineRunResult load(DatasetResult dataset, String runId, String profile) {
@@ -87,15 +94,28 @@ public class SparkIcebergClient {
         }
     }
 
-    private static List<String> sparkSqlCommand(String sql) {
-        return List.of(
-            "docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "spark", "spark-sql",
+    private List<String> sparkSqlCommand(String sql) {
+        List<String> sparkSql = List.of(
+            "spark-sql",
             "--conf", "spark.sql.catalog.iceberg_catalog=org.apache.iceberg.spark.SparkCatalog",
             "--conf", "spark.sql.catalog.iceberg_catalog.type=hive",
             "--conf", "spark.sql.catalog.iceberg_catalog.uri=thrift://hive-metastore:9083",
             "--conf", "spark.sql.catalog.iceberg_catalog.warehouse=hdfs://hdfs-namenode:8020/warehouse/iceberg",
             "-e", sql
         );
+        if (inContainer) {
+            return sparkSql;
+        }
+        List<String> command = new ArrayList<>();
+        command.addAll(List.of(
+            "docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "spark", "spark-sql",
+            "--conf", "spark.sql.catalog.iceberg_catalog=org.apache.iceberg.spark.SparkCatalog",
+            "--conf", "spark.sql.catalog.iceberg_catalog.type=hive",
+            "--conf", "spark.sql.catalog.iceberg_catalog.uri=thrift://hive-metastore:9083",
+            "--conf", "spark.sql.catalog.iceberg_catalog.warehouse=hdfs://hdfs-namenode:8020/warehouse/iceberg",
+            "-e", sql
+        ));
+        return command;
     }
 
     private static EngineRunResult failed(String tableShape, String stage, String queryName, CommandResult command) {
@@ -134,5 +154,9 @@ public class SparkIcebergClient {
         }
         String relative = workspace.relativize(output).toString().replace('\\', '/');
         return relative.isEmpty() ? "/workspace" : "/workspace/" + relative;
+    }
+
+    private static boolean defaultInContainer() {
+        return Boolean.parseBoolean(System.getenv().getOrDefault(IN_CONTAINER_ENV, "false"));
     }
 }

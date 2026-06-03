@@ -34,13 +34,13 @@ java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar generate --cells 10 --days 1 
 
 The default smoke config is [configs/benchmark-smoke.yml](configs/benchmark-smoke.yml). It preserves the spec values for `10,000` cells and `1` day, and uses `rowCap: 10000` so local verification does not accidentally generate all `14,400,000` rows.
 
-Docker Compose uses the packaged runner jar from `target/`, so run `mvn package` before starting Compose:
+Docker Compose uses the packaged runner jar from `target/`, so run `mvn package` before starting Compose. The runner service executes the real compose path:
 
 ```powershell
 docker compose -f docker-compose.yml up benchmark-runner
 ```
 
-The generator writes deterministic, partitioned Parquet files under `event_date=YYYY-MM-DD/part-00000.parquet`. The local MVP still needs Spark/Iceberg and StarRocks write paths before it becomes an end-to-end engine benchmark.
+The generator writes deterministic, partitioned Parquet files under `event_date=YYYY-MM-DD/part-00000.parquet`. Local mode remains a fast Java-only smoke path; compose mode runs the Spark/Iceberg and StarRocks engine path.
 
 ## HDFS Compose Benchmark
 
@@ -48,8 +48,10 @@ HDFS and Grafana infrastructure is provisioned now. The HDFS Iceberg warehouse p
 
 ```powershell
 docker compose -f docker-compose.yml up -d hdfs-namenode hdfs-datanode hdfs-init hive-metastore spark starrocks-fe starrocks-be prometheus grafana
+java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --run-id compose-smoke
 ```
 
-The benchmark runner still uses the current local fallback command until `run --mode compose` is implemented in the later compose runner task.
-
 Grafana is available at `http://localhost:3000/d/benchmark?var-run_id=compose-smoke`.
+Prometheus is available at `http://localhost:9090`.
+
+Compose mode writes `reports/runs/<run_id>/index.html`. If a Spark, StarRocks, or external Iceberg stage fails, the CLI exits nonzero after writing a DEGRADED report with the failing stage and error detail.

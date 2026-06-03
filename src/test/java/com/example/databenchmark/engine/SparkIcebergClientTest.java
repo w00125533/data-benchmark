@@ -42,6 +42,30 @@ class SparkIcebergClientTest {
     }
 
     @Test
+    void inContainerModeRunsSparkSqlDirectlyWithoutDockerCompose() {
+        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "ok", "", 1.25));
+        Path workspace = tempDir.resolve("workspace");
+        DatasetResult dataset = new DatasetResult(
+            workspace.resolve("data/run-1"),
+            List.of(workspace.resolve("data/run-1/part.parquet")),
+            42,
+            128
+        );
+
+        EngineRunResult result = new SparkIcebergClient(runner, workspace, Duration.ofMinutes(1), true)
+            .load(dataset, "run-1", "smoke");
+
+        assertThat(result.success()).isTrue();
+        List<String> command = runner.commands().get(0);
+        assertThat(command)
+            .startsWith("spark-sql")
+            .doesNotContain("docker", "compose", "exec");
+        assertThat(command)
+            .contains("spark.sql.catalog.iceberg_catalog.uri=thrift://hive-metastore:9083")
+            .contains("spark.sql.catalog.iceberg_catalog.warehouse=hdfs://hdfs-namenode:8020/warehouse/iceberg");
+    }
+
+    @Test
     void failedSparkCommandBecomesFailedEngineResultWithStderr() {
         FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 2, "", "spark failed", 0.5));
         Path workspace = tempDir.resolve("workspace");

@@ -8,8 +8,13 @@ import com.example.databenchmark.engine.StarRocksClient;
 import com.example.databenchmark.engine.StarRocksCsvExporter;
 import com.example.databenchmark.generator.DatasetResult;
 import com.example.databenchmark.generator.KpiDataGenerator;
+import com.example.databenchmark.metrics.BenchmarkMetrics;
+import com.example.databenchmark.metrics.PrometheusMetricsServer;
 import com.example.databenchmark.report.BenchmarkReport;
 import com.example.databenchmark.report.HtmlReportWriter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.prometheusmetrics.PrometheusConfig;
+import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -23,6 +28,7 @@ public class ComposeBenchmarkRunner {
     private final SparkClient sparkClient;
     private final StarRocksClientFacade starRocksClient;
     private final ReportWriter reportWriter;
+    private final MetricsRecorder metricsRecorder;
 
     public ComposeBenchmarkRunner() {
         this(
@@ -30,7 +36,8 @@ public class ComposeBenchmarkRunner {
             new StarRocksCsvExporter()::export,
             new SparkClientAdapter(new SparkIcebergClient()),
             new StarRocksClientAdapter(new StarRocksClient()),
-            new HtmlReportWriter()::write
+            new HtmlReportWriter()::write,
+            defaultMetricsRecorder()
         );
     }
 
@@ -41,11 +48,23 @@ public class ComposeBenchmarkRunner {
         StarRocksClientFacade starRocksClient,
         ReportWriter reportWriter
     ) {
+        this(generator, csvExporter, sparkClient, starRocksClient, reportWriter, MetricsRecorder.noop());
+    }
+
+    ComposeBenchmarkRunner(
+        DatasetGenerator generator,
+        CsvExporter csvExporter,
+        SparkClient sparkClient,
+        StarRocksClientFacade starRocksClient,
+        ReportWriter reportWriter,
+        MetricsRecorder metricsRecorder
+    ) {
         this.generator = generator;
         this.csvExporter = csvExporter;
         this.sparkClient = sparkClient;
         this.starRocksClient = starRocksClient;
         this.reportWriter = reportWriter;
+        this.metricsRecorder = metricsRecorder;
     }
 
     public ComposeRunResult run(BenchmarkConfig config, Path reportRoot, String runId) throws Exception {
@@ -56,40 +75,46 @@ public class ComposeBenchmarkRunner {
         DatasetResult dataset = null;
         Path csvPath = null;
 
-        long generateStarted = System.nanoTime();
+        metricsRecorder.start();
         try {
-            dataset = generator.generate(config);
-            loadResults.add(new EngineRunResult(
-                "local",
-                "generated_parquet",
-                EngineStage.GENERATE.name(),
-                null,
-                dataset.rows(),
-                dataset.bytesWritten(),
-                elapsedSeconds(generateStarted),
-                true,
-                ""
-            ));
-        } catch (Exception exception) {
-            loadResults.add(failed("local", "generated_parquet", EngineStage.GENERATE.name(), exception));
-        }
-
-        if (dataset != null) {
+            long generateStarted = System.nanoTime();
             try {
-                csvPath = csvExporter.export(dataset, Path.of(config.dataset().output()).resolve("starrocks-csv"));
-                loadResults.add(sparkClient.load(dataset, actualRunId, config.profile()));
-                loadResults.add(starRocksClient.loadInternal(csvPath, actualRunId, config.profile()));
-                loadResults.add(starRocksClient.refreshExternalCatalog(actualRunId, config.profile()));
-                queryResults.addAll(sparkClient.runQueries(actualRunId, config.profile()));
-                queryResults.addAll(starRocksClient.runQueries(actualRunId, config.profile()));
+                dataset = generator.generate(config);
+                loadResults.add(new EngineRunResult(
+                    "local",
+                    "generated_parquet",
+                    EngineStage.GENERATE.name(),
+                    null,
+                    dataset.rows(),
+                    dataset.bytesWritten(),
+                    elapsedSeconds(generateStarted),
+                    true,
+                    ""
+                ));
             } catch (Exception exception) {
-                loadResults.add(failed("compose", "prepare", "compose_prepare", exception));
+                loadResults.add(failed("local", "generated_parquet", EngineStage.GENERATE.name(), exception));
             }
-        }
 
-        BenchmarkReport report = buildReport(config, actualRunId, started, Instant.now(), dataset, loadResults, queryResults);
-        Path reportPath = reportWriter.write(report, reportRoot);
-        return new ComposeRunResult(dataset, csvPath, reportPath, report.status().equals("SUCCESS"));
+            if (dataset != null) {
+                try {
+                    csvPath = csvExporter.export(dataset, Path.of(config.dataset().output()).resolve("starrocks-csv"));
+                    loadResults.add(sparkClient.load(dataset, actualRunId, config.profile()));
+                    loadResults.add(starRocksClient.loadInternal(csvPath, actualRunId, config.profile()));
+                    loadResults.add(starRocksClient.refreshExternalCatalog(actualRunId, config.profile()));
+                    queryResults.addAll(sparkClient.runQueries(actualRunId, config.profile()));
+                    queryResults.addAll(starRocksClient.runQueries(actualRunId, config.profile()));
+                } catch (Exception exception) {
+                    loadResults.add(failed("compose", "prepare", "compose_prepare", exception));
+                }
+            }
+
+            recordMetrics(actualRunId, config.profile(), loadResults, queryResults);
+            BenchmarkReport report = buildReport(config, actualRunId, started, Instant.now(), dataset, loadResults, queryResults);
+            Path reportPath = reportWriter.write(report, reportRoot);
+            return new ComposeRunResult(dataset, csvPath, reportPath, report.status().equals("SUCCESS"));
+        } finally {
+            metricsRecorder.close();
+        }
     }
 
     private BenchmarkReport buildReport(
@@ -153,6 +178,21 @@ public class ComposeBenchmarkRunner {
         return new EngineRunResult(engine, tableShape, stage, null, 0L, 0L, 0.0, false, exception.getMessage());
     }
 
+    private void recordMetrics(
+        String runId,
+        String profile,
+        List<EngineRunResult> loadResults,
+        List<EngineRunResult> queryResults
+    ) {
+        loadResults.forEach(result -> metricsRecorder.recordLoad(runId, profile, result));
+        queryResults.forEach(result -> metricsRecorder.recordQuery(runId, profile, result));
+    }
+
+    private static MetricsRecorder defaultMetricsRecorder() {
+        PrometheusMeterRegistry registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+        return new MicrometerMetricsRecorder(registry, new PrometheusMetricsServer(registry));
+    }
+
     private String generatedRunId() {
         return "compose-" + Instant.now().toEpochMilli();
     }
@@ -200,6 +240,33 @@ public class ComposeBenchmarkRunner {
         Path write(BenchmarkReport report, Path outputRoot) throws Exception;
     }
 
+    interface MetricsRecorder extends AutoCloseable {
+        void start();
+
+        void recordLoad(String runId, String profile, EngineRunResult result);
+
+        void recordQuery(String runId, String profile, EngineRunResult result);
+
+        @Override
+        void close();
+
+        static MetricsRecorder noop() {
+            return new MetricsRecorder() {
+                @Override
+                public void start() {}
+
+                @Override
+                public void recordLoad(String runId, String profile, EngineRunResult result) {}
+
+                @Override
+                public void recordQuery(String runId, String profile, EngineRunResult result) {}
+
+                @Override
+                public void close() {}
+            };
+        }
+    }
+
     private record SparkClientAdapter(SparkIcebergClient delegate) implements SparkClient {
         @Override
         public EngineRunResult load(DatasetResult dataset, String runId, String profile) {
@@ -226,6 +293,52 @@ public class ComposeBenchmarkRunner {
         @Override
         public List<EngineRunResult> runQueries(String runId, String profile) {
             return delegate.runQueries(runId, profile);
+        }
+    }
+
+    private record MicrometerMetricsRecorder(
+        MeterRegistry registry,
+        PrometheusMetricsServer server
+    ) implements MetricsRecorder {
+        @Override
+        public void start() {
+            server.start();
+        }
+
+        @Override
+        public void recordLoad(String runId, String profile, EngineRunResult result) {
+            BenchmarkMetrics.recordLoad(
+                registry,
+                runId,
+                profile,
+                result.engine(),
+                result.tableShape(),
+                result.stage(),
+                result.rows(),
+                result.bytes(),
+                result.durationSeconds()
+            );
+        }
+
+        @Override
+        public void recordQuery(String runId, String profile, EngineRunResult result) {
+            BenchmarkMetrics.recordQuery(
+                registry,
+                runId,
+                profile,
+                result.engine(),
+                result.tableShape(),
+                result.stage(),
+                result.queryName(),
+                result.rows(),
+                result.success() ? 0 : 1,
+                result.durationSeconds()
+            );
+        }
+
+        @Override
+        public void close() {
+            server.close();
         }
     }
 

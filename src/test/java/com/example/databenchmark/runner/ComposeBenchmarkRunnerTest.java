@@ -22,6 +22,7 @@ class ComposeBenchmarkRunnerTest {
         List<String> calls = new ArrayList<>();
         DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
         CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
+        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls);
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             config -> {
@@ -35,7 +36,8 @@ class ComposeBenchmarkRunnerTest {
             },
             new FakeSparkClient(calls),
             new FakeStarRocksClient(calls, true),
-            reportWriter
+            reportWriter,
+            metricsRecorder
         );
 
         ComposeBenchmarkRunner.ComposeRunResult result = runner.run(
@@ -49,6 +51,7 @@ class ComposeBenchmarkRunnerTest {
         assertThat(result.csvPath().getFileName().toString()).isEqualTo("cell_kpi_1min.csv");
         assertThat(result.reportPath()).isEqualTo(tempDir.resolve("reports/compose-test/index.html"));
         assertThat(calls).containsExactly(
+            "start metrics",
             "generate dataset",
             "export CSV",
             "Spark load",
@@ -56,8 +59,15 @@ class ComposeBenchmarkRunnerTest {
             "StarRocks external refresh",
             "Spark queries",
             "StarRocks queries",
+            "record load:GENERATE",
+            "record load:SPARK_ICEBERG_LOAD",
+            "record load:STARROCKS_INTERNAL_LOAD",
+            "record load:STARROCKS_EXTERNAL_REFRESH",
+            "record query:spark_query",
+            "record query:starrocks_query",
             "write HTML report"
         );
+        assertThat(metricsRecorder.closed).isTrue();
         assertThat(reportWriter.report.loadSummaries())
             .extracting(BenchmarkReport.LoadSummary::stage)
             .containsExactly(
@@ -76,6 +86,7 @@ class ComposeBenchmarkRunnerTest {
         List<String> calls = new ArrayList<>();
         DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
         CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
+        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls);
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             config -> {
@@ -88,7 +99,8 @@ class ComposeBenchmarkRunnerTest {
             },
             new FakeSparkClient(calls),
             new FakeStarRocksClient(calls, false),
-            reportWriter
+            reportWriter,
+            metricsRecorder
         );
 
         ComposeBenchmarkRunner.ComposeRunResult result = runner.run(
@@ -100,6 +112,7 @@ class ComposeBenchmarkRunnerTest {
         assertThat(result.success()).isFalse();
         assertThat(result.reportPath()).isEqualTo(tempDir.resolve("reports/compose-test/index.html"));
         assertThat(calls).containsExactly(
+            "start metrics",
             "generate dataset",
             "export CSV",
             "Spark load",
@@ -107,8 +120,15 @@ class ComposeBenchmarkRunnerTest {
             "StarRocks external refresh",
             "Spark queries",
             "StarRocks queries",
+            "record load:GENERATE",
+            "record load:SPARK_ICEBERG_LOAD",
+            "record load:STARROCKS_INTERNAL_LOAD",
+            "record load:STARROCKS_EXTERNAL_REFRESH",
+            "record query:spark_query",
+            "record query:starrocks_query",
             "write HTML report"
         );
+        assertThat(metricsRecorder.closed).isTrue();
         assertThat(reportWriter.report.status()).isEqualTo("DEGRADED");
         assertThat(reportWriter.report.loadSummaries())
             .anySatisfy(summary -> assertThat(summary.error()).contains("catalog refresh failed"));
@@ -183,6 +203,39 @@ class ComposeBenchmarkRunnerTest {
             calls.add("write HTML report");
             this.report = report;
             return reportPath;
+        }
+    }
+
+    private static final class CapturingMetricsRecorder implements ComposeBenchmarkRunner.MetricsRecorder {
+        private final List<String> calls;
+        private boolean closed;
+
+        private CapturingMetricsRecorder(List<String> calls) {
+            this.calls = calls;
+        }
+
+        @Override
+        public void start() {
+            calls.add("start metrics");
+        }
+
+        @Override
+        public void recordLoad(String runId, String profile, EngineRunResult result) {
+            calls.add("record load:" + result.stage());
+            assertThat(runId).isEqualTo("compose-test");
+            assertThat(profile).isEqualTo("smoke");
+        }
+
+        @Override
+        public void recordQuery(String runId, String profile, EngineRunResult result) {
+            calls.add("record query:" + result.queryName());
+            assertThat(runId).isEqualTo("compose-test");
+            assertThat(profile).isEqualTo("smoke");
+        }
+
+        @Override
+        public void close() {
+            closed = true;
         }
     }
 }

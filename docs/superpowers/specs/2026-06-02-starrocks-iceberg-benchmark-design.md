@@ -30,7 +30,7 @@
 - 总记录数：`4,032,000,000`。
 - 字段数：`50`。
 
-全量 profile 不作为默认 smoke 测试执行，必须显式开启。原因是本机 Docker 环境下，CPU、内存、磁盘和对象存储吞吐很容易主导结果，导致基准结论失真。
+全量 profile 不作为默认 smoke 测试执行，必须显式开启。原因是本机 Docker 环境下，CPU、内存、磁盘和 HDFS 数据读写吞吐很容易主导结果，导致基准结论失真。
 
 ## 总体架构
 
@@ -286,7 +286,7 @@ monitoring:
 
 - StarRocks 或 Spark 的生产级容量规划。
 - Kubernetes 部署。
-- 云对象存储自动开通。
+- HDFS 之外的云端仓储资源自动开通；本地 Compose 方案固定使用 HDFS warehouse。
 - 与所有生产 Iceberg catalog 形态完全等价。
 - 在本机 Docker 环境默认执行 4.032B 行全量 profile。
 

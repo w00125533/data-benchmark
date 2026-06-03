@@ -17,6 +17,7 @@ import java.util.Map;
 public class StarRocksStreamLoadClient {
     private static final URI DEFAULT_URL =
         URI.create("http://localhost:8030/api/sr_internal/cell_kpi_1min/_stream_load");
+    private static final String STREAM_LOAD_URL_ENV = "STARROCKS_STREAM_LOAD_URL";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final HttpClient httpClient;
@@ -25,7 +26,7 @@ public class StarRocksStreamLoadClient {
     private final String password;
 
     public StarRocksStreamLoadClient() {
-        this(HttpClient.newHttpClient(), DEFAULT_URL, "root", "");
+        this(HttpClient.newHttpClient(), defaultUrl(), "root", "");
     }
 
     public StarRocksStreamLoadClient(HttpClient httpClient, URI url, String user, String password) {
@@ -68,6 +69,10 @@ public class StarRocksStreamLoadClient {
 
     private static double elapsedSeconds(long startedNanos) {
         return (System.nanoTime() - startedNanos) / 1_000_000_000.0;
+    }
+
+    private static URI defaultUrl() {
+        return URI.create(System.getenv().getOrDefault(STREAM_LOAD_URL_ENV, DEFAULT_URL.toString()));
     }
 
     public record StreamLoadRequest(URI url, Map<String, String> headers, Path csv) {}

@@ -38,6 +38,8 @@ The implementation is intentionally smoke-first:
   - Provision benchmark dashboard provider.
 - Create: `monitoring/grafana/dashboards/benchmark.json`
   - Dashboard with uid `benchmark`.
+- Create: `src/main/java/com/example/databenchmark/metrics/PrometheusMetricsServer.java`
+  - Expose Micrometer Prometheus metrics on `/metrics`.
 - Create: `src/main/java/com/example/databenchmark/engine/CommandRunner.java`
   - Execute external commands with captured output and duration.
 - Create: `src/main/java/com/example/databenchmark/engine/CommandResult.java`
@@ -994,7 +996,7 @@ git commit -m "feat: add spark and starrocks clients"
 - Test: `src/test/java/com/example/databenchmark/BenchmarkRunnerAppTest.java`
 - Test: `src/test/java/com/example/databenchmark/runner/ComposeBenchmarkRunnerTest.java`
 
-- [ ] **Step 1: Add CLI tests**
+- [x] **Step 1: Add CLI tests**
 
 Update `BenchmarkRunnerAppTest`:
 
@@ -1002,7 +1004,7 @@ Update `BenchmarkRunnerAppTest`:
 - `run --mode compose --run-id compose-test` calls compose runner.
 - invalid mode exits nonzero and mentions valid values.
 
-- [ ] **Step 2: Add compose runner tests**
+- [x] **Step 2: Add compose runner tests**
 
 Use fake engine clients to assert `ComposeBenchmarkRunner` calls:
 
@@ -1015,7 +1017,7 @@ Use fake engine clients to assert `ComposeBenchmarkRunner` calls:
 7. StarRocks internal/external queries.
 8. HTML report write even when external refresh fails.
 
-- [ ] **Step 3: Run tests and verify failure**
+- [x] **Step 3: Run tests and verify failure**
 
 Run:
 
@@ -1025,7 +1027,7 @@ mvn -Dtest=BenchmarkRunnerAppTest,ComposeBenchmarkRunnerTest test
 
 Expected: FAIL because compose mode does not exist.
 
-- [ ] **Step 4: Implement ComposeBenchmarkRunner**
+- [x] **Step 4: Implement ComposeBenchmarkRunner**
 
 `ComposeBenchmarkRunner.run(config, reportRoot, runId)` should:
 
@@ -1037,7 +1039,7 @@ Expected: FAIL because compose mode does not exist.
 - Write report even if any stage fails.
 - Return nonzero status to CLI when critical prepare/load stages fail, but only after report is written.
 
-- [ ] **Step 5: Add `--mode` to CLI**
+- [x] **Step 5: Add `--mode` to CLI**
 
 Modify `RunCommand`:
 
@@ -1058,7 +1060,7 @@ if ("local".equals(mode)) {
 }
 ```
 
-- [ ] **Step 6: Run CLI tests**
+- [x] **Step 6: Run CLI tests**
 
 Run:
 
@@ -1068,7 +1070,7 @@ mvn -Dtest=BenchmarkRunnerAppTest,ComposeBenchmarkRunnerTest test
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit compose runner**
+- [x] **Step 7: Commit compose runner**
 
 ```powershell
 git add src/main/java/com/example/databenchmark/BenchmarkRunnerApp.java src/main/java/com/example/databenchmark/runner src/test/java/com/example/databenchmark
@@ -1083,7 +1085,7 @@ git commit -m "feat: add compose benchmark mode"
 - Modify: `docs/superpowers/specs/2026-06-03-real-engine-integration-design.md`
 - Modify: `docs/superpowers/plans/2026-06-03-real-hdfs-engine-integration.md`
 
-- [ ] **Step 1: Scan for old storage references**
+- [x] **Step 1: Scan for old storage references**
 
 Run:
 
@@ -1093,7 +1095,7 @@ rg -n "MinIO|minio|S3|s3|aws|AWS" README.md docker-compose.yml monitoring src do
 
 Expected: No matches except older historical plans that explicitly describe prior replaced state. If matches appear in live docs or code, update them to HDFS.
 
-- [ ] **Step 2: Update README**
+- [x] **Step 2: Update README**
 
 README must include:
 
@@ -1104,11 +1106,11 @@ README must include:
 - Prometheus URL.
 - Statement that compose mode writes degraded reports when an engine stage fails.
 
-- [ ] **Step 3: Update this plan if implementation deviates**
+- [x] **Step 3: Update this plan if implementation deviates**
 
 If actual compose image names or StarRocks catalog properties differ during implementation, update this plan and the spec with the final verified values before final commit.
 
-- [ ] **Step 4: Commit docs cleanup**
+- [x] **Step 4: Commit docs cleanup**
 
 ```powershell
 git add README.md docs/superpowers/specs docs/superpowers/plans/2026-06-03-real-hdfs-engine-integration.md
