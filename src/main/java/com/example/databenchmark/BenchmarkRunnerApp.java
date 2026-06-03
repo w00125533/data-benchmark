@@ -154,8 +154,7 @@ public class BenchmarkRunnerApp implements Callable<Integer> {
         @Override
         public CliRunResult runCompose(BenchmarkConfig config, Path reportRoot, String runId) throws Exception {
             ComposeBenchmarkRunner.ComposeRunResult result = new ComposeBenchmarkRunner().run(config, reportRoot, runId);
-            long rows = result.dataset() == null ? 0L : result.dataset().rows();
-            return new CliRunResult(rows, result.reportPath(), result.success());
+            return new CliRunResult(result.rows(), result.reportPath(), result.success());
         }
     }
 }

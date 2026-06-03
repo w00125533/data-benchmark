@@ -55,6 +55,8 @@ class ComposeBenchmarkRunnerTest {
 
         assertThat(result.success()).isTrue();
         assertThat(result.dataset()).isSameAs(dataset);
+        assertThat(result.rows()).isEqualTo(dataset.rows());
+        assertThat(result.bytesWritten()).isEqualTo(dataset.bytesWritten());
         assertThat(result.csvPath().getFileName().toString()).isEqualTo("cell_kpi_1min.csv");
         assertThat(result.reportPath()).isEqualTo(tempDir.resolve("reports/compose-test/index.html"));
         assertThat(calls).containsExactly(
@@ -119,6 +121,8 @@ class ComposeBenchmarkRunnerTest {
         );
 
         assertThat(result.success()).isFalse();
+        assertThat(result.rows()).isEqualTo(dataset.rows());
+        assertThat(result.bytesWritten()).isEqualTo(dataset.bytesWritten());
         assertThat(result.reportPath()).isEqualTo(tempDir.resolve("reports/compose-test/index.html"));
         assertThat(calls).containsExactly(
             "start metrics",
@@ -188,7 +192,9 @@ class ComposeBenchmarkRunnerTest {
 
         assertThat(result.success()).isTrue();
         assertThat(result.dataset()).isNull();
-        assertThat(result.csvPath()).isEqualTo(tpchDataset.outputPath().resolve("csv"));
+        assertThat(result.rows()).isEqualTo(tpchDataset.rows());
+        assertThat(result.bytesWritten()).isEqualTo(tpchDataset.bytesWritten());
+        assertThat(result.csvPath()).isEqualTo(csvFiles.values().iterator().next().getParent());
         assertThat(result.reportPath()).isEqualTo(tempDir.resolve("reports/tpch-compose/index.html"));
         assertThat(calls).containsExactly(
             "start metrics",
@@ -220,6 +226,130 @@ class ComposeBenchmarkRunnerTest {
         assertThat(reportWriter.report.querySummaries())
             .extracting(BenchmarkReport.QuerySummary::queryName)
             .containsOnly("q01_pricing_summary_report");
+    }
+
+    @Test
+    void composeRunnerWritesTpchReportAndClosesMetricsWhenGenerationFails() throws Exception {
+        List<String> calls = new ArrayList<>();
+        CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/tpch-compose/index.html"));
+        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls, "tpch-smoke");
+        BenchmarkConfig config = new BenchmarkConfig(
+            "tpch-smoke",
+            20260602L,
+            new BenchmarkConfig.SuiteConfig("tpch", new BigDecimal("0.01"), "smoke"),
+            BenchmarkConfig.defaultSmoke().dataset(),
+            BenchmarkConfig.defaultSmoke().query(),
+            BenchmarkConfig.defaultSmoke().report(),
+            BenchmarkConfig.defaultSmoke().monitoring()
+        );
+
+        ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
+            failingDatasetGenerator(),
+            failingCsvExporter(),
+            (configArg, runId) -> {
+                calls.add("generate TPC-H dataset");
+                throw new IllegalStateException("tpch generation failed");
+            },
+            failingTpchCsvExport(),
+            new FakeSparkClient(calls),
+            new FakeStarRocksClient(calls, true),
+            reportWriter,
+            metricsRecorder
+        );
+
+        ComposeBenchmarkRunner.ComposeRunResult result = runner.run(
+            config,
+            tempDir.resolve("reports"),
+            "compose-test"
+        );
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.dataset()).isNull();
+        assertThat(result.rows()).isZero();
+        assertThat(result.bytesWritten()).isZero();
+        assertThat(result.csvPath()).isNull();
+        assertThat(result.reportPath()).isEqualTo(tempDir.resolve("reports/tpch-compose/index.html"));
+        assertThat(calls).containsExactly(
+            "start metrics",
+            "generate TPC-H dataset",
+            "record load:GENERATE",
+            "write HTML report"
+        );
+        assertThat(metricsRecorder.closed).isTrue();
+        assertThat(reportWriter.report.status()).isEqualTo("DEGRADED");
+        assertThat(reportWriter.report.loadSummaries())
+            .singleElement()
+            .satisfies(summary -> {
+                assertThat(summary.tableShape()).isEqualTo("tpch_generated_parquet");
+                assertThat(summary.success()).isFalse();
+                assertThat(summary.error()).contains("tpch generation failed");
+            });
+    }
+
+    @Test
+    void composeRunnerWritesTpchReportAndClosesMetricsWhenCsvExportFails() throws Exception {
+        List<String> calls = new ArrayList<>();
+        TpchDatasetResult tpchDataset = TestTpchFixtures.dataset(tempDir.resolve("data/tpch/tpch-unit"));
+        CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/tpch-compose/index.html"));
+        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls, "tpch-smoke");
+        BenchmarkConfig config = new BenchmarkConfig(
+            "tpch-smoke",
+            20260602L,
+            new BenchmarkConfig.SuiteConfig("tpch", new BigDecimal("0.01"), "smoke"),
+            BenchmarkConfig.defaultSmoke().dataset(),
+            BenchmarkConfig.defaultSmoke().query(),
+            BenchmarkConfig.defaultSmoke().report(),
+            BenchmarkConfig.defaultSmoke().monitoring()
+        );
+
+        ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
+            failingDatasetGenerator(),
+            failingCsvExporter(),
+            (configArg, runId) -> {
+                calls.add("generate TPC-H dataset");
+                return tpchDataset;
+            },
+            datasetArg -> {
+                calls.add("export TPC-H CSV");
+                throw new IllegalStateException("tpch csv export failed");
+            },
+            new FakeSparkClient(calls),
+            new FakeStarRocksClient(calls, true),
+            reportWriter,
+            metricsRecorder
+        );
+
+        ComposeBenchmarkRunner.ComposeRunResult result = runner.run(
+            config,
+            tempDir.resolve("reports"),
+            "compose-test"
+        );
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.dataset()).isNull();
+        assertThat(result.rows()).isEqualTo(tpchDataset.rows());
+        assertThat(result.bytesWritten()).isEqualTo(tpchDataset.bytesWritten());
+        assertThat(result.csvPath()).isNull();
+        assertThat(result.reportPath()).isEqualTo(tempDir.resolve("reports/tpch-compose/index.html"));
+        assertThat(calls).containsExactly(
+            "start metrics",
+            "generate TPC-H dataset",
+            "export TPC-H CSV",
+            "record load:GENERATE",
+            "record load:compose_prepare",
+            "write HTML report"
+        );
+        assertThat(metricsRecorder.closed).isTrue();
+        assertThat(reportWriter.report.status()).isEqualTo("DEGRADED");
+        assertThat(reportWriter.report.loadSummaries())
+            .extracting(BenchmarkReport.LoadSummary::tableShape)
+            .containsExactly("tpch_generated_parquet", "tpch_prepare");
+        assertThat(reportWriter.report.loadSummaries())
+            .anySatisfy(summary -> {
+                assertThat(summary.tableShape()).isEqualTo("tpch_prepare");
+                assertThat(summary.success()).isFalse();
+                assertThat(summary.error()).contains("tpch csv export failed");
+            });
     }
 
     private static ComposeBenchmarkRunner.DatasetGenerator failingDatasetGenerator() {

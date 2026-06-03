@@ -138,7 +138,14 @@ public class ComposeBenchmarkRunner {
                 queryResults
             );
             Path reportPath = reportWriter.write(report, reportRoot);
-            return new ComposeRunResult(dataset, csvPath, reportPath, report.status().equals("SUCCESS"));
+            return new ComposeRunResult(
+                dataset,
+                csvPath,
+                reportPath,
+                report.status().equals("SUCCESS"),
+                dataset == null ? 0L : dataset.rows(),
+                dataset == null ? 0L : dataset.bytesWritten()
+            );
         } finally {
             metricsRecorder.close();
         }
@@ -176,7 +183,8 @@ public class ComposeBenchmarkRunner {
         if (dataset != null) {
             try {
                 Map<String, Path> csvFiles = tpchCsvExport.export(dataset);
-                csvPath = dataset.outputPath().resolve("csv");
+                Path firstCsvFile = csvFiles.values().stream().findFirst().orElse(null);
+                csvPath = firstCsvFile != null ? firstCsvFile.getParent() : dataset.outputPath().resolve("csv");
                 loadResults.add(sparkClient.loadTpch(dataset, runId, config.profile()));
                 loadResults.add(starRocksClient.loadTpchInternal(csvFiles, dataset, runId, config.profile()));
                 loadResults.add(starRocksClient.refreshTpchExternalCatalog(runId, config.profile()));
@@ -199,7 +207,14 @@ public class ComposeBenchmarkRunner {
             queryResults
         );
         Path reportPath = reportWriter.write(report, reportRoot);
-        return new ComposeRunResult(null, csvPath, reportPath, report.status().equals("SUCCESS"));
+        return new ComposeRunResult(
+            null,
+            csvPath,
+            reportPath,
+            report.status().equals("SUCCESS"),
+            dataset == null ? 0L : dataset.rows(),
+            dataset == null ? 0L : dataset.bytesWritten()
+        );
     }
 
     private BenchmarkReport buildReport(
@@ -489,5 +504,12 @@ public class ComposeBenchmarkRunner {
         }
     }
 
-    public record ComposeRunResult(DatasetResult dataset, Path csvPath, Path reportPath, boolean success) {}
+    public record ComposeRunResult(
+        DatasetResult dataset,
+        Path csvPath,
+        Path reportPath,
+        boolean success,
+        long rows,
+        long bytesWritten
+    ) {}
 }
