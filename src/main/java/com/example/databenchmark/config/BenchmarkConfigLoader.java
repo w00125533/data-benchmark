@@ -10,8 +10,14 @@ public class BenchmarkConfigLoader {
 
     public BenchmarkConfig load(Path path) throws IOException {
         BenchmarkConfig config = mapper.readValue(path.toFile(), BenchmarkConfig.class);
+        BenchmarkConfig normalized = normalizeSuite(config);
+        validate(normalized);
+        return normalized;
+    }
+
+    private static BenchmarkConfig normalizeSuite(BenchmarkConfig config) {
         if (config.suite() == null) {
-            config = new BenchmarkConfig(
+            return new BenchmarkConfig(
                 config.profile(),
                 config.seed(),
                 BenchmarkConfig.SuiteConfig.defaultSuite(),
@@ -21,8 +27,26 @@ public class BenchmarkConfigLoader {
                 config.monitoring()
             );
         }
-        validate(config);
-        return config;
+
+        BenchmarkConfig.SuiteConfig suite = config.suite();
+        BenchmarkConfig.SuiteConfig defaultSuite = BenchmarkConfig.SuiteConfig.defaultSuite();
+        String normalizedName = isBlank(suite.name()) ? defaultSuite.name() : suite.name();
+        java.math.BigDecimal normalizedScaleFactor = suite.scaleFactor() == null ? defaultSuite.scaleFactor() : suite.scaleFactor();
+        String normalizedQuerySet = isBlank(suite.querySet()) ? defaultSuite.querySet() : suite.querySet();
+
+        return new BenchmarkConfig(
+            config.profile(),
+            config.seed(),
+            new BenchmarkConfig.SuiteConfig(normalizedName, normalizedScaleFactor, normalizedQuerySet),
+            config.dataset(),
+            config.query(),
+            config.report(),
+            config.monitoring()
+        );
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private static void validate(BenchmarkConfig config) {

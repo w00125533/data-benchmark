@@ -52,6 +52,133 @@ class BenchmarkConfigLoaderTest {
     }
 
     @Test
+    void suiteBlockMissingNameDefaultsToKpi() throws Exception {
+        Path configPath = writeConfig("""
+            profile: smoke
+            seed: 20260602
+            suite:
+              scaleFactor: 0.01
+              querySet: smoke
+            dataset:
+              cells: 10000
+              days: 1
+              columns: 50
+              startTime: "2026-01-01T00:00:00"
+              output: "data/generated"
+            query:
+              coldRuns: 1
+              warmRuns: 3
+              concurrency: 1
+            report:
+              format: html
+              output: "reports/runs"
+            monitoring:
+              prometheus: true
+              grafana: true
+            """);
+
+        BenchmarkConfig config = new BenchmarkConfigLoader().load(configPath);
+
+        assertThat(config.suite().name()).isEqualTo("kpi");
+    }
+
+    @Test
+    void suiteNameInvalidThrowsClearValidationError() throws Exception {
+        Path configPath = writeConfig("""
+            profile: smoke
+            seed: 20260602
+            suite:
+              name: invalid
+              scaleFactor: 0.01
+              querySet: smoke
+            dataset:
+              cells: 10000
+              days: 1
+              columns: 50
+              startTime: "2026-01-01T00:00:00"
+              output: "data/generated"
+            query:
+              coldRuns: 1
+              warmRuns: 3
+              concurrency: 1
+            report:
+              format: html
+              output: "reports/runs"
+            monitoring:
+              prometheus: true
+              grafana: true
+            """);
+
+        assertThatThrownBy(() -> new BenchmarkConfigLoader().load(configPath))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("suite.name");
+    }
+
+    @Test
+    void suiteScaleFactorZeroThrowsClearValidationError() throws Exception {
+        Path configPath = writeConfig("""
+            profile: smoke
+            seed: 20260602
+            suite:
+              name: kpi
+              scaleFactor: 0
+              querySet: smoke
+            dataset:
+              cells: 10000
+              days: 1
+              columns: 50
+              startTime: "2026-01-01T00:00:00"
+              output: "data/generated"
+            query:
+              coldRuns: 1
+              warmRuns: 3
+              concurrency: 1
+            report:
+              format: html
+              output: "reports/runs"
+            monitoring:
+              prometheus: true
+              grafana: true
+            """);
+
+        assertThatThrownBy(() -> new BenchmarkConfigLoader().load(configPath))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("suite.scaleFactor");
+    }
+
+    @Test
+    void suiteQuerySetInvalidThrowsClearValidationError() throws Exception {
+        Path configPath = writeConfig("""
+            profile: smoke
+            seed: 20260602
+            suite:
+              name: kpi
+              scaleFactor: 0.01
+              querySet: invalid
+            dataset:
+              cells: 10000
+              days: 1
+              columns: 50
+              startTime: "2026-01-01T00:00:00"
+              output: "data/generated"
+            query:
+              coldRuns: 1
+              warmRuns: 3
+              concurrency: 1
+            report:
+              format: html
+              output: "reports/runs"
+            monitoring:
+              prometheus: true
+              grafana: true
+            """);
+
+        assertThatThrownBy(() -> new BenchmarkConfigLoader().load(configPath))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("suite.querySet");
+    }
+
+    @Test
     void overridesKeepProfileNameAndChangeValues() {
         BenchmarkConfig config = BenchmarkConfig.defaultSmoke()
             .withOverrides(25, 2, 7L, "target/generated-test-data", 100L);
