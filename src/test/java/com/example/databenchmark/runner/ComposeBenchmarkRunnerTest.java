@@ -7,9 +7,14 @@ import com.example.databenchmark.engine.EngineRunResult;
 import com.example.databenchmark.engine.EngineStage;
 import com.example.databenchmark.generator.DatasetResult;
 import com.example.databenchmark.report.BenchmarkReport;
+import com.example.databenchmark.tpch.TestTpchFixtures;
+import com.example.databenchmark.tpch.TpchDatasetResult;
+import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -22,7 +27,7 @@ class ComposeBenchmarkRunnerTest {
         List<String> calls = new ArrayList<>();
         DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
         CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
-        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls);
+        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls, "smoke");
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             config -> {
@@ -34,6 +39,8 @@ class ComposeBenchmarkRunnerTest {
                 assertThat(generatedDataset).isSameAs(dataset);
                 return outputDir.resolve("cell_kpi_1min.csv");
             },
+            failingTpchGenerator(),
+            failingTpchCsvExport(),
             new FakeSparkClient(calls),
             new FakeStarRocksClient(calls, true),
             reportWriter,
@@ -86,7 +93,7 @@ class ComposeBenchmarkRunnerTest {
         List<String> calls = new ArrayList<>();
         DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
         CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
-        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls);
+        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls, "smoke");
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             config -> {
@@ -97,6 +104,8 @@ class ComposeBenchmarkRunnerTest {
                 calls.add("export CSV");
                 return outputDir.resolve("cell_kpi_1min.csv");
             },
+            failingTpchGenerator(),
+            failingTpchCsvExport(),
             new FakeSparkClient(calls),
             new FakeStarRocksClient(calls, false),
             reportWriter,
@@ -134,6 +143,109 @@ class ComposeBenchmarkRunnerTest {
             .anySatisfy(summary -> assertThat(summary.error()).contains("catalog refresh failed"));
     }
 
+    @Test
+    void composeRunnerRunsTpchSuiteWithoutTouchingKpiFlow() throws Exception {
+        List<String> calls = new ArrayList<>();
+        TpchDatasetResult tpchDataset = TestTpchFixtures.dataset(tempDir.resolve("data/tpch/tpch-unit"));
+        Map<String, Path> csvFiles = new LinkedHashMap<>(TestTpchFixtures.csvFiles(tpchDataset));
+        CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/tpch-compose/index.html"));
+        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls, "tpch-smoke");
+        BenchmarkConfig config = new BenchmarkConfig(
+            "tpch-smoke",
+            20260602L,
+            new BenchmarkConfig.SuiteConfig("tpch", new BigDecimal("0.01"), "smoke"),
+            BenchmarkConfig.defaultSmoke().dataset(),
+            BenchmarkConfig.defaultSmoke().query(),
+            BenchmarkConfig.defaultSmoke().report(),
+            BenchmarkConfig.defaultSmoke().monitoring()
+        );
+
+        ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
+            failingDatasetGenerator(),
+            failingCsvExporter(),
+            (configArg, runId) -> {
+                calls.add("generate TPC-H dataset");
+                assertThat(configArg).isSameAs(config);
+                assertThat(runId).isEqualTo("compose-test");
+                return tpchDataset;
+            },
+            datasetArg -> {
+                calls.add("export TPC-H CSV");
+                assertThat(datasetArg).isSameAs(tpchDataset);
+                return csvFiles;
+            },
+            new FakeSparkClient(calls),
+            new FakeStarRocksClient(calls, true),
+            reportWriter,
+            metricsRecorder
+        );
+
+        ComposeBenchmarkRunner.ComposeRunResult result = runner.run(
+            config,
+            tempDir.resolve("reports"),
+            "compose-test"
+        );
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.dataset()).isNull();
+        assertThat(result.csvPath()).isEqualTo(tpchDataset.outputPath().resolve("csv"));
+        assertThat(result.reportPath()).isEqualTo(tempDir.resolve("reports/tpch-compose/index.html"));
+        assertThat(calls).containsExactly(
+            "start metrics",
+            "generate TPC-H dataset",
+            "export TPC-H CSV",
+            "Spark TPC-H load",
+            "StarRocks TPC-H internal load",
+            "StarRocks TPC-H external refresh",
+            "Spark TPC-H queries",
+            "StarRocks TPC-H queries",
+            "record load:GENERATE",
+            "record load:SPARK_ICEBERG_LOAD",
+            "record load:STARROCKS_INTERNAL_LOAD",
+            "record load:STARROCKS_EXTERNAL_REFRESH",
+            "record query:q01_pricing_summary_report",
+            "record query:q01_pricing_summary_report",
+            "record query:q01_pricing_summary_report",
+            "write HTML report"
+        );
+        assertThat(metricsRecorder.closed).isTrue();
+        assertThat(reportWriter.report.loadSummaries())
+            .extracting(BenchmarkReport.LoadSummary::tableShape)
+            .containsExactly(
+                "tpch_generated_parquet",
+                "tpch_iceberg",
+                "tpch_internal",
+                "tpch_external_iceberg"
+            );
+        assertThat(reportWriter.report.querySummaries())
+            .extracting(BenchmarkReport.QuerySummary::queryName)
+            .containsOnly("q01_pricing_summary_report");
+    }
+
+    private static ComposeBenchmarkRunner.DatasetGenerator failingDatasetGenerator() {
+        return config -> {
+            throw new AssertionError("KPI dataset generator should not be called for TPC-H");
+        };
+    }
+
+    private static ComposeBenchmarkRunner.CsvExporter failingCsvExporter() {
+        return (dataset, outputDir) -> {
+            throw new AssertionError("KPI CSV exporter should not be called for TPC-H");
+        };
+    }
+
+    private static ComposeBenchmarkRunner.TpchGenerator failingTpchGenerator() {
+        return (config, runId) -> {
+            throw new AssertionError("TPC-H generator should not be called");
+        };
+    }
+
+    private static ComposeBenchmarkRunner.TpchCsvExport failingTpchCsvExport() {
+        return dataset -> {
+            throw new AssertionError("TPC-H CSV exporter should not be called");
+        };
+    }
+
     private static final class FakeSparkClient implements ComposeBenchmarkRunner.SparkClient {
         private final List<String> calls;
 
@@ -153,6 +265,20 @@ class ComposeBenchmarkRunnerTest {
             calls.add("Spark queries");
             return List.of(new EngineRunResult("spark", "spark_iceberg", EngineStage.QUERY.name(),
                 "spark_query", 3L, 0L, 0.2, true, ""));
+        }
+
+        @Override
+        public EngineRunResult loadTpch(TpchDatasetResult dataset, String runId, String profile) {
+            calls.add("Spark TPC-H load");
+            return new EngineRunResult("spark", "tpch_iceberg", EngineStage.SPARK_ICEBERG_LOAD.name(),
+                null, dataset.rows(), dataset.bytesWritten(), 1.0, true, "");
+        }
+
+        @Override
+        public List<EngineRunResult> runTpchQueries(String runId, String profile, String querySet) {
+            calls.add("Spark TPC-H queries");
+            return List.of(new EngineRunResult("spark", "tpch_iceberg", EngineStage.QUERY.name(),
+                "q01_pricing_summary_report", 3L, 0L, 0.2, true, ""));
         }
     }
 
@@ -186,6 +312,32 @@ class ComposeBenchmarkRunnerTest {
             return List.of(new EngineRunResult("starrocks", "starrocks_internal", EngineStage.QUERY.name(),
                 "starrocks_query", 4L, 0L, 0.3, true, ""));
         }
+
+        @Override
+        public EngineRunResult loadTpchInternal(Map<String, Path> csvFiles, TpchDatasetResult dataset, String runId, String profile) {
+            calls.add("StarRocks TPC-H internal load");
+            return new EngineRunResult("starrocks", "tpch_internal",
+                EngineStage.STARROCKS_INTERNAL_LOAD.name(), null, dataset.rows(), dataset.bytesWritten(), 1.5, true, "");
+        }
+
+        @Override
+        public EngineRunResult refreshTpchExternalCatalog(String runId, String profile) {
+            calls.add("StarRocks TPC-H external refresh");
+            return new EngineRunResult("starrocks", "tpch_external_iceberg",
+                EngineStage.STARROCKS_EXTERNAL_REFRESH.name(), null, 0L, 0L, 0.4,
+                externalRefreshSucceeds, externalRefreshSucceeds ? "" : "catalog refresh failed");
+        }
+
+        @Override
+        public List<EngineRunResult> runTpchQueries(String runId, String profile, String querySet) {
+            calls.add("StarRocks TPC-H queries");
+            return List.of(
+                new EngineRunResult("starrocks", "tpch_internal", EngineStage.QUERY.name(),
+                    "q01_pricing_summary_report", 4L, 0L, 0.3, true, ""),
+                new EngineRunResult("starrocks", "tpch_external_iceberg", EngineStage.QUERY.name(),
+                    "q01_pricing_summary_report", 4L, 0L, 0.3, true, "")
+            );
+        }
     }
 
     private static final class CapturingReportWriter implements ComposeBenchmarkRunner.ReportWriter {
@@ -208,10 +360,12 @@ class ComposeBenchmarkRunnerTest {
 
     private static final class CapturingMetricsRecorder implements ComposeBenchmarkRunner.MetricsRecorder {
         private final List<String> calls;
+        private final String expectedProfile;
         private boolean closed;
 
-        private CapturingMetricsRecorder(List<String> calls) {
+        private CapturingMetricsRecorder(List<String> calls, String expectedProfile) {
             this.calls = calls;
+            this.expectedProfile = expectedProfile;
         }
 
         @Override
@@ -223,14 +377,14 @@ class ComposeBenchmarkRunnerTest {
         public void recordLoad(String runId, String profile, EngineRunResult result) {
             calls.add("record load:" + result.stage());
             assertThat(runId).isEqualTo("compose-test");
-            assertThat(profile).isEqualTo("smoke");
+            assertThat(profile).isEqualTo(expectedProfile);
         }
 
         @Override
         public void recordQuery(String runId, String profile, EngineRunResult result) {
             calls.add("record query:" + result.queryName());
             assertThat(runId).isEqualTo("compose-test");
-            assertThat(profile).isEqualTo("smoke");
+            assertThat(profile).isEqualTo(expectedProfile);
         }
 
         @Override

@@ -12,6 +12,9 @@ import com.example.databenchmark.metrics.BenchmarkMetrics;
 import com.example.databenchmark.metrics.PrometheusMetricsServer;
 import com.example.databenchmark.report.BenchmarkReport;
 import com.example.databenchmark.report.HtmlReportWriter;
+import com.example.databenchmark.tpch.TpchCsvExporter;
+import com.example.databenchmark.tpch.TpchDataGenerator;
+import com.example.databenchmark.tpch.TpchDatasetResult;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.prometheusmetrics.PrometheusConfig;
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
@@ -21,10 +24,13 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class ComposeBenchmarkRunner {
     private final DatasetGenerator generator;
     private final CsvExporter csvExporter;
+    private final TpchGenerator tpchGenerator;
+    private final TpchCsvExport tpchCsvExport;
     private final SparkClient sparkClient;
     private final StarRocksClientFacade starRocksClient;
     private final ReportWriter reportWriter;
@@ -34,6 +40,8 @@ public class ComposeBenchmarkRunner {
         this(
             new KpiDataGenerator()::generate,
             new StarRocksCsvExporter()::export,
+            new TpchDataGenerator()::generate,
+            new TpchCsvExporter()::export,
             new SparkClientAdapter(new SparkIcebergClient()),
             new StarRocksClientAdapter(new StarRocksClient()),
             new HtmlReportWriter()::write,
@@ -44,16 +52,20 @@ public class ComposeBenchmarkRunner {
     ComposeBenchmarkRunner(
         DatasetGenerator generator,
         CsvExporter csvExporter,
+        TpchGenerator tpchGenerator,
+        TpchCsvExport tpchCsvExport,
         SparkClient sparkClient,
         StarRocksClientFacade starRocksClient,
         ReportWriter reportWriter
     ) {
-        this(generator, csvExporter, sparkClient, starRocksClient, reportWriter, MetricsRecorder.noop());
+        this(generator, csvExporter, tpchGenerator, tpchCsvExport, sparkClient, starRocksClient, reportWriter, MetricsRecorder.noop());
     }
 
     ComposeBenchmarkRunner(
         DatasetGenerator generator,
         CsvExporter csvExporter,
+        TpchGenerator tpchGenerator,
+        TpchCsvExport tpchCsvExport,
         SparkClient sparkClient,
         StarRocksClientFacade starRocksClient,
         ReportWriter reportWriter,
@@ -61,6 +73,8 @@ public class ComposeBenchmarkRunner {
     ) {
         this.generator = generator;
         this.csvExporter = csvExporter;
+        this.tpchGenerator = tpchGenerator;
+        this.tpchCsvExport = tpchCsvExport;
         this.sparkClient = sparkClient;
         this.starRocksClient = starRocksClient;
         this.reportWriter = reportWriter;
@@ -77,6 +91,10 @@ public class ComposeBenchmarkRunner {
 
         metricsRecorder.start();
         try {
+            if ("tpch".equals(config.suite().name())) {
+                return runTpch(config, reportRoot, actualRunId, started, loadResults, queryResults);
+            }
+
             long generateStarted = System.nanoTime();
             try {
                 dataset = generator.generate(config);
@@ -109,7 +127,16 @@ public class ComposeBenchmarkRunner {
             }
 
             recordMetrics(actualRunId, config.profile(), loadResults, queryResults);
-            BenchmarkReport report = buildReport(config, actualRunId, started, Instant.now(), dataset, loadResults, queryResults);
+            BenchmarkReport report = buildReport(
+                config,
+                actualRunId,
+                started,
+                Instant.now(),
+                dataset == null ? 0L : dataset.rows(),
+                dataset == null ? 0L : dataset.bytesWritten(),
+                loadResults,
+                queryResults
+            );
             Path reportPath = reportWriter.write(report, reportRoot);
             return new ComposeRunResult(dataset, csvPath, reportPath, report.status().equals("SUCCESS"));
         } finally {
@@ -117,17 +144,74 @@ public class ComposeBenchmarkRunner {
         }
     }
 
+    private ComposeRunResult runTpch(
+        BenchmarkConfig config,
+        Path reportRoot,
+        String runId,
+        Instant started,
+        List<EngineRunResult> loadResults,
+        List<EngineRunResult> queryResults
+    ) throws Exception {
+        TpchDatasetResult dataset = null;
+        Path csvPath = null;
+
+        long generateStarted = System.nanoTime();
+        try {
+            dataset = tpchGenerator.generate(config, runId);
+            loadResults.add(new EngineRunResult(
+                "local",
+                "tpch_generated_parquet",
+                EngineStage.GENERATE.name(),
+                null,
+                dataset.rows(),
+                dataset.bytesWritten(),
+                elapsedSeconds(generateStarted),
+                true,
+                ""
+            ));
+        } catch (Exception exception) {
+            loadResults.add(failed("local", "tpch_generated_parquet", EngineStage.GENERATE.name(), exception));
+        }
+
+        if (dataset != null) {
+            try {
+                Map<String, Path> csvFiles = tpchCsvExport.export(dataset);
+                csvPath = dataset.outputPath().resolve("csv");
+                loadResults.add(sparkClient.loadTpch(dataset, runId, config.profile()));
+                loadResults.add(starRocksClient.loadTpchInternal(csvFiles, dataset, runId, config.profile()));
+                loadResults.add(starRocksClient.refreshTpchExternalCatalog(runId, config.profile()));
+                queryResults.addAll(sparkClient.runTpchQueries(runId, config.profile(), config.suite().querySet()));
+                queryResults.addAll(starRocksClient.runTpchQueries(runId, config.profile(), config.suite().querySet()));
+            } catch (Exception exception) {
+                loadResults.add(failed("compose", "tpch_prepare", "compose_prepare", exception));
+            }
+        }
+
+        recordMetrics(runId, config.profile(), loadResults, queryResults);
+        BenchmarkReport report = buildReport(
+            config,
+            runId,
+            started,
+            Instant.now(),
+            dataset == null ? 0L : dataset.rows(),
+            dataset == null ? 0L : dataset.bytesWritten(),
+            loadResults,
+            queryResults
+        );
+        Path reportPath = reportWriter.write(report, reportRoot);
+        return new ComposeRunResult(null, csvPath, reportPath, report.status().equals("SUCCESS"));
+    }
+
     private BenchmarkReport buildReport(
         BenchmarkConfig config,
         String runId,
         Instant started,
         Instant ended,
-        DatasetResult dataset,
+        long rows,
+        long bytes,
         List<EngineRunResult> loadResults,
         List<EngineRunResult> queryResults
     ) {
-        long rows = dataset == null ? 0L : dataset.rows();
-        long bytes = dataset == null ? 0L : dataset.bytesWritten();
         return new BenchmarkReport(
             runId,
             config.profile(),
@@ -222,10 +306,26 @@ public class ComposeBenchmarkRunner {
         Path export(DatasetResult dataset, Path outputDir) throws Exception;
     }
 
+    interface TpchGenerator {
+        TpchDatasetResult generate(BenchmarkConfig config, String runId) throws Exception;
+    }
+
+    interface TpchCsvExport {
+        Map<String, Path> export(TpchDatasetResult dataset) throws Exception;
+    }
+
     interface SparkClient {
         EngineRunResult load(DatasetResult dataset, String runId, String profile);
 
         List<EngineRunResult> runQueries(String runId, String profile);
+
+        default EngineRunResult loadTpch(TpchDatasetResult dataset, String runId, String profile) {
+            throw new UnsupportedOperationException("TPC-H load not implemented");
+        }
+
+        default List<EngineRunResult> runTpchQueries(String runId, String profile, String querySet) {
+            throw new UnsupportedOperationException("TPC-H queries not implemented");
+        }
     }
 
     interface StarRocksClientFacade {
@@ -234,6 +334,23 @@ public class ComposeBenchmarkRunner {
         EngineRunResult refreshExternalCatalog(String runId, String profile);
 
         List<EngineRunResult> runQueries(String runId, String profile);
+
+        default EngineRunResult loadTpchInternal(
+            Map<String, Path> csvFiles,
+            TpchDatasetResult dataset,
+            String runId,
+            String profile
+        ) {
+            throw new UnsupportedOperationException("TPC-H internal load not implemented");
+        }
+
+        default EngineRunResult refreshTpchExternalCatalog(String runId, String profile) {
+            throw new UnsupportedOperationException("TPC-H external refresh not implemented");
+        }
+
+        default List<EngineRunResult> runTpchQueries(String runId, String profile, String querySet) {
+            throw new UnsupportedOperationException("TPC-H queries not implemented");
+        }
     }
 
     interface ReportWriter {
@@ -277,6 +394,16 @@ public class ComposeBenchmarkRunner {
         public List<EngineRunResult> runQueries(String runId, String profile) {
             return delegate.runQueries(runId, profile);
         }
+
+        @Override
+        public EngineRunResult loadTpch(TpchDatasetResult dataset, String runId, String profile) {
+            return delegate.loadTpch(dataset, runId, profile);
+        }
+
+        @Override
+        public List<EngineRunResult> runTpchQueries(String runId, String profile, String querySet) {
+            return delegate.runTpchQueries(runId, profile, querySet);
+        }
     }
 
     private record StarRocksClientAdapter(StarRocksClient delegate) implements StarRocksClientFacade {
@@ -293,6 +420,26 @@ public class ComposeBenchmarkRunner {
         @Override
         public List<EngineRunResult> runQueries(String runId, String profile) {
             return delegate.runQueries(runId, profile);
+        }
+
+        @Override
+        public EngineRunResult loadTpchInternal(
+            Map<String, Path> csvFiles,
+            TpchDatasetResult dataset,
+            String runId,
+            String profile
+        ) {
+            return delegate.loadTpchInternal(csvFiles, dataset, runId, profile);
+        }
+
+        @Override
+        public EngineRunResult refreshTpchExternalCatalog(String runId, String profile) {
+            return delegate.refreshTpchExternalCatalog(runId, profile);
+        }
+
+        @Override
+        public List<EngineRunResult> runTpchQueries(String runId, String profile, String querySet) {
+            return delegate.runTpchQueries(runId, profile, querySet);
         }
     }
 
