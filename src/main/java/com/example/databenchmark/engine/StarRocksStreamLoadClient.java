@@ -40,6 +40,10 @@ public class StarRocksStreamLoadClient {
         return send(new StreamLoadRequest(url, headers(label), csv));
     }
 
+    public StreamLoadResult loadCsv(Path csv, String database, String table, String label) {
+        return send(new StreamLoadRequest(streamLoadUrl(database, table), headers(label), csv));
+    }
+
     protected StreamLoadResult send(StreamLoadRequest request) {
         long started = System.nanoTime();
         try {
@@ -72,6 +76,16 @@ public class StarRocksStreamLoadClient {
         headers.put("enclose", "\"");
         headers.put("format", "csv");
         return headers;
+    }
+
+    private URI streamLoadUrl(String database, String table) {
+        return URI.create("%s://%s:%d/api/%s/%s/_stream_load".formatted(
+            url.getScheme(),
+            url.getHost(),
+            url.getPort(),
+            database,
+            table
+        ));
     }
 
     private static double elapsedSeconds(long startedNanos) {

@@ -3,6 +3,7 @@ package com.example.databenchmark.engine;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.databenchmark.generator.DatasetResult;
+import com.example.databenchmark.tpch.TestTpchFixtures;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -113,6 +114,40 @@ class SparkIcebergClientTest {
         assertThat(runner.commands().get(0)).contains("org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1");
         assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
             .contains("SELECT COUNT(*) FROM iceberg_catalog.iceberg_db.cell_kpi_1min");
+    }
+
+    @Test
+    void tpchLoadCreatesAndInsertsEachTable() {
+        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "ok", "", 1.25));
+        Path workspace = tempDir.resolve("workspace");
+
+        EngineRunResult result = new SparkIcebergClient(runner, workspace, Duration.ofMinutes(1))
+            .loadTpch(TestTpchFixtures.dataset(workspace.resolve("tpch-run")), "run", "tpch-smoke");
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.rows()).isEqualTo(8);
+        assertThat(runner.commands()).hasSize(1);
+        String sql = runner.commands().get(0).get(runner.commands().get(0).size() - 1);
+        assertThat(sql).contains("iceberg_catalog.tpch.lineitem");
+        assertThat(sql).contains("/workspace/tpch-run/lineitem/part-00000.parquet");
+    }
+
+    @Test
+    void tpchQueriesRenderSparkTables() {
+        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "rows", "", 0.5));
+
+        List<EngineRunResult> results = new SparkIcebergClient(runner).runTpchQueries("run", "tpch-smoke", "smoke");
+
+        assertThat(results).hasSize(4).allSatisfy(result -> {
+            assertThat(result.success()).isTrue();
+            assertThat(result.tableShape()).isEqualTo("tpch_iceberg");
+        });
+        assertThat(runner.commands()).hasSize(4);
+        assertThat(runner.commands())
+            .anySatisfy(command -> assertThat(command.get(command.size() - 1))
+                .contains("iceberg_catalog.tpch.customer")
+                .contains("iceberg_catalog.tpch.orders")
+                .contains("iceberg_catalog.tpch.lineitem"));
     }
 
     private static final class FakeCommandRunner extends CommandRunner {

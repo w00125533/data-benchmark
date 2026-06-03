@@ -2,6 +2,8 @@ package com.example.databenchmark.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.databenchmark.tpch.TestTpchFixtures;
+import com.example.databenchmark.tpch.TpchSchema;
 import java.net.http.HttpRequest;
 import java.net.URI;
 import java.nio.file.Files;
@@ -78,6 +80,18 @@ class StarRocksClientTest {
         HttpRequest request = streamLoad.buildRequest(streamLoad.request());
         assertThat(request.headers().firstValue("row_delimiter")).contains("\\n");
         assertThat(request.headers().firstValue("enclose")).contains("\"");
+    }
+
+    @Test
+    void streamLoadBuildsPerTableUrl() {
+        CapturingStreamLoadClient streamLoad = new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        );
+
+        streamLoad.loadCsv(Path.of("lineitem.csv"), "sr_internal_tpch", "lineitem", "label");
+
+        assertThat(streamLoad.request().url())
+            .isEqualTo(URI.create("http://localhost:8040/api/sr_internal_tpch/lineitem/_stream_load"));
     }
 
     @Test
@@ -201,6 +215,42 @@ class StarRocksClientTest {
         assertThat(jdbc.sql()).anySatisfy(sql -> assertThat(sql).contains("sr_external_iceberg.iceberg_db.cell_kpi_1min"));
     }
 
+    @Test
+    void tpchLoadCreatesTablesAndStreamsEachCsv() {
+        FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
+        CapturingStreamLoadClient streamLoad = new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        );
+        var dataset = TestTpchFixtures.dataset(tempDir.resolve("tpch-run"));
+
+        EngineRunResult result = new StarRocksClient(jdbc, streamLoad)
+            .loadTpchInternal(TestTpchFixtures.csvFiles(dataset), dataset, "run", "tpch-smoke");
+
+        assertThat(result.success()).isTrue();
+        assertThat(jdbc.sql()).contains("CREATE DATABASE IF NOT EXISTS sr_internal_tpch;");
+        assertThat(jdbc.sql()).anySatisfy(sql -> assertThat(sql).contains("CREATE TABLE IF NOT EXISTS sr_internal_tpch.lineitem"));
+        assertThat(streamLoad.requests()).hasSize(TpchSchema.tables().size());
+        assertThat(streamLoad.requests())
+            .extracting(request -> request.url().toString())
+            .anyMatch(url -> url.endsWith("/api/sr_internal_tpch/lineitem/_stream_load"));
+        assertThat(streamLoad.requests())
+            .extracting(request -> request.url().toString())
+            .allSatisfy(url -> assertThat(url).contains("/api/sr_internal_tpch/"));
+    }
+
+    @Test
+    void tpchQueriesRenderInternalAndExternalTables() {
+        FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
+
+        List<EngineRunResult> results = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        )).runTpchQueries("run", "tpch-smoke", "smoke");
+
+        assertThat(results).hasSize(8).allSatisfy(result -> assertThat(result.success()).isTrue());
+        assertThat(jdbc.sql()).anySatisfy(sql -> assertThat(sql).contains("sr_internal_tpch.lineitem"));
+        assertThat(jdbc.sql()).anySatisfy(sql -> assertThat(sql).contains("sr_external_iceberg.tpch.lineitem"));
+    }
+
     private static final class FakeJdbcExecutor extends JdbcExecutor {
         private final List<String> sql = new ArrayList<>();
         private SQLException failure;
@@ -231,6 +281,7 @@ class StarRocksClientTest {
 
     private static final class CapturingStreamLoadClient extends StarRocksStreamLoadClient {
         private final StreamLoadResult result;
+        private final List<StreamLoadRequest> requests = new ArrayList<>();
         private StreamLoadRequest request;
 
         private CapturingStreamLoadClient(StreamLoadResult result) {
@@ -240,11 +291,16 @@ class StarRocksClientTest {
         @Override
         protected StreamLoadResult send(StreamLoadRequest request) {
             this.request = request;
+            this.requests.add(request);
             return result;
         }
 
         private StreamLoadRequest request() {
             return request;
+        }
+
+        private List<StreamLoadRequest> requests() {
+            return requests;
         }
     }
 }

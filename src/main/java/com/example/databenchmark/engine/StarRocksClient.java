@@ -1,11 +1,17 @@
 package com.example.databenchmark.engine;
 
 import com.example.databenchmark.query.QueryCatalog;
+import com.example.databenchmark.tpch.TpchDatasetResult;
+import com.example.databenchmark.tpch.TpchQueryCatalog;
+import com.example.databenchmark.tpch.TpchSchema;
+import com.example.databenchmark.tpch.TpchSqlRenderer;
+import com.example.databenchmark.tpch.TpchSqlTemplates;
 import java.nio.file.Path;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class StarRocksClient {
     private final JdbcExecutor jdbcExecutor;
@@ -83,11 +89,135 @@ public class StarRocksClient {
         return results;
     }
 
+    public EngineRunResult loadTpchInternal(
+        Map<String, Path> csvFiles,
+        TpchDatasetResult dataset,
+        String runId,
+        String profile
+    ) {
+        double durationSeconds = 0.0;
+        try {
+            durationSeconds += jdbcExecutor.execute(TpchSqlTemplates.starRocksCreateDatabase()).durationSeconds();
+            for (var table : TpchSchema.tables()) {
+                Path csv = csvFiles.get(table.name());
+                if (csv == null) {
+                    return failed(
+                        "tpch_internal",
+                        EngineStage.STARROCKS_INTERNAL_LOAD.name(),
+                        null,
+                        durationSeconds,
+                        "Missing TPC-H CSV path for table: " + table.name()
+                    );
+                }
+                durationSeconds += jdbcExecutor.execute(TpchSqlTemplates.starRocksCreateInternalTable(table)).durationSeconds();
+                StarRocksStreamLoadClient.StreamLoadResult load = streamLoadClient.loadCsv(
+                    csv,
+                    "sr_internal_tpch",
+                    table.name(),
+                    runId + "_" + table.name() + "_" + Instant.now().toEpochMilli()
+                );
+                durationSeconds += load.durationSeconds();
+                if (!load.success()) {
+                    return failed(
+                        "tpch_internal",
+                        EngineStage.STARROCKS_INTERNAL_LOAD.name(),
+                        null,
+                        durationSeconds,
+                        "stream_load failed for table %s: HTTP %d body: %s".formatted(
+                            table.name(),
+                            load.statusCode(),
+                            load.body()
+                        )
+                    );
+                }
+            }
+        } catch (SQLException e) {
+            return failed(
+                "tpch_internal",
+                EngineStage.STARROCKS_INTERNAL_LOAD.name(),
+                null,
+                durationSeconds,
+                "tpch_internal_load failed: " + e.getMessage()
+            );
+        }
+
+        return new EngineRunResult(
+            "starrocks",
+            "tpch_internal",
+            EngineStage.STARROCKS_INTERNAL_LOAD.name(),
+            null,
+            dataset.rows(),
+            dataset.bytesWritten(),
+            durationSeconds,
+            true,
+            ""
+        );
+    }
+
+    public EngineRunResult refreshTpchExternalCatalog(String runId, String profile) {
+        double durationSeconds = 0.0;
+        try {
+            durationSeconds += jdbcExecutor.execute(SqlTemplates.starRocksCreateExternalCatalog()).durationSeconds();
+            for (var table : TpchSchema.tables()) {
+                durationSeconds += jdbcExecutor.execute(TpchSqlTemplates.starRocksRefreshExternalTable(table)).durationSeconds();
+            }
+            return new EngineRunResult(
+                "starrocks",
+                "tpch_external_iceberg",
+                EngineStage.STARROCKS_EXTERNAL_REFRESH.name(),
+                null,
+                0,
+                0,
+                durationSeconds,
+                true,
+                ""
+            );
+        } catch (SQLException e) {
+            return failed(
+                "tpch_external_iceberg",
+                EngineStage.STARROCKS_EXTERNAL_REFRESH.name(),
+                null,
+                durationSeconds,
+                "refresh_tpch_external_catalog failed: " + e.getMessage()
+            );
+        }
+    }
+
+    public List<EngineRunResult> runTpchQueries(String runId, String profile, String querySet) {
+        List<EngineRunResult> results = new ArrayList<>();
+        results.addAll(runTpchQueriesFor("starrocks_internal", "tpch_internal", querySet));
+        results.addAll(runTpchQueriesFor("starrocks_external_iceberg", "tpch_external_iceberg", querySet));
+        return results;
+    }
+
     private List<EngineRunResult> runQueriesFor(String tableShape) {
         List<EngineRunResult> results = new ArrayList<>();
         for (var query : QueryCatalog.queries()) {
             try {
                 JdbcExecutionResult result = jdbcExecutor.query(SqlRenderer.render(query.name(), tableShape));
+                results.add(new EngineRunResult(
+                    "starrocks",
+                    tableShape,
+                    EngineStage.QUERY.name(),
+                    query.name(),
+                    result.rows(),
+                    0,
+                    result.durationSeconds(),
+                    true,
+                    ""
+                ));
+            } catch (SQLException e) {
+                results.add(failed(tableShape, EngineStage.QUERY.name(), query.name(), 0.0, e.getMessage()));
+            }
+        }
+        return results;
+    }
+
+    private List<EngineRunResult> runTpchQueriesFor(String engineKey, String tableShape, String querySet) {
+        List<EngineRunResult> results = new ArrayList<>();
+        for (var query : TpchQueryCatalog.queries(querySet)) {
+            try {
+                JdbcExecutionResult result = jdbcExecutor.query(TpchSqlRenderer.render(query.name(), engineKey));
                 results.add(new EngineRunResult(
                     "starrocks",
                     tableShape,

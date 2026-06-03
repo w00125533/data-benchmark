@@ -3,10 +3,16 @@ package com.example.databenchmark.engine;
 import com.example.databenchmark.generator.DatasetResult;
 import com.example.databenchmark.query.QueryCatalog;
 import com.example.databenchmark.schema.KpiSchema;
+import com.example.databenchmark.tpch.TpchDatasetResult;
+import com.example.databenchmark.tpch.TpchQueryCatalog;
+import com.example.databenchmark.tpch.TpchSchema;
+import com.example.databenchmark.tpch.TpchSqlRenderer;
+import com.example.databenchmark.tpch.TpchSqlTemplates;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.StringJoiner;
 
 public class SparkIcebergClient {
     private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(10);
@@ -87,6 +93,58 @@ public class SparkIcebergClient {
                 ));
             } else {
                 results.add(failed("spark_iceberg", EngineStage.QUERY.name(), query.name(), command));
+            }
+        }
+        return results;
+    }
+
+    public EngineRunResult loadTpch(TpchDatasetResult dataset, String runId, String profile) {
+        StringJoiner sql = new StringJoiner("\n");
+        sql.add(TpchSqlTemplates.sparkCreateDatabase());
+        try {
+            for (var table : TpchSchema.tables()) {
+                String parquetPath = toWorkspacePath(dataset.table(table.name()).parquetPath());
+                sql.add(TpchSqlTemplates.sparkCreateTable(table));
+                sql.add(TpchSqlTemplates.sparkInsertFromParquet(table, parquetPath));
+            }
+        } catch (IllegalArgumentException e) {
+            return failed("tpch_iceberg", EngineStage.SPARK_ICEBERG_LOAD.name(), null, e.getMessage());
+        }
+        CommandResult command = runSparkSql(sql.toString());
+        if (command.exitCode() != 0) {
+            return failed("tpch_iceberg", EngineStage.SPARK_ICEBERG_LOAD.name(), null, command);
+        }
+        return new EngineRunResult(
+            "spark",
+            "tpch_iceberg",
+            EngineStage.SPARK_ICEBERG_LOAD.name(),
+            null,
+            dataset.rows(),
+            dataset.bytesWritten(),
+            command.durationSeconds(),
+            true,
+            ""
+        );
+    }
+
+    public List<EngineRunResult> runTpchQueries(String runId, String profile, String querySet) {
+        List<EngineRunResult> results = new ArrayList<>();
+        for (var query : TpchQueryCatalog.queries(querySet)) {
+            CommandResult command = runSparkSql(TpchSqlRenderer.render(query.name(), "spark_iceberg"));
+            if (command.exitCode() == 0) {
+                results.add(new EngineRunResult(
+                    "spark",
+                    "tpch_iceberg",
+                    EngineStage.QUERY.name(),
+                    query.name(),
+                    0,
+                    0,
+                    command.durationSeconds(),
+                    true,
+                    ""
+                ));
+            } else {
+                results.add(failed("tpch_iceberg", EngineStage.QUERY.name(), query.name(), command));
             }
         }
         return results;
