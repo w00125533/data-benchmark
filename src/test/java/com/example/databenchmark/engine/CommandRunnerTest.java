@@ -35,6 +35,7 @@ class CommandRunnerTest {
 
         assertThat(result.exitCode()).isEqualTo(-1);
         assertThat(result.stderr()).contains("Timed out");
+        assertThat(result.durationSeconds()).isLessThan(3.0);
     }
 
     private static List<String> command(String powershell, String sh) {

@@ -41,7 +41,7 @@ class StarRocksClientTest {
     void loadInternalCreatesTableAndStreamsCsv() {
         FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
         CapturingStreamLoadClient streamLoad = new CapturingStreamLoadClient(
-            new StarRocksStreamLoadClient.StreamLoadResult(200, "ok", 0.25)
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
         );
 
         EngineRunResult result = new StarRocksClient(jdbc, streamLoad).loadInternal(Path.of("load.csv"), "run-1", "smoke");
@@ -57,10 +57,11 @@ class StarRocksClientTest {
         jdbc.failure = new SQLException("create failed");
 
         EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
-            new StarRocksStreamLoadClient.StreamLoadResult(200, "ok", 0.25)
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
         )).loadInternal(Path.of("load.csv"), "run-1", "smoke");
 
         assertThat(result.success()).isFalse();
+        assertThat(result.error()).startsWith("create_internal_table failed:");
         assertThat(result.error()).contains("create failed");
     }
 
@@ -71,7 +72,34 @@ class StarRocksClientTest {
         )).loadInternal(Path.of("load.csv"), "run-1", "smoke");
 
         assertThat(result.success()).isFalse();
+        assertThat(result.error()).contains("stream_load failed:");
+        assertThat(result.error()).contains("HTTP 500");
         assertThat(result.error()).contains("stream failed");
+    }
+
+    @Test
+    void httpOkWithFailedStreamLoadStatusBecomesFailedEngineResult() {
+        String body = "{\"Status\":\"Fail\",\"Message\":\"bad\"}";
+
+        EngineRunResult result = new StarRocksClient(new FakeJdbcExecutor(), new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, body, 0.25)
+        )).loadInternal(Path.of("load.csv"), "run-1", "smoke");
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.error()).contains("stream_load failed:");
+        assertThat(result.error()).contains("HTTP 200");
+        assertThat(result.error()).contains("Fail");
+        assertThat(result.error()).contains("bad");
+        assertThat(result.error()).contains(body);
+    }
+
+    @Test
+    void httpOkWithSuccessStreamLoadStatusIsSuccessful() {
+        EngineRunResult result = new StarRocksClient(new FakeJdbcExecutor(), new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        )).loadInternal(Path.of("load.csv"), "run-1", "smoke");
+
+        assertThat(result.success()).isTrue();
     }
 
     @Test
@@ -79,7 +107,7 @@ class StarRocksClientTest {
         FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
 
         EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
-            new StarRocksStreamLoadClient.StreamLoadResult(200, "ok", 0.25)
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
         )).refreshExternalCatalog("run-1", "smoke");
 
         assertThat(result.success()).isTrue();
@@ -89,11 +117,40 @@ class StarRocksClientTest {
     }
 
     @Test
+    void refreshExternalCatalogReportsCreateCatalogFailureContext() {
+        FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
+        jdbc.failure = new SQLException("catalog failed");
+
+        EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        )).refreshExternalCatalog("run-1", "smoke");
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.error()).startsWith("create_external_catalog failed:");
+        assertThat(result.error()).contains("catalog failed");
+    }
+
+    @Test
+    void refreshExternalCatalogReportsRefreshFailureContext() {
+        FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
+        jdbc.failOnSql = SqlTemplates.starRocksRefreshExternalCatalog();
+        jdbc.failure = new SQLException("refresh failed");
+
+        EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        )).refreshExternalCatalog("run-1", "smoke");
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.error()).startsWith("refresh_external_catalog failed:");
+        assertThat(result.error()).contains("refresh failed");
+    }
+
+    @Test
     void runQueriesRendersInternalAndExternalStarRocksQueries() {
         FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
 
         List<EngineRunResult> results = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
-            new StarRocksStreamLoadClient.StreamLoadResult(200, "ok", 0.25)
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
         )).runQueries("run-1", "smoke");
 
         assertThat(results).hasSize(20).allSatisfy(result -> assertThat(result.success()).isTrue());
@@ -104,11 +161,12 @@ class StarRocksClientTest {
     private static final class FakeJdbcExecutor extends JdbcExecutor {
         private final List<String> sql = new ArrayList<>();
         private SQLException failure;
+        private String failOnSql;
 
         @Override
         public JdbcExecutionResult execute(String sql) throws SQLException {
             this.sql.add(sql);
-            if (failure != null) {
+            if (failure != null && (failOnSql == null || failOnSql.equals(sql))) {
                 throw failure;
             }
             return new JdbcExecutionResult(0, 0.1);
@@ -117,7 +175,7 @@ class StarRocksClientTest {
         @Override
         public JdbcExecutionResult query(String sql) throws SQLException {
             this.sql.add(sql);
-            if (failure != null) {
+            if (failure != null && (failOnSql == null || failOnSql.equals(sql))) {
                 throw failure;
             }
             return new JdbcExecutionResult(3, 0.2);

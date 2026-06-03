@@ -29,9 +29,15 @@ public class SparkIcebergClient {
     }
 
     public EngineRunResult load(DatasetResult dataset, String runId, String profile) {
+        String workspacePath;
+        try {
+            workspacePath = toWorkspacePath(dataset.outputPath());
+        } catch (IllegalArgumentException e) {
+            return failed("spark_iceberg", EngineStage.SPARK_ICEBERG_LOAD.name(), null, e.getMessage());
+        }
         String sql = SqlTemplates.sparkCreateIcebergTable()
             + "\n"
-            + SqlTemplates.sparkInsertFromParquet(toWorkspacePath(dataset.outputPath()));
+            + SqlTemplates.sparkInsertFromParquet(workspacePath);
         CommandResult command = runSparkSql(sql);
         if (command.exitCode() != 0) {
             return failed("spark_iceberg", EngineStage.SPARK_ICEBERG_LOAD.name(), null, command);
@@ -106,15 +112,27 @@ public class SparkIcebergClient {
         );
     }
 
-    private static String toWorkspacePath(Path path) {
-        String normalized = path.toString().replace('\\', '/');
-        int dataIndex = normalized.indexOf("data/");
-        if (dataIndex >= 0) {
-            return "/workspace/" + normalized.substring(dataIndex);
+    private static EngineRunResult failed(String tableShape, String stage, String queryName, String error) {
+        return new EngineRunResult(
+            "spark",
+            tableShape,
+            stage,
+            queryName,
+            0,
+            0,
+            0.0,
+            false,
+            error
+        );
+    }
+
+    private String toWorkspacePath(Path path) {
+        Path workspace = workingDirectory.toAbsolutePath().normalize();
+        Path output = path.toAbsolutePath().normalize();
+        if (!output.startsWith(workspace)) {
+            throw new IllegalArgumentException("Dataset output path is outside workspace: " + output);
         }
-        if (normalized.startsWith("/")) {
-            return "/workspace" + normalized;
-        }
-        return "/workspace/" + normalized;
+        String relative = workspace.relativize(output).toString().replace('\\', '/');
+        return relative.isEmpty() ? "/workspace" : "/workspace/" + relative;
     }
 }

@@ -7,9 +7,13 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.TimeUnit;
 
 public class CommandRunner {
+    private static final Duration SHUTDOWN_TIMEOUT = Duration.ofSeconds(2);
+
     public CommandResult run(List<String> command, Path workingDirectory, Duration timeout)
         throws IOException, InterruptedException {
         long started = System.nanoTime();
@@ -25,9 +29,9 @@ public class CommandRunner {
         boolean finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
         if (!finished) {
             process.destroyForcibly();
-            process.waitFor();
-            String capturedStdout = stdout.join();
-            String capturedStderr = appendLine(stderr.join(), "Timed out after " + timeout.toMillis() + " ms");
+            process.waitFor(SHUTDOWN_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+            String capturedStdout = safeGet(stdout);
+            String capturedStderr = appendLine(safeGet(stderr), "Timed out after " + timeout.toMillis() + " ms");
             return new CommandResult(command, -1, capturedStdout, capturedStderr, elapsedSeconds(started));
         }
 
@@ -42,6 +46,17 @@ public class CommandRunner {
                 return e.getMessage();
             }
         });
+    }
+
+    private static String safeGet(CompletableFuture<String> future) {
+        try {
+            return future.get(SHUTDOWN_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return "";
+        } catch (ExecutionException | TimeoutException e) {
+            return "";
+        }
     }
 
     private static String appendLine(String existing, String line) {

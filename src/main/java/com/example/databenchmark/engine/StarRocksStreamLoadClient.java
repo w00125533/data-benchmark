@@ -1,11 +1,14 @@
 package com.example.databenchmark.engine;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -14,6 +17,7 @@ import java.util.Map;
 public class StarRocksStreamLoadClient {
     private static final URI DEFAULT_URL =
         URI.create("http://localhost:8030/api/sr_internal/cell_kpi_1min/_stream_load");
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final HttpClient httpClient;
     private final URI url;
@@ -54,7 +58,8 @@ public class StarRocksStreamLoadClient {
 
     private Map<String, String> headers(String label) {
         Map<String, String> headers = new LinkedHashMap<>();
-        headers.put("Authorization", "Basic " + Base64.getEncoder().encodeToString((user + ":" + password).getBytes()));
+        headers.put("Authorization", "Basic " + Base64.getEncoder()
+            .encodeToString((user + ":" + password).getBytes(StandardCharsets.UTF_8)));
         headers.put("label", label);
         headers.put("column_separator", ",");
         headers.put("format", "csv");
@@ -69,7 +74,15 @@ public class StarRocksStreamLoadClient {
 
     public record StreamLoadResult(int statusCode, String body, double durationSeconds) {
         public boolean success() {
-            return statusCode >= 200 && statusCode < 300;
+            if (statusCode < 200 || statusCode >= 300) {
+                return false;
+            }
+            try {
+                JsonNode status = MAPPER.readTree(body).get("Status");
+                return status != null && "Success".equalsIgnoreCase(status.asText());
+            } catch (IOException e) {
+                return false;
+            }
         }
     }
 }

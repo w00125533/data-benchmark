@@ -21,33 +21,43 @@ public class StarRocksClient {
     }
 
     public EngineRunResult loadInternal(Path csv, String runId, String profile) {
+        JdbcExecutionResult ddl;
         try {
-            JdbcExecutionResult ddl = jdbcExecutor.execute(SqlTemplates.starRocksCreateInternalTable());
-            StarRocksStreamLoadClient.StreamLoadResult load =
-                streamLoadClient.loadCsv(csv, runId + "_" + Instant.now().toEpochMilli());
-            if (!load.success()) {
-                return failed("starrocks_internal", EngineStage.STARROCKS_INTERNAL_LOAD.name(), null,
-                    load.durationSeconds(), "Stream Load failed: HTTP " + load.statusCode() + " " + load.body());
-            }
-            return new EngineRunResult(
-                "starrocks",
-                "starrocks_internal",
-                EngineStage.STARROCKS_INTERNAL_LOAD.name(),
-                null,
-                0,
-                0,
-                ddl.durationSeconds() + load.durationSeconds(),
-                true,
-                ""
-            );
+            ddl = jdbcExecutor.execute(SqlTemplates.starRocksCreateInternalTable());
         } catch (SQLException e) {
-            return failed("starrocks_internal", EngineStage.STARROCKS_INTERNAL_LOAD.name(), null, 0.0, e.getMessage());
+            return failed("starrocks_internal", EngineStage.STARROCKS_INTERNAL_LOAD.name(), null, 0.0,
+                "create_internal_table failed: " + e.getMessage());
         }
+
+        StarRocksStreamLoadClient.StreamLoadResult load =
+            streamLoadClient.loadCsv(csv, runId + "_" + Instant.now().toEpochMilli());
+        if (!load.success()) {
+            return failed("starrocks_internal", EngineStage.STARROCKS_INTERNAL_LOAD.name(), null,
+                load.durationSeconds(), "stream_load failed: HTTP " + load.statusCode() + " body: " + load.body());
+        }
+        return new EngineRunResult(
+            "starrocks",
+            "starrocks_internal",
+            EngineStage.STARROCKS_INTERNAL_LOAD.name(),
+            null,
+            0,
+            0,
+            ddl.durationSeconds() + load.durationSeconds(),
+            true,
+            ""
+        );
     }
 
     public EngineRunResult refreshExternalCatalog(String runId, String profile) {
+        JdbcExecutionResult create;
         try {
-            JdbcExecutionResult create = jdbcExecutor.execute(SqlTemplates.starRocksCreateExternalCatalog());
+            create = jdbcExecutor.execute(SqlTemplates.starRocksCreateExternalCatalog());
+        } catch (SQLException e) {
+            return failed("starrocks_external_iceberg", EngineStage.STARROCKS_EXTERNAL_REFRESH.name(), null, 0.0,
+                "create_external_catalog failed: " + e.getMessage());
+        }
+
+        try {
             JdbcExecutionResult refresh = jdbcExecutor.execute(SqlTemplates.starRocksRefreshExternalCatalog());
             return new EngineRunResult(
                 "starrocks",
@@ -62,7 +72,7 @@ public class StarRocksClient {
             );
         } catch (SQLException e) {
             return failed("starrocks_external_iceberg", EngineStage.STARROCKS_EXTERNAL_REFRESH.name(), null, 0.0,
-                e.getMessage());
+                "refresh_external_catalog failed: " + e.getMessage());
         }
     }
 
