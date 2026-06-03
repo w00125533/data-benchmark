@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.databenchmark.generator.DatasetResult;
 import com.example.databenchmark.tpch.TestTpchFixtures;
+import com.example.databenchmark.tpch.TpchSqlTemplates;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -126,10 +127,31 @@ class SparkIcebergClientTest {
 
         assertThat(result.success()).isTrue();
         assertThat(result.rows()).isEqualTo(8);
-        assertThat(runner.commands()).hasSize(1);
-        String sql = runner.commands().get(0).get(runner.commands().get(0).size() - 1);
-        assertThat(sql).contains("iceberg_catalog.tpch.lineitem");
-        assertThat(sql).contains("/workspace/tpch-run/lineitem/part-00000.parquet");
+        assertThat(runner.commands()).hasSize(9);
+        assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
+            .isEqualTo(TpchSqlTemplates.sparkCreateDatabase());
+        assertThat(runner.commands())
+            .extracting(command -> command.get(command.size() - 1))
+            .anySatisfy(sql -> assertThat(sql)
+                .contains("iceberg_catalog.tpch.lineitem")
+                .contains("/workspace/tpch-run/lineitem/part-00000.parquet"));
+    }
+
+    @Test
+    void tpchLoadFailureIncludesTableName() {
+        Path workspace = tempDir.resolve("workspace");
+        FakeCommandRunner runner = new FakeCommandRunner(
+            "iceberg_catalog.tpch.lineitem",
+            new CommandResult(List.of(), 1, "lineitem stdout", "lineitem stderr", 0.7),
+            new CommandResult(List.of(), 0, "ok", "", 0.4)
+        );
+
+        EngineRunResult result = new SparkIcebergClient(runner, workspace, Duration.ofMinutes(1))
+            .loadTpch(TestTpchFixtures.dataset(workspace.resolve("tpch-run")), "run", "tpch-smoke");
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.error()).contains("table lineitem");
+        assertThat(result.error()).contains("lineitem stderr");
     }
 
     @Test
@@ -151,17 +173,38 @@ class SparkIcebergClientTest {
     }
 
     private static final class FakeCommandRunner extends CommandRunner {
-        private final CommandResult result;
+        private final List<CommandResult> results;
+        private final String failOnSqlFragment;
+        private final CommandResult failResult;
         private final List<List<String>> commands = new ArrayList<>();
 
         private FakeCommandRunner(CommandResult result) {
-            this.result = result;
+            this(null, null, List.of(result));
+        }
+
+        private FakeCommandRunner(String failOnSqlFragment, CommandResult failResult, CommandResult defaultResult) {
+            this(failOnSqlFragment, failResult, List.of(defaultResult));
+        }
+
+        private FakeCommandRunner(List<CommandResult> results) {
+            this(null, null, results);
+        }
+
+        private FakeCommandRunner(String failOnSqlFragment, CommandResult failResult, List<CommandResult> results) {
+            this.results = results;
+            this.failOnSqlFragment = failOnSqlFragment;
+            this.failResult = failResult;
         }
 
         @Override
         public CommandResult run(List<String> command, Path workingDirectory, Duration timeout) {
             commands.add(command);
-            return result;
+            String sql = command.get(command.size() - 1);
+            if (failOnSqlFragment != null && sql.contains(failOnSqlFragment)) {
+                return failResult;
+            }
+            int index = Math.min(commands.size() - 1, results.size() - 1);
+            return results.get(index);
         }
 
         private List<List<String>> commands() {

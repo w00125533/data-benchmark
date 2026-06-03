@@ -12,7 +12,6 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.StringJoiner;
 
 public class SparkIcebergClient {
     private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(10);
@@ -99,20 +98,32 @@ public class SparkIcebergClient {
     }
 
     public EngineRunResult loadTpch(TpchDatasetResult dataset, String runId, String profile) {
-        StringJoiner sql = new StringJoiner("\n");
-        sql.add(TpchSqlTemplates.sparkCreateDatabase());
+        double durationSeconds = 0.0;
         try {
+            CommandResult createDatabase = runSparkSql(TpchSqlTemplates.sparkCreateDatabase());
+            durationSeconds += createDatabase.durationSeconds();
+            if (createDatabase.exitCode() != 0) {
+                return failed("tpch_iceberg", EngineStage.SPARK_ICEBERG_LOAD.name(), null, createDatabase);
+            }
             for (var table : TpchSchema.tables()) {
                 String parquetPath = toWorkspacePath(dataset.table(table.name()).parquetPath());
-                sql.add(TpchSqlTemplates.sparkCreateTable(table));
-                sql.add(TpchSqlTemplates.sparkInsertFromParquet(table, parquetPath));
+                String sql = TpchSqlTemplates.sparkCreateTable(table)
+                    + "\n"
+                    + TpchSqlTemplates.sparkInsertFromParquet(table, parquetPath);
+                CommandResult command = runSparkSql(sql);
+                durationSeconds += command.durationSeconds();
+                if (command.exitCode() != 0) {
+                    return failed(
+                        "tpch_iceberg",
+                        EngineStage.SPARK_ICEBERG_LOAD.name(),
+                        null,
+                        durationSeconds,
+                        "load_tpch_table failed for table %s: %s".formatted(table.name(), commandError(command))
+                    );
+                }
             }
         } catch (IllegalArgumentException e) {
             return failed("tpch_iceberg", EngineStage.SPARK_ICEBERG_LOAD.name(), null, e.getMessage());
-        }
-        CommandResult command = runSparkSql(sql.toString());
-        if (command.exitCode() != 0) {
-            return failed("tpch_iceberg", EngineStage.SPARK_ICEBERG_LOAD.name(), null, command);
         }
         return new EngineRunResult(
             "spark",
@@ -121,7 +132,7 @@ public class SparkIcebergClient {
             null,
             dataset.rows(),
             dataset.bytesWritten(),
-            command.durationSeconds(),
+            durationSeconds,
             true,
             ""
         );
@@ -196,7 +207,7 @@ public class SparkIcebergClient {
             0,
             command.durationSeconds(),
             false,
-            command.stderr().isBlank() ? command.stdout() : command.stderr()
+            commandError(command)
         );
     }
 
@@ -212,6 +223,30 @@ public class SparkIcebergClient {
             false,
             error
         );
+    }
+
+    private static EngineRunResult failed(
+        String tableShape,
+        String stage,
+        String queryName,
+        double durationSeconds,
+        String error
+    ) {
+        return new EngineRunResult(
+            "spark",
+            tableShape,
+            stage,
+            queryName,
+            0,
+            0,
+            durationSeconds,
+            false,
+            error
+        );
+    }
+
+    private static String commandError(CommandResult command) {
+        return command.stderr().isBlank() ? command.stdout() : command.stderr();
     }
 
     private String toWorkspacePath(Path path) {

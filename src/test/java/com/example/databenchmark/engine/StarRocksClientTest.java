@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.databenchmark.tpch.TestTpchFixtures;
 import com.example.databenchmark.tpch.TpchSchema;
+import com.example.databenchmark.tpch.TpchSqlTemplates;
 import java.net.http.HttpRequest;
+import java.net.http.HttpClient;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -92,6 +94,20 @@ class StarRocksClientTest {
 
         assertThat(streamLoad.request().url())
             .isEqualTo(URI.create("http://localhost:8040/api/sr_internal_tpch/lineitem/_stream_load"));
+    }
+
+    @Test
+    void streamLoadBuildsPerTableUrlWithoutExplicitPort() {
+        CapturingStreamLoadClient streamLoad = new CapturingStreamLoadClient(
+            HttpClient.newHttpClient(),
+            URI.create("http://starrocks-be/api/sr_internal/cell_kpi_1min/_stream_load"),
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        );
+
+        streamLoad.loadCsv(Path.of("lineitem.csv"), "sr_internal_tpch", "lineitem", "label");
+
+        assertThat(streamLoad.request().url())
+            .isEqualTo(URI.create("http://starrocks-be/api/sr_internal_tpch/lineitem/_stream_load"));
     }
 
     @Test
@@ -239,6 +255,37 @@ class StarRocksClientTest {
     }
 
     @Test
+    void tpchLoadReportsCreateTableFailureWithTableName() {
+        FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
+        jdbc.failOnSql = TpchSqlTemplates.starRocksCreateInternalTable(TpchSchema.table("lineitem"));
+        jdbc.failure = new SQLException("ddl failed");
+        var dataset = TestTpchFixtures.dataset(tempDir.resolve("tpch-run"));
+
+        EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        )).loadTpchInternal(TestTpchFixtures.csvFiles(dataset), dataset, "run", "tpch-smoke");
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.error()).contains("create_tpch_internal_table failed for table lineitem");
+        assertThat(result.error()).contains("ddl failed");
+    }
+
+    @Test
+    void refreshTpchExternalCatalogReportsRefreshFailureWithTableName() {
+        FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
+        jdbc.failOnSql = TpchSqlTemplates.starRocksRefreshExternalTable(TpchSchema.table("lineitem"));
+        jdbc.failure = new SQLException("refresh failed");
+
+        EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        )).refreshTpchExternalCatalog("run", "tpch-smoke");
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.error()).contains("refresh_tpch_external_table failed for table lineitem");
+        assertThat(result.error()).contains("refresh failed");
+    }
+
+    @Test
     void tpchQueriesRenderInternalAndExternalTables() {
         FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
 
@@ -285,6 +332,11 @@ class StarRocksClientTest {
         private StreamLoadRequest request;
 
         private CapturingStreamLoadClient(StreamLoadResult result) {
+            this.result = result;
+        }
+
+        private CapturingStreamLoadClient(HttpClient httpClient, URI url, StreamLoadResult result) {
+            super(httpClient, url, "root", "");
             this.result = result;
         }
 

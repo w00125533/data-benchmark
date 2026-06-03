@@ -78,11 +78,13 @@ public class StarRocksStreamLoadClient {
         return headers;
     }
 
-    private URI streamLoadUrl(String database, String table) {
-        return URI.create("%s://%s:%d/api/%s/%s/_stream_load".formatted(
+    URI streamLoadUrl(String database, String table) {
+        String authority = url.getPort() == -1
+            ? url.getHost()
+            : "%s:%d".formatted(url.getHost(), url.getPort());
+        return URI.create("%s://%s/api/%s/%s/_stream_load".formatted(
             url.getScheme(),
-            url.getHost(),
-            url.getPort(),
+            authority,
             database,
             table
         ));

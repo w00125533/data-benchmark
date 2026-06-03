@@ -109,7 +109,17 @@ public class StarRocksClient {
                         "Missing TPC-H CSV path for table: " + table.name()
                     );
                 }
-                durationSeconds += jdbcExecutor.execute(TpchSqlTemplates.starRocksCreateInternalTable(table)).durationSeconds();
+                try {
+                    durationSeconds += jdbcExecutor.execute(TpchSqlTemplates.starRocksCreateInternalTable(table)).durationSeconds();
+                } catch (SQLException e) {
+                    return failed(
+                        "tpch_internal",
+                        EngineStage.STARROCKS_INTERNAL_LOAD.name(),
+                        null,
+                        durationSeconds,
+                        "create_tpch_internal_table failed for table %s: %s".formatted(table.name(), e.getMessage())
+                    );
+                }
                 StarRocksStreamLoadClient.StreamLoadResult load = streamLoadClient.loadCsv(
                     csv,
                     "sr_internal_tpch",
@@ -159,7 +169,17 @@ public class StarRocksClient {
         try {
             durationSeconds += jdbcExecutor.execute(SqlTemplates.starRocksCreateExternalCatalog()).durationSeconds();
             for (var table : TpchSchema.tables()) {
-                durationSeconds += jdbcExecutor.execute(TpchSqlTemplates.starRocksRefreshExternalTable(table)).durationSeconds();
+                try {
+                    durationSeconds += jdbcExecutor.execute(TpchSqlTemplates.starRocksRefreshExternalTable(table)).durationSeconds();
+                } catch (SQLException e) {
+                    return failed(
+                        "tpch_external_iceberg",
+                        EngineStage.STARROCKS_EXTERNAL_REFRESH.name(),
+                        null,
+                        durationSeconds,
+                        "refresh_tpch_external_table failed for table %s: %s".formatted(table.name(), e.getMessage())
+                    );
+                }
             }
             return new EngineRunResult(
                 "starrocks",
