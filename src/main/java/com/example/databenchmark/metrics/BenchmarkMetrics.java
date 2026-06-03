@@ -1,5 +1,8 @@
 package com.example.databenchmark.metrics;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tags;
+import java.time.Duration;
 import java.util.List;
 
 public final class BenchmarkMetrics {
@@ -20,4 +23,65 @@ public final class BenchmarkMetrics {
     );
 
     private BenchmarkMetrics() {}
+
+    public static void recordLoad(
+        MeterRegistry registry,
+        String runId,
+        String profile,
+        String engine,
+        String tableShape,
+        String stage,
+        long rows,
+        long bytes,
+        double durationSeconds
+    ) {
+        Tags tags = tags(runId, profile, engine, tableShape, stage, "");
+        registry.timer(LOAD_DURATION_SECONDS, tags).record(duration(durationSeconds));
+        registry.counter(LOAD_ROWS_TOTAL, tags).increment(rows);
+        registry.counter(LOAD_BYTES_TOTAL, tags).increment(bytes);
+    }
+
+    public static void recordQuery(
+        MeterRegistry registry,
+        String runId,
+        String profile,
+        String engine,
+        String tableShape,
+        String stage,
+        String queryName,
+        long rows,
+        int failures,
+        double durationSeconds
+    ) {
+        Tags tags = tags(runId, profile, engine, tableShape, stage, queryName);
+        registry.timer(QUERY_DURATION_SECONDS, tags).record(duration(durationSeconds));
+        registry.counter(QUERY_ROWS_TOTAL, tags).increment(rows);
+        registry.counter(QUERY_FAILURES_TOTAL, tags).increment(failures);
+    }
+
+    private static Tags tags(
+        String runId,
+        String profile,
+        String engine,
+        String tableShape,
+        String stage,
+        String queryName
+    ) {
+        return Tags.of(
+            "run_id", value(runId),
+            "profile", value(profile),
+            "engine", value(engine),
+            "table_shape", value(tableShape),
+            "stage", value(stage),
+            "query_name", value(queryName)
+        );
+    }
+
+    private static Duration duration(double durationSeconds) {
+        return Duration.ofNanos(Math.round(durationSeconds * 1_000_000_000.0));
+    }
+
+    private static String value(String value) {
+        return value == null ? "" : value;
+    }
 }

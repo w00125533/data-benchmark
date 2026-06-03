@@ -78,7 +78,16 @@ class HtmlReportWriterTest {
             100,
             50,
             2_048,
-            List.of(new BenchmarkReport.LoadSummary("<script>stage</script>", 100, 2_048, 1.25)),
+            List.of(new BenchmarkReport.LoadSummary(
+                "<script>engine</script>",
+                "<script>shape</script>",
+                "<script>stage</script>",
+                100,
+                2_048,
+                1.25,
+                true,
+                ""
+            )),
             List.of(new BenchmarkReport.QuerySummary(
                 "spark_iceberg",
                 "iceberg_db.cell_kpi_1min",
@@ -86,7 +95,10 @@ class HtmlReportWriterTest {
                 10.0,
                 12.0,
                 15.0,
-                0
+                100,
+                0,
+                true,
+                ""
             )),
             "http://localhost:3000/d/benchmark?var-run_id=run-xss",
             false
@@ -96,8 +108,83 @@ class HtmlReportWriterTest {
 
         assertThat(html).doesNotContain("<script>");
         assertThat(html).contains("&lt;script&gt;alert(1)&lt;/script&gt;");
+        assertThat(html).contains("&lt;script&gt;engine&lt;/script&gt;");
+        assertThat(html).contains("&lt;script&gt;shape&lt;/script&gt;");
         assertThat(html).contains("&lt;script&gt;stage&lt;/script&gt;");
         assertThat(html).contains("&lt;script&gt;query&lt;/script&gt;");
+    }
+
+    @Test
+    void degradedReportRendersStatusAndErrors() throws Exception {
+        BenchmarkReport report = new BenchmarkReport(
+            "run-degraded",
+            "smoke",
+            "2026-06-02T00:00:00Z",
+            "2026-06-02T00:01:00Z",
+            10,
+            1,
+            14_400,
+            50,
+            2_048,
+            List.of(
+                new BenchmarkReport.LoadSummary(
+                    "spark_iceberg",
+                    "iceberg_db.cell_kpi_1min",
+                    "spark_iceberg_load",
+                    14_400,
+                    2_048,
+                    1.2,
+                    true,
+                    ""
+                ),
+                new BenchmarkReport.LoadSummary(
+                    "starrocks_external_iceberg",
+                    "iceberg_db.cell_kpi_1min",
+                    "starrocks_external_refresh",
+                    0,
+                    0,
+                    0.4,
+                    false,
+                    "catalog refresh failed"
+                )
+            ),
+            List.of(
+                new BenchmarkReport.QuerySummary(
+                    "spark_iceberg",
+                    "iceberg_db.cell_kpi_1min",
+                    "topn_high_load_cells",
+                    10.0,
+                    12.0,
+                    15.0,
+                    42,
+                    0,
+                    true,
+                    ""
+                ),
+                new BenchmarkReport.QuerySummary(
+                    "starrocks_external_iceberg",
+                    "iceberg_db.cell_kpi_1min",
+                    "topn_high_load_cells",
+                    0.0,
+                    0.0,
+                    0.0,
+                    0,
+                    1,
+                    false,
+                    "query failed"
+                )
+            ),
+            "http://localhost:3000/d/benchmark?var-run_id=run-degraded",
+            false
+        );
+
+        String html = Files.readString(new HtmlReportWriter().write(report, tempDir));
+
+        assertThat(html).contains("Status");
+        assertThat(html).contains("Error");
+        assertThat(html).contains("DEGRADED");
+        assertThat(html).contains("starrocks_external_iceberg");
+        assertThat(html).contains("catalog refresh failed");
     }
 
     @Test
@@ -113,6 +200,7 @@ class HtmlReportWriterTest {
         assertThat(html).contains("spark_iceberg");
         assertThat(html).contains("iceberg_db.cell_kpi_1min");
         assertThat(html).contains("topn_high_load_cells");
+        assertThat(html).contains("SUCCESS");
         assertThat(html).contains("10");
         assertThat(html).contains("12");
         assertThat(html).contains("15");
@@ -158,7 +246,7 @@ class HtmlReportWriterTest {
             14_400,
             50,
             2_048,
-            List.of(new BenchmarkReport.LoadSummary("generate", 14_400, 2_048, 1.2)),
+            List.of(new BenchmarkReport.LoadSummary("local", "generated_parquet", "generate", 14_400, 2_048, 1.2, true, "")),
             List.of(new BenchmarkReport.QuerySummary(
                 "spark_iceberg",
                 "iceberg_db.cell_kpi_1min",
@@ -166,7 +254,10 @@ class HtmlReportWriterTest {
                 10.0,
                 12.0,
                 15.0,
-                0
+                100,
+                0,
+                true,
+                ""
             )),
             grafanaUrl,
             fullProfile

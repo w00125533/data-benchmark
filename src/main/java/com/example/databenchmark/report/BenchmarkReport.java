@@ -30,14 +30,40 @@ public record BenchmarkReport(
             14_400L,
             50,
             2_048L,
-            List.of(new LoadSummary("generate", 14_400L, 2_048L, 1.2)),
-            List.of(new QuerySummary("spark_iceberg", "iceberg_db.cell_kpi_1min", "topn_high_load_cells", 10.0, 12.0, 15.0, 0)),
+            List.of(new LoadSummary("local", "generated_parquet", "generate", 14_400L, 2_048L, 1.2, true, "")),
+            List.of(new QuerySummary(
+                "spark_iceberg",
+                "iceberg_db.cell_kpi_1min",
+                "topn_high_load_cells",
+                10.0,
+                12.0,
+                15.0,
+                100L,
+                0,
+                true,
+                ""
+            )),
             "http://localhost:3000/d/benchmark?var-run_id=" + URLEncoder.encode(runId, StandardCharsets.UTF_8),
             false
         );
     }
 
-    public record LoadSummary(String stage, long rows, long bytes, double durationSeconds) {}
+    public String status() {
+        boolean allLoadsSuccessful = loadSummaries.stream().allMatch(LoadSummary::success);
+        boolean allQueriesSuccessful = querySummaries.stream().allMatch(QuerySummary::success);
+        return allLoadsSuccessful && allQueriesSuccessful ? "SUCCESS" : "DEGRADED";
+    }
+
+    public record LoadSummary(
+        String engine,
+        String tableShape,
+        String stage,
+        long rows,
+        long bytes,
+        double durationSeconds,
+        boolean success,
+        String error
+    ) {}
 
     public record QuerySummary(
         String engine,
@@ -46,6 +72,9 @@ public record BenchmarkReport(
         double p50Ms,
         double p95Ms,
         double p99Ms,
-        int failures
+        long rows,
+        int failures,
+        boolean success,
+        String error
     ) {}
 }
