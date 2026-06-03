@@ -49,8 +49,12 @@ public record BenchmarkReport(
     }
 
     public String status() {
+        if (loadSummaries.isEmpty() || querySummaries.isEmpty()) {
+            return "DEGRADED";
+        }
         boolean allLoadsSuccessful = loadSummaries.stream().allMatch(LoadSummary::success);
-        boolean allQueriesSuccessful = querySummaries.stream().allMatch(QuerySummary::success);
+        boolean allQueriesSuccessful = querySummaries.stream()
+            .allMatch(query -> query.success() && query.failures() == 0);
         return allLoadsSuccessful && allQueriesSuccessful ? "SUCCESS" : "DEGRADED";
     }
 

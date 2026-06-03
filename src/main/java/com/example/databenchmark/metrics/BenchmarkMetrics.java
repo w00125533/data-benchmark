@@ -35,6 +35,10 @@ public final class BenchmarkMetrics {
         long bytes,
         double durationSeconds
     ) {
+        requireNonNegative("rows", rows);
+        requireNonNegative("bytes", bytes);
+        requireNonNegative("durationSeconds", durationSeconds);
+
         Tags tags = tags(runId, profile, engine, tableShape, stage, "");
         registry.timer(LOAD_DURATION_SECONDS, tags).record(duration(durationSeconds));
         registry.counter(LOAD_ROWS_TOTAL, tags).increment(rows);
@@ -53,6 +57,10 @@ public final class BenchmarkMetrics {
         int failures,
         double durationSeconds
     ) {
+        requireNonNegative("rows", rows);
+        requireNonNegative("failures", failures);
+        requireNonNegative("durationSeconds", durationSeconds);
+
         Tags tags = tags(runId, profile, engine, tableShape, stage, queryName);
         registry.timer(QUERY_DURATION_SECONDS, tags).record(duration(durationSeconds));
         registry.counter(QUERY_ROWS_TOTAL, tags).increment(rows);
@@ -79,6 +87,18 @@ public final class BenchmarkMetrics {
 
     private static Duration duration(double durationSeconds) {
         return Duration.ofNanos(Math.round(durationSeconds * 1_000_000_000.0));
+    }
+
+    private static void requireNonNegative(String field, long value) {
+        if (value < 0) {
+            throw new IllegalArgumentException(field + " must be non-negative");
+        }
+    }
+
+    private static void requireNonNegative(String field, double value) {
+        if (value < 0) {
+            throw new IllegalArgumentException(field + " must be non-negative");
+        }
     }
 
     private static String value(String value) {

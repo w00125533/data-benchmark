@@ -223,6 +223,56 @@ class HtmlReportWriterTest {
     }
 
     @Test
+    void emptyLoadSummariesMakeStatusDegraded() {
+        BenchmarkReport report = reportWith(
+            "run-empty-load",
+            "http://localhost:3000/d/benchmark",
+            false,
+            List.of(),
+            List.of(successfulQuery())
+        );
+
+        assertThat(report.status()).isEqualTo("DEGRADED");
+    }
+
+    @Test
+    void emptyQuerySummariesMakeStatusDegraded() {
+        BenchmarkReport report = reportWith(
+            "run-empty-query",
+            "http://localhost:3000/d/benchmark",
+            false,
+            List.of(successfulLoad()),
+            List.of()
+        );
+
+        assertThat(report.status()).isEqualTo("DEGRADED");
+    }
+
+    @Test
+    void queryFailuresMakeStatusDegradedEvenWhenQuerySucceeded() {
+        BenchmarkReport report = reportWith(
+            "run-query-failure-count",
+            "http://localhost:3000/d/benchmark",
+            false,
+            List.of(successfulLoad()),
+            List.of(new BenchmarkReport.QuerySummary(
+                "spark_iceberg",
+                "iceberg_db.cell_kpi_1min",
+                "topn_high_load_cells",
+                10.0,
+                12.0,
+                15.0,
+                100,
+                1,
+                true,
+                ""
+            ))
+        );
+
+        assertThat(report.status()).isEqualTo("DEGRADED");
+    }
+
+    @Test
     void metricsExposeRequiredNamesAndLabels() {
         assertThat(Modifier.isFinal(BenchmarkMetrics.class.getModifiers())).isTrue();
         assertThat(BenchmarkMetrics.LABELS)
@@ -236,6 +286,22 @@ class HtmlReportWriterTest {
     }
 
     private BenchmarkReport reportWith(String runId, String grafanaUrl, boolean fullProfile) {
+        return reportWith(
+            runId,
+            grafanaUrl,
+            fullProfile,
+            List.of(successfulLoad()),
+            List.of(successfulQuery())
+        );
+    }
+
+    private BenchmarkReport reportWith(
+        String runId,
+        String grafanaUrl,
+        boolean fullProfile,
+        List<BenchmarkReport.LoadSummary> loadSummaries,
+        List<BenchmarkReport.QuerySummary> querySummaries
+    ) {
         return new BenchmarkReport(
             runId,
             "smoke",
@@ -246,21 +312,29 @@ class HtmlReportWriterTest {
             14_400,
             50,
             2_048,
-            List.of(new BenchmarkReport.LoadSummary("local", "generated_parquet", "generate", 14_400, 2_048, 1.2, true, "")),
-            List.of(new BenchmarkReport.QuerySummary(
-                "spark_iceberg",
-                "iceberg_db.cell_kpi_1min",
-                "topn_high_load_cells",
-                10.0,
-                12.0,
-                15.0,
-                100,
-                0,
-                true,
-                ""
-            )),
+            loadSummaries,
+            querySummaries,
             grafanaUrl,
             fullProfile
+        );
+    }
+
+    private BenchmarkReport.LoadSummary successfulLoad() {
+        return new BenchmarkReport.LoadSummary("local", "generated_parquet", "generate", 14_400, 2_048, 1.2, true, "");
+    }
+
+    private BenchmarkReport.QuerySummary successfulQuery() {
+        return new BenchmarkReport.QuerySummary(
+            "spark_iceberg",
+            "iceberg_db.cell_kpi_1min",
+            "topn_high_load_cells",
+            10.0,
+            12.0,
+            15.0,
+            100,
+            0,
+            true,
+            ""
         );
     }
 }
