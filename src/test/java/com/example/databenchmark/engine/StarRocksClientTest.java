@@ -54,6 +54,8 @@ class StarRocksClientTest {
             .containsEntry("Authorization", "Basic cm9vdDo=")
             .containsEntry("label", "run_1_label")
             .containsEntry("column_separator", ",")
+            .containsEntry("row_delimiter", "\n")
+            .containsEntry("enclose", "\"")
             .containsEntry("format", "csv");
     }
 

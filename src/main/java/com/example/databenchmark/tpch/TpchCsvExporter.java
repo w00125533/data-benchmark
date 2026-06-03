@@ -58,7 +58,7 @@ public final class TpchCsvExporter {
             writer.write(formatValue(column, value));
             first = false;
         }
-        writer.newLine();
+        writer.write('\n');
     }
 
     private Map<String, Long> rowCounts(TpchDatasetResult dataset) {

@@ -6,7 +6,11 @@ import com.example.databenchmark.config.BenchmarkConfig;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.StandardOpenOption;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -34,9 +38,11 @@ class TpchCsvExporterTest {
 
         List<String> regionLines = Files.readAllLines(files.get("region"));
         List<String> lineitemLines = Files.readAllLines(files.get("lineitem"));
+        String lineitemContent = Files.readString(files.get("lineitem"), StandardCharsets.UTF_8);
 
         assertThat(regionLines).hasSize(5);
         assertThat(lineitemLines).hasSize(600);
+        assertThat(lineitemContent).contains("\n").doesNotContain("\r\n");
         assertThat(lineitemLines.get(0))
             .startsWith("1,1,1,1,10.0,10.0,10.0,10.0,R,O,1994-06-20,1994-06-21,1994-06-22,");
     }
@@ -45,7 +51,45 @@ class TpchCsvExporterTest {
     void csvFormattingEscapesSpecialCharacters() {
         assertThat(TpchCsvExporter.escapeCsv("a,b")).isEqualTo("\"a,b\"");
         assertThat(TpchCsvExporter.escapeCsv("a\"b")).isEqualTo("\"a\"\"b\"");
+        assertThat(TpchCsvExporter.escapeCsv("a\rb")).isEqualTo("\"a\rb\"");
         assertThat(TpchCsvExporter.escapeCsv("a\nb")).isEqualTo("\"a\nb\"");
+    }
+
+    @Test
+    void exportOverwritesExistingCsvFiles() throws Exception {
+        TpchDatasetResult dataset = new TpchDataGenerator().generate(config(), "tpch-overwrite");
+        TpchCsvExporter exporter = new TpchCsvExporter();
+
+        var files = exporter.export(dataset);
+        Path lineitem = files.get("lineitem");
+        Files.writeString(lineitem, "\nstale", StandardCharsets.UTF_8, StandardOpenOption.APPEND);
+
+        exporter.export(dataset);
+
+        List<String> lineitemLines = Files.readAllLines(lineitem, StandardCharsets.UTF_8);
+        assertThat(lineitemLines).hasSize(600);
+        assertThat(Files.readString(lineitem, StandardCharsets.UTF_8)).doesNotContain("stale");
+    }
+
+    @Test
+    void exportedLineitemMatchesFormattedGeneratorValues() throws Exception {
+        TpchDataGenerator generator = new TpchDataGenerator();
+        TpchDatasetResult dataset = generator.generate(config(), "tpch-parity");
+
+        Path lineitem = new TpchCsvExporter().export(dataset).get("lineitem");
+        String firstLine = Files.readAllLines(lineitem, StandardCharsets.UTF_8).get(0);
+
+        Map<String, Long> rowCounts = new LinkedHashMap<>();
+        for (TpchTable table : TpchSchema.tables()) {
+            rowCounts.put(table.name(), dataset.table(table.name()).rows());
+        }
+
+        TpchTable lineitemTable = TpchSchema.table("lineitem");
+        List<String> expectedFields = lineitemTable.columns().stream()
+            .map(column -> TpchCsvExporter.formatValue(column, generator.valueFor(lineitemTable, column, 0, rowCounts)))
+            .toList();
+
+        assertThat(firstLine.split(",", -1)).containsExactlyElementsOf(expectedFields);
     }
 
     private BenchmarkConfig config() {

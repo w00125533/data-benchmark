@@ -64,6 +64,8 @@ public class StarRocksStreamLoadClient {
             .encodeToString((user + ":" + password).getBytes(StandardCharsets.UTF_8)));
         headers.put("label", label);
         headers.put("column_separator", ",");
+        headers.put("row_delimiter", "\n");
+        headers.put("enclose", "\"");
         headers.put("format", "csv");
         return headers;
     }
