@@ -14,7 +14,7 @@
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
-          "expr": "sum(benchmark_load_rows_total{run_id=\"$run_id\"}) by (engine, table_shape)",
+          "expr": "sum(benchmark_load_rows_total{run_id=\"$run_id\", suite=\"$suite\", query_set=\"$query_set\"}) by (engine, table_shape)",
           "refId": "A"
         }
       ]
@@ -26,7 +26,7 @@
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
-          "expr": "benchmark_load_duration_seconds{run_id=\"$run_id\"}",
+          "expr": "benchmark_load_duration_seconds{run_id=\"$run_id\", suite=\"$suite\", query_set=\"$query_set\"}",
           "refId": "A"
         }
       ]
@@ -38,7 +38,7 @@
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
-          "expr": "benchmark_query_duration_seconds{run_id=\"$run_id\"}",
+          "expr": "benchmark_query_duration_seconds{run_id=\"$run_id\", suite=\"$suite\", query_set=\"$query_set\"}",
           "refId": "A"
         }
       ]
@@ -50,7 +50,7 @@
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
-          "expr": "sum(benchmark_query_failures_total{run_id=\"$run_id\"}) by (engine, table_shape, query_name)",
+          "expr": "sum(benchmark_query_failures_total{run_id=\"$run_id\", suite=\"$suite\", query_set=\"$query_set\"}) by (engine, table_shape, query_name)",
           "refId": "A"
         }
       ]
@@ -62,7 +62,7 @@
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
-          "expr": "benchmark_query_rows_total{run_id=\"$run_id\"}",
+          "expr": "benchmark_query_rows_total{run_id=\"$run_id\", suite=\"$suite\", query_set=\"$query_set\"}",
           "format": "table",
           "instant": true,
           "refId": "A"
@@ -75,7 +75,7 @@
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
       "options": {
         "mode": "markdown",
-        "content": "Dashboard filtered by run id variable. Use the HTML report for stage errors and degraded run details."
+        "content": "Dashboard filtered by run id, suite, and query set variables. Use the HTML report for stage errors and degraded run details."
       }
     }
   ],
@@ -91,6 +91,26 @@
         "current": {"text": "compose-smoke", "value": "compose-smoke"},
         "hide": 0,
         "label": "Run ID"
+      },
+      {
+        "name": "suite",
+        "type": "query",
+        "query": "label_values(benchmark_query_duration_seconds, suite)",
+        "current": {"text": "", "value": ""},
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "hide": 0,
+        "label": "Suite",
+        "refresh": 1
+      },
+      {
+        "name": "query_set",
+        "type": "query",
+        "query": "label_values(benchmark_query_duration_seconds{suite=\"$suite\"}, query_set)",
+        "current": {"text": "", "value": ""},
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "hide": 0,
+        "label": "Query Set",
+        "refresh": 1
       }
     ]
   },

@@ -161,10 +161,22 @@ class ComposeTopologyTest {
             .containsEntry("title", "Data Benchmark");
 
         Map<String, Object> templating = map(dashboard.get("templating"));
-        assertThat(list(templating, "list"))
-            .anySatisfy(variable -> assertThat((Map<String, Object>) variable)
+        List<Map<String, Object>> variables = list(templating, "list").stream()
+            .map(this::map)
+            .toList();
+        assertThat(variables)
+            .extracting(variable -> variable.get("name"))
+            .contains("run_id", "suite", "query_set");
+        assertThat(variables)
+            .anySatisfy(variable -> assertThat(variable)
                 .containsEntry("name", "run_id")
-                .containsEntry("type", "textbox"));
+                .containsEntry("type", "textbox"))
+            .anySatisfy(variable -> assertThat(variable)
+                .containsEntry("name", "suite")
+                .containsEntry("query", "label_values(benchmark_query_duration_seconds, suite)"))
+            .anySatisfy(variable -> assertThat(variable)
+                .containsEntry("name", "query_set")
+                .containsEntry("query", "label_values(benchmark_query_duration_seconds{suite=\"$suite\"}, query_set)"));
 
         assertThat(list(dashboard, "panels"))
             .extracting(panel -> map(panel).get("title"))
@@ -175,6 +187,11 @@ class ComposeTopologyTest {
         assertThat(list(dashboard, "panels"))
             .filteredOn(panel -> map(panel).containsKey("datasource"))
             .allSatisfy(panel -> assertThat(map(map(panel).get("datasource"))).containsEntry("uid", "prometheus"));
+        assertThat(dashboardText)
+            .contains("label_values(benchmark_query_duration_seconds, suite)")
+            .contains("label_values(benchmark_query_duration_seconds{suite=\\\"$suite\\\"}, query_set)");
+        assertThat(dashboardText)
+            .contains("benchmark_query_duration_seconds{run_id=\\\"$run_id\\\", suite=\\\"$suite\\\", query_set=\\\"$query_set\\\"}");
     }
 
     private Map<String, Object> service(Map<String, Object> services, String name) {
