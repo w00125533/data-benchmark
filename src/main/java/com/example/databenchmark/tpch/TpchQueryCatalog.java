@@ -35,6 +35,9 @@ public final class TpchQueryCatalog {
     private TpchQueryCatalog() {}
 
     public static List<TpchQuery> queries(String querySet) {
+        if (!"smoke".equals(querySet) && !"all".equals(querySet)) {
+            throw new IllegalArgumentException("Unknown TPC-H query set: " + querySet);
+        }
         return QUERIES.stream()
             .filter(query -> query.querySets().contains(querySet))
             .toList();

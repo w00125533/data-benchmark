@@ -1,6 +1,7 @@
 package com.example.databenchmark.tpch;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
 
@@ -22,5 +23,20 @@ class TpchSqlRendererTest {
         assertThat(sql).contains("sr_internal_tpch.customer");
         assertThat(sql).contains("CAST('1995-03-15' AS DATE)");
         assertThat(sql).doesNotContain("DATE '1995-03-15'");
+    }
+
+    @Test
+    void unknownEngineThrowsClearError() {
+        assertThatThrownBy(() -> TpchSqlRenderer.render("q03_shipping_priority", "bad_engine"))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Unknown engine key");
+    }
+
+    @Test
+    void unresolvedTableTokenThrowsClearError() {
+        assertThatThrownBy(() -> TpchSqlRenderer.renderTemplate("SELECT * FROM {cust}", "spark_iceberg"))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Unknown TPC-H table placeholder")
+            .hasMessageContaining("{cust}");
     }
 }
