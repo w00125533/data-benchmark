@@ -1,6 +1,7 @@
 package com.example.databenchmark.engine;
 
 import com.example.databenchmark.generator.DatasetResult;
+import com.example.databenchmark.hadoop.HadoopLocalConfiguration;
 import com.example.databenchmark.schema.KpiSchema;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -11,7 +12,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import org.apache.avro.generic.GenericRecord;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.parquet.avro.AvroParquetReader;
 import org.apache.parquet.hadoop.ParquetReader;
 import org.apache.parquet.hadoop.util.HadoopInputFile;
@@ -38,7 +38,7 @@ public final class StarRocksCsvExporter {
     private void writeParquetFile(Path file, BufferedWriter writer) throws IOException {
         HadoopInputFile inputFile = HadoopInputFile.fromPath(
             new org.apache.hadoop.fs.Path(file.toUri()),
-            new Configuration()
+            HadoopLocalConfiguration.create()
         );
 
         try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(inputFile).build()) {
@@ -61,7 +61,7 @@ public final class StarRocksCsvExporter {
         writer.newLine();
     }
 
-    private String formatValue(String column, Object value) {
+    static String formatValue(String column, Object value) {
         if (value == null) {
             return "";
         }
@@ -74,14 +74,14 @@ public final class StarRocksCsvExporter {
         return value.toString();
     }
 
-    private String escapeCsv(String value) {
+    static String escapeCsv(String value) {
         if (!requiresEscaping(value)) {
             return value;
         }
         return '"' + value.replace("\"", "\"\"") + '"';
     }
 
-    private boolean requiresEscaping(String value) {
+    private static boolean requiresEscaping(String value) {
         return value.indexOf(',') >= 0
             || value.indexOf('"') >= 0
             || value.indexOf('\r') >= 0
