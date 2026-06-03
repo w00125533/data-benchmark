@@ -2,15 +2,21 @@ package com.example.databenchmark.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.net.http.HttpRequest;
 import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class StarRocksClientTest {
+    @TempDir
+    Path tempDir;
+
     @Test
     void jdbcExecutorUsesStarRocksDefaults() {
         JdbcExecutor executor = new JdbcExecutor();
@@ -54,9 +60,24 @@ class StarRocksClientTest {
             .containsEntry("Authorization", "Basic cm9vdDo=")
             .containsEntry("label", "run_1_label")
             .containsEntry("column_separator", ",")
-            .containsEntry("row_delimiter", "\n")
+            .containsEntry("row_delimiter", "\\n")
             .containsEntry("enclose", "\"")
             .containsEntry("format", "csv");
+    }
+
+    @Test
+    void streamLoadHeadersCanBuildJavaHttpRequest() throws Exception {
+        CapturingStreamLoadClient streamLoad = new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        );
+        Path csv = tempDir.resolve("load.csv");
+        Files.writeString(csv, "1\n");
+
+        streamLoad.loadCsv(csv, "run_1_label");
+
+        HttpRequest request = streamLoad.buildRequest(streamLoad.request());
+        assertThat(request.headers().firstValue("row_delimiter")).contains("\\n");
+        assertThat(request.headers().firstValue("enclose")).contains("\"");
     }
 
     @Test

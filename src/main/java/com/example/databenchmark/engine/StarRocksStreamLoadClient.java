@@ -43,12 +43,7 @@ public class StarRocksStreamLoadClient {
     protected StreamLoadResult send(StreamLoadRequest request) {
         long started = System.nanoTime();
         try {
-            HttpRequest.Builder builder = HttpRequest.newBuilder(request.url())
-                .timeout(Duration.ofMinutes(5))
-                .expectContinue(true)
-                .PUT(HttpRequest.BodyPublishers.ofFile(request.csv()));
-            request.headers().forEach(builder::header);
-            HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = httpClient.send(buildRequest(request), HttpResponse.BodyHandlers.ofString());
             return new StreamLoadResult(response.statusCode(), response.body(), elapsedSeconds(started));
         } catch (IOException e) {
             return new StreamLoadResult(0, e.getMessage(), elapsedSeconds(started));
@@ -58,13 +53,22 @@ public class StarRocksStreamLoadClient {
         }
     }
 
+    HttpRequest buildRequest(StreamLoadRequest request) throws IOException {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(request.url())
+            .timeout(Duration.ofMinutes(5))
+            .expectContinue(true)
+            .PUT(HttpRequest.BodyPublishers.ofFile(request.csv()));
+        request.headers().forEach(builder::header);
+        return builder.build();
+    }
+
     private Map<String, String> headers(String label) {
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put("Authorization", "Basic " + Base64.getEncoder()
             .encodeToString((user + ":" + password).getBytes(StandardCharsets.UTF_8)));
         headers.put("label", label);
         headers.put("column_separator", ",");
-        headers.put("row_delimiter", "\n");
+        headers.put("row_delimiter", "\\n");
         headers.put("enclose", "\"");
         headers.put("format", "csv");
         return headers;
