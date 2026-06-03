@@ -36,7 +36,8 @@ class LocalBenchmarkRunnerTest {
             .run(config, tempDir.resolve("reports"), "run-local-test");
 
         String html = Files.readString(result.reportPath());
-        assertThat(html).contains("http://localhost:3000/d/benchmark?var-run_id=run-local-test");
+        assertThat(html)
+            .contains("http://localhost:3000/d/benchmark?var-run_id=run-local-test&amp;var-suite=kpi&amp;var-query_set=smoke");
         assertThat(html).contains("local");
         assertThat(html).contains("generated_parquet");
         assertThat(html).contains("catalog_render_check");

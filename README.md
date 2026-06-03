@@ -51,7 +51,8 @@ docker compose -f docker-compose.yml up -d hdfs-namenode hdfs-datanode hdfs-init
 java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --run-id compose-smoke
 ```
 
-Grafana is available at `http://localhost:3000/d/benchmark?var-run_id=compose-smoke`.
+Grafana is available at `http://localhost:3000/d/benchmark?var-run_id=compose-smoke&var-suite=kpi&var-query_set=smoke`.
+For TPC-H smoke runs, use `http://localhost:3000/d/benchmark?var-run_id=compose-tpch&var-suite=tpch&var-query_set=smoke`.
 Prometheus is available at `http://localhost:9090`.
 
 Compose mode writes `reports/runs/<run_id>/index.html`. If a Spark, StarRocks, or external Iceberg stage fails, the CLI exits nonzero after writing a DEGRADED report with the failing stage and error detail.

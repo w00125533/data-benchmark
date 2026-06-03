@@ -55,7 +55,7 @@ public class LocalBenchmarkRunner {
                 true,
                 ""
             )),
-            grafanaUrl(actualRunId),
+            grafanaUrl(actualRunId, config),
             "full".equals(config.profile())
         );
 
@@ -67,9 +67,13 @@ public class LocalBenchmarkRunner {
         return "run-" + Instant.now().toEpochMilli();
     }
 
-    private String grafanaUrl(String runId) {
+    private String grafanaUrl(String runId, BenchmarkConfig config) {
         return "http://localhost:3000/d/benchmark?var-run_id="
-            + URLEncoder.encode(runId, StandardCharsets.UTF_8);
+            + URLEncoder.encode(runId, StandardCharsets.UTF_8)
+            + "&var-suite="
+            + URLEncoder.encode(config.suite().name(), StandardCharsets.UTF_8)
+            + "&var-query_set="
+            + URLEncoder.encode(config.suite().querySet(), StandardCharsets.UTF_8);
     }
 
     public record LocalRunResult(DatasetResult dataset, Path reportPath) {}

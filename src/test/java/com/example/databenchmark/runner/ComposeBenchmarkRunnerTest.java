@@ -79,6 +79,8 @@ class ComposeBenchmarkRunnerTest {
         assertThat(metricsRecorder.closed).isTrue();
         assertThat(reportWriter.report.suite()).isEqualTo("kpi");
         assertThat(reportWriter.report.querySet()).isEqualTo("smoke");
+        assertThat(reportWriter.report.grafanaUrl())
+            .isEqualTo("http://localhost:3000/d/benchmark?var-run_id=compose-test&var-suite=kpi&var-query_set=smoke");
         assertThat(reportWriter.report.loadSummaries())
             .extracting(BenchmarkReport.LoadSummary::stage)
             .containsExactly(
@@ -219,6 +221,8 @@ class ComposeBenchmarkRunnerTest {
         assertThat(metricsRecorder.closed).isTrue();
         assertThat(reportWriter.report.suite()).isEqualTo("tpch");
         assertThat(reportWriter.report.querySet()).isEqualTo("smoke");
+        assertThat(reportWriter.report.grafanaUrl())
+            .isEqualTo("http://localhost:3000/d/benchmark?var-run_id=compose-test&var-suite=tpch&var-query_set=smoke");
         assertThat(reportWriter.report.loadSummaries())
             .extracting(BenchmarkReport.LoadSummary::tableShape)
             .containsExactly(

@@ -228,6 +228,8 @@ class HtmlReportWriterTest {
         BenchmarkReport report = BenchmarkReport.sample("run test");
 
         assertThat(report.grafanaUrl()).contains("var-run_id=run+test");
+        assertThat(report.grafanaUrl()).contains("var-suite=kpi");
+        assertThat(report.grafanaUrl()).contains("var-query_set=smoke");
     }
 
     @Test

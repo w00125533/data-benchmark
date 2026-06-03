@@ -47,7 +47,9 @@ public record BenchmarkReport(
                 true,
                 ""
             )),
-            "http://localhost:3000/d/benchmark?var-run_id=" + URLEncoder.encode(runId, StandardCharsets.UTF_8),
+            "http://localhost:3000/d/benchmark?var-run_id="
+                + URLEncoder.encode(runId, StandardCharsets.UTF_8)
+                + "&var-suite=kpi&var-query_set=smoke",
             false
         );
     }
