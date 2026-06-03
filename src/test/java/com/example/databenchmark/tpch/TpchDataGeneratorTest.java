@@ -38,8 +38,13 @@ class TpchDataGeneratorTest {
         assertThat(secondRun.tables()).containsKeys("region", "nation", "supplier", "customer", "part", "partsupp", "orders", "lineitem");
         assertThat(secondRun.table("region").rows()).isEqualTo(5L);
         assertThat(secondRun.table("nation").rows()).isEqualTo(25L);
+        assertThat(secondRun.table("supplier").rows()).isEqualTo(4L);
+        assertThat(secondRun.table("customer").rows()).isEqualTo(15L);
+        assertThat(secondRun.table("part").rows()).isEqualTo(20L);
+        assertThat(secondRun.table("partsupp").rows()).isEqualTo(80L);
+        assertThat(secondRun.table("orders").rows()).isEqualTo(150L);
         assertThat(secondRun.table("lineitem").rows()).isEqualTo(600L);
-        assertThat(secondRun.rows()).isEqualTo(secondRun.tables().values().stream().mapToLong(TpchDatasetResult.TableResult::rows).sum());
+        assertThat(secondRun.rows()).isEqualTo(899L);
         assertThat(secondRun.bytesWritten()).isPositive();
         assertThat(secondRun.table("lineitem").csvPath()).isEqualTo(tempDir.resolve(Path.of("tpch", "tpch-unit", "csv", "lineitem.csv")));
 

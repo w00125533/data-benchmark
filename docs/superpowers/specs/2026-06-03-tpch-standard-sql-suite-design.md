@@ -70,16 +70,23 @@ Supported query sets:
 
 ## Data Generation
 
-Use a Java 17 deterministic generator for the first version. The generator should create relational TPC-H-like data with stable primary and foreign-key relationships:
+Use a Java 17 deterministic generator for the first version. The generator should create relational TPC-H-like data with stable primary and foreign-key relationships.
 
-- `region`: 5 rows.
-- `nation`: 25 rows.
+Non-dimension table row counts use scaled counts by default:
+
 - `supplier`: scaled count.
 - `customer`: scaled count.
 - `part`: scaled count.
 - `partsupp`: scaled count.
 - `orders`: scaled count.
 - `lineitem`: scaled count with stable order linkage.
+
+For smoke-scale runs, the generator may increase `supplier` to the minimum count needed to keep generated `partsupp` composite keys unique for the generated `(ps_partkey, ps_suppkey)` combinations while preserving valid key ranges.
+
+- `region`: 5 rows.
+- `nation`: 25 rows.
+
+This is a TPC-H-compatible smoke-suite accommodation, not official dbgen scaling.
 
 The generator does not need to exactly match `dbgen` distributions in the first iteration. It must preserve table shape, join keys, field types, and enough value variety for the query templates to run meaningfully.
 
