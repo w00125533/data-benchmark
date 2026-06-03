@@ -43,17 +43,7 @@ public final class TpchSqlTemplates {
     }
 
     public static String starRocksCreateInternalTable(TpchTable table) {
-        String key = switch (table.name()) {
-            case "region" -> "r_regionkey";
-            case "nation" -> "n_nationkey";
-            case "supplier" -> "s_suppkey";
-            case "customer" -> "c_custkey";
-            case "part" -> "p_partkey";
-            case "partsupp" -> "ps_partkey";
-            case "orders" -> "o_orderkey";
-            case "lineitem" -> "l_orderkey";
-            default -> throw new IllegalArgumentException("Unknown TPC-H table: " + table.name());
-        };
+        String key = duplicateKeyColumns(table);
         return """
             CREATE TABLE IF NOT EXISTS %s (
             %s
@@ -74,13 +64,27 @@ public final class TpchSqlTemplates {
             .collect(Collectors.joining(",\n"));
     }
 
+    private static String duplicateKeyColumns(TpchTable table) {
+        return switch (table.name()) {
+            case "region" -> "r_regionkey";
+            case "nation" -> "n_nationkey";
+            case "supplier" -> "s_suppkey";
+            case "customer" -> "c_custkey";
+            case "part" -> "p_partkey";
+            case "partsupp" -> "ps_partkey, ps_suppkey";
+            case "orders" -> "o_orderkey";
+            case "lineitem" -> "l_orderkey, l_linenumber";
+            default -> throw new IllegalArgumentException("Unknown TPC-H table: " + table.name());
+        };
+    }
+
     private static String type(String logicalType, boolean spark) {
         return switch (logicalType) {
             case "long" -> "BIGINT";
             case "int" -> "INT";
             case "double" -> "DOUBLE";
             case "date" -> spark ? "DATE" : "DATE";
-            case "string" -> spark ? "STRING" : "VARCHAR(128)";
+            case "string" -> spark ? "STRING" : "VARCHAR(512)";
             default -> throw new IllegalArgumentException("Unknown TPC-H type: " + logicalType);
         };
     }

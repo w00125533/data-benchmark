@@ -22,4 +22,29 @@ class TpchSqlTemplatesTest {
         assertThat(ddl).contains("l_orderkey BIGINT");
         assertThat(ddl).contains("DISTRIBUTED BY HASH");
     }
+
+    @Test
+    void starRocksStringColumnsUseSafeWidth() {
+        String ddl = TpchSqlTemplates.starRocksCreateInternalTable(TpchSchema.table("part"));
+
+        assertThat(ddl).contains("p_comment VARCHAR(512)");
+    }
+
+    @Test
+    void rendersCompositeDuplicateKeysForPartsuppAndLineitem() {
+        assertThat(TpchSqlTemplates.starRocksCreateInternalTable(TpchSchema.table("partsupp")))
+            .contains("DUPLICATE KEY(ps_partkey, ps_suppkey)")
+            .contains("DISTRIBUTED BY HASH(ps_partkey, ps_suppkey)");
+
+        assertThat(TpchSqlTemplates.starRocksCreateInternalTable(TpchSchema.table("lineitem")))
+            .contains("DUPLICATE KEY(l_orderkey, l_linenumber)")
+            .contains("DISTRIBUTED BY HASH(l_orderkey, l_linenumber)");
+    }
+
+    @Test
+    void sparkInsertEscapesSingleQuotesInParquetPath() {
+        String sql = TpchSqlTemplates.sparkInsertFromParquet(TpchSchema.table("orders"), "/workspace/data/o'rders.parquet");
+
+        assertThat(sql).contains("OPTIONS (path '/workspace/data/o''rders.parquet')");
+    }
 }
