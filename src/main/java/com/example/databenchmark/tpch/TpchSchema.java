@@ -4,6 +4,12 @@ import java.util.List;
 import java.util.Map;
 
 public final class TpchSchema {
+    static final Map<String, String> ENGINE_PREFIXES = Map.of(
+        "spark_iceberg", "iceberg_catalog.tpch.",
+        "starrocks_internal", "sr_internal_tpch.",
+        "starrocks_external_iceberg", "sr_external_iceberg.tpch."
+    );
+
     private static final List<TpchTable> TABLES = List.of(
         table("region", 5, col("r_regionkey", "long"), col("r_name", "string"), col("r_comment", "string")),
         table("nation", 25, col("n_nationkey", "long"), col("n_name", "string"), col("n_regionkey", "long"), col("n_comment", "string")),
@@ -29,12 +35,8 @@ public final class TpchSchema {
     }
 
     public static String tableName(String table, String engineKey) {
-        Map<String, String> prefixes = Map.of(
-            "spark_iceberg", "iceberg_catalog.tpch.",
-            "starrocks_internal", "sr_internal_tpch.",
-            "starrocks_external_iceberg", "sr_external_iceberg.tpch."
-        );
-        String prefix = prefixes.get(engineKey);
+        table(table);
+        String prefix = ENGINE_PREFIXES.get(engineKey);
         if (prefix == null) {
             throw new IllegalArgumentException("Unknown engine key: " + engineKey);
         }
