@@ -1,16 +1,21 @@
 package com.example.databenchmark.generator;
 
 import com.example.databenchmark.config.BenchmarkConfig;
-import java.io.BufferedWriter;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.Locale;
-import java.util.Random;
+import org.apache.avro.Schema;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.RawLocalFileSystem;
+import org.apache.hadoop.fs.permission.FsPermission;
+import org.apache.parquet.avro.AvroParquetWriter;
+import org.apache.parquet.hadoop.ParquetWriter;
+import org.apache.parquet.hadoop.metadata.CompressionCodecName;
+import org.apache.parquet.hadoop.util.HadoopOutputFile;
 
 public class KpiDataGenerator {
     public DatasetResult generate(BenchmarkConfig config) throws IOException {
@@ -33,43 +38,52 @@ public class KpiDataGenerator {
     }
 
     private void writeRows(BenchmarkConfig config, long rows, LocalDateTime start, Path file) throws IOException {
-        Random random = new Random(config.seed());
-        try (BufferedWriter writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
-            writer.write("event_time,cell_id,province,city,vendor,rat,band,rsrp_avg,sinr_avg,active_users,load_score");
-            writer.newLine();
+        Files.deleteIfExists(file);
+        Schema schema = KpiAvroSchemaFactory.createSchema();
+        KpiRecordFactory recordFactory = new KpiRecordFactory(config, schema, start);
+        HadoopOutputFile outputFile = HadoopOutputFile.fromPath(
+            new org.apache.hadoop.fs.Path(file.toUri()),
+            hadoopConfiguration()
+        );
 
+        try (ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(outputFile)
+            .withSchema(schema)
+            .withCompressionCodec(CompressionCodecName.SNAPPY)
+            .build()) {
             for (long row = 0; row < rows; row++) {
-                int cell = (int) (row % config.dataset().cells());
-                long minute = row / config.dataset().cells();
-                LocalDateTime eventTime = start.plusMinutes(minute);
-                double loadScore = 5.0 + random.nextDouble() * 95.0;
-                int activeUsers = 1 + random.nextInt(600);
-
-                writer.write(String.format(
-                    Locale.ROOT,
-                    "%s,CELL-%06d,province-%02d,city-%03d,%s,%s,%s,%.3f,%.3f,%d,%.3f",
-                    eventTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
-                    cell,
-                    cell % 31,
-                    cell % 200,
-                    vendor(cell),
-                    cell % 2 == 0 ? "4G" : "5G",
-                    band(cell),
-                    -115.0 + random.nextDouble() * 35.0,
-                    -5.0 + random.nextDouble() * 35.0,
-                    activeUsers,
-                    loadScore
-                ));
-                writer.newLine();
+                writer.write(recordFactory.create(row));
             }
         }
     }
 
-    private String vendor(int cell) {
-        return List.of("Huawei", "ZTE", "Ericsson", "Nokia", "Samsung").get(cell % 5);
+    private static Configuration hadoopConfiguration() throws IOException {
+        ensureHadoopHomeForWindows();
+        Configuration configuration = new Configuration();
+        configuration.setClass("fs.file.impl", NoPermissionRawLocalFileSystem.class, FileSystem.class);
+        configuration.setBoolean("fs.file.impl.disable.cache", true);
+        return configuration;
     }
 
-    private String band(int cell) {
-        return List.of("B3", "B7", "B8", "B20", "N78", "N41").get(cell % 6);
+    private static void ensureHadoopHomeForWindows() throws IOException {
+        if (!System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("win")
+            || System.getProperty("hadoop.home.dir") != null) {
+            return;
+        }
+
+        Path hadoopHome = Path.of(System.getProperty("java.io.tmpdir"), "data-benchmark-hadoop-home");
+        Path bin = hadoopHome.resolve("bin");
+        Path winutils = bin.resolve("winutils.exe");
+        Files.createDirectories(bin);
+        if (Files.notExists(winutils)) {
+            Files.createFile(winutils);
+        }
+        System.setProperty("hadoop.home.dir", hadoopHome.toAbsolutePath().toString());
+    }
+
+    public static class NoPermissionRawLocalFileSystem extends RawLocalFileSystem {
+        @Override
+        public void setPermission(org.apache.hadoop.fs.Path path, FsPermission permission) {
+            // Hadoop's Windows local FS shells out to winutils for chmod; benchmark output does not need it.
+        }
     }
 }
