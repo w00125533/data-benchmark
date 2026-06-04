@@ -10,7 +10,7 @@ import java.util.List;
 public class ComposeServiceController {
     private static final Path DEFAULT_WORKING_DIRECTORY = Path.of(".");
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(30);
-    private static final int DEFAULT_READINESS_ATTEMPTS = 10;
+    private static final int DEFAULT_READINESS_ATTEMPTS = 90;
     private static final Duration DEFAULT_READINESS_DELAY = Duration.ofSeconds(2);
 
     private final CommandRunner commandRunner;
@@ -56,6 +56,15 @@ public class ComposeServiceController {
     }
 
     public void restart(BenchmarkRoute route) {
+        if (route == BenchmarkRoute.STARROCKS_INTERNAL || route == BenchmarkRoute.STARROCKS_EXTERNAL_ICEBERG) {
+            List<List<String>> commands = restartCommands(route);
+            runChecked(route, commands.get(0), "restart");
+            runChecked(route, commands.get(1), "restart");
+            waitForStarRocksFeMysql(route);
+            runChecked(route, commands.get(2), "restart");
+            return;
+        }
+
         for (List<String> command : restartCommands(route)) {
             runChecked(route, command, "restart");
         }
@@ -103,10 +112,14 @@ public class ComposeServiceController {
                 List.of("docker", "compose", "-f", "docker-compose.yml", "restart", "spark")
             );
             case STARROCKS_INTERNAL, STARROCKS_EXTERNAL_ICEBERG -> List.of(
-                List.of("docker", "compose", "-f", "docker-compose.yml", "restart", "starrocks-fe", "starrocks-be")
+                List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "starrocks-be"),
+                List.of("docker", "compose", "-f", "docker-compose.yml", "up", "-d", "--force-recreate", "starrocks-fe"),
+                List.of("docker", "compose", "-f", "docker-compose.yml", "up", "-d", "--force-recreate", "starrocks-be")
             );
             case HIVE_HDFS_PARQUET -> List.of(
-                List.of("docker", "compose", "-f", "docker-compose.yml", "restart", "hive-server")
+                List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "hive-server"),
+                List.of("docker", "compose", "-f", "docker-compose.yml", "rm", "-f", "hive-server"),
+                List.of("docker", "compose", "-f", "docker-compose.yml", "up", "-d", "hive-server")
             );
         };
     }
@@ -164,6 +177,31 @@ public class ComposeServiceController {
             "-e",
             sql
         );
+    }
+
+    private void waitForStarRocksFeMysql(BenchmarkRoute route) {
+        List<String> command = starRocksMysqlCommand("SELECT 1");
+        String lastOutput = "";
+        for (int attempt = 1; attempt <= readinessAttempts; attempt++) {
+            try {
+                CommandResult result = commandRunner.run(command, workingDirectory, timeout);
+                lastOutput = commandOutput(result);
+                if (result.exitCode() == 0) {
+                    return;
+                }
+            } catch (IOException e) {
+                lastOutput = e.getMessage();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(errorMessage(route, command, "restart readiness check", e.getMessage()), e);
+            }
+
+            if (attempt < readinessAttempts) {
+                sleepBeforeRetry(route, command);
+            }
+        }
+
+        throw new IllegalStateException(errorMessage(route, command, "restart readiness check", lastOutput));
     }
 
     private boolean readinessOutputIsReady(List<String> command, CommandResult result) {

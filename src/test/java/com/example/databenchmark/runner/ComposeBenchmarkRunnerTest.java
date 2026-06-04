@@ -190,9 +190,12 @@ class ComposeBenchmarkRunnerTest {
             "generate dataset",
             "export CSV",
             "Spark load",
+            "ready STARROCKS_INTERNAL",
             "StarRocks internal load",
+            "ready STARROCKS_EXTERNAL_ICEBERG",
             "StarRocks external refresh",
             "Hive HDFS publish /data/generated",
+            "ready HIVE_HDFS_PARQUET",
             "Hive external table /data/generated",
             "restart SPARK_ICEBERG",
             "ready SPARK_ICEBERG",
@@ -218,6 +221,53 @@ class ComposeBenchmarkRunnerTest {
             );
         assertThat(reportWriter.report.querySummaries())
             .hasSize(QueryCatalog.queries().size() * BenchmarkRoute.values().length * RoutePhase.values().length);
+    }
+
+    @Test
+    void composeRunnerRecordsLoadFailureWhenPreLoadReadinessFailsAndContinues() throws Exception {
+        List<String> calls = new ArrayList<>();
+        DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
+        CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
+
+        ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
+            config -> dataset,
+            (generatedDataset, outputDir) -> outputDir.resolve("cell_kpi_1min.csv"),
+            failingTpchGenerator(),
+            failingTpchCsvExport(),
+            new FakeSparkClient(calls),
+            new FakeStarRocksClient(calls, true),
+            new FakeHdfsDatasetPublisher(calls, true),
+            new FakeHiveClient(calls),
+            new FakeServiceController(calls, null, BenchmarkRoute.STARROCKS_INTERNAL),
+            reportWriter,
+            new CapturingMetricsRecorder(calls, "smoke", "kpi", "smoke")
+        );
+
+        ComposeBenchmarkRunner.ComposeRunResult result = runner.run(
+            BenchmarkConfig.defaultSmoke(),
+            tempDir.resolve("reports"),
+            "compose-test"
+        );
+
+        assertThat(result.success()).isFalse();
+        assertThat(calls).containsSubsequence(
+            "Spark load",
+            "ready STARROCKS_INTERNAL",
+            "ready STARROCKS_EXTERNAL_ICEBERG",
+            "StarRocks external refresh",
+            "Hive HDFS publish /data/generated",
+            "ready HIVE_HDFS_PARQUET",
+            "Hive external table /data/generated"
+        );
+        assertThat(calls).doesNotContain("StarRocks internal load");
+        assertThat(reportWriter.report.status()).isEqualTo("DEGRADED");
+        assertThat(reportWriter.report.loadSummaries())
+            .filteredOn(summary -> summary.stage().equals(EngineStage.STARROCKS_INTERNAL_LOAD.name()))
+            .singleElement()
+            .satisfies(summary -> {
+                assertThat(summary.success()).isFalse();
+                assertThat(summary.error()).contains("readiness failed for STARROCKS_INTERNAL");
+            });
     }
 
     @Test
@@ -353,7 +403,6 @@ class ComposeBenchmarkRunnerTest {
         );
         assertThat(calls).doesNotContain(
             "restart HIVE_HDFS_PARQUET",
-            "ready HIVE_HDFS_PARQUET",
             "Hive query " + queryName + " COLD",
             "Hive query " + queryName + " WARM",
             "Hive query " + queryName + " HOT"
@@ -406,7 +455,6 @@ class ComposeBenchmarkRunnerTest {
         assertThat(result.success()).isFalse();
         assertThat(calls).doesNotContain(
             "restart HIVE_HDFS_PARQUET",
-            "ready HIVE_HDFS_PARQUET",
             "Hive query " + queryName + " COLD",
             "Hive query " + queryName + " WARM",
             "Hive query " + queryName + " HOT"
@@ -944,14 +992,20 @@ class ComposeBenchmarkRunnerTest {
     private static final class FakeServiceController implements ComposeBenchmarkRunner.ServiceController {
         private final List<String> calls;
         private final BenchmarkRoute failingRoute;
+        private final BenchmarkRoute failingReadyRoute;
 
         private FakeServiceController(List<String> calls) {
-            this(calls, null);
+            this(calls, null, null);
         }
 
         private FakeServiceController(List<String> calls, BenchmarkRoute failingRoute) {
+            this(calls, failingRoute, null);
+        }
+
+        private FakeServiceController(List<String> calls, BenchmarkRoute failingRoute, BenchmarkRoute failingReadyRoute) {
             this.calls = calls;
             this.failingRoute = failingRoute;
+            this.failingReadyRoute = failingReadyRoute;
         }
 
         @Override
@@ -965,6 +1019,9 @@ class ComposeBenchmarkRunnerTest {
         @Override
         public void waitUntilReady(BenchmarkRoute route) {
             calls.add("ready " + route.name());
+            if (route == failingReadyRoute) {
+                throw new IllegalStateException("readiness failed for " + route.name());
+            }
         }
     }
 

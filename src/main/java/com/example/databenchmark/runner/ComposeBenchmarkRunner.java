@@ -384,6 +384,7 @@ public class ComposeBenchmarkRunner {
             );
         }
         try {
+            serviceController.waitUntilReady(BenchmarkRoute.STARROCKS_INTERNAL);
             return starRocksClient.loadInternal(csvPath, runId, profile);
         } catch (Exception exception) {
             return failed("starrocks", "starrocks_internal", EngineStage.STARROCKS_INTERNAL_LOAD.name(), exception);
@@ -392,6 +393,7 @@ public class ComposeBenchmarkRunner {
 
     private EngineRunResult refreshStarRocksExternal(String runId, String profile) {
         try {
+            serviceController.waitUntilReady(BenchmarkRoute.STARROCKS_EXTERNAL_ICEBERG);
             return starRocksClient.refreshExternalCatalog(runId, profile);
         } catch (Exception exception) {
             return failed("starrocks", "starrocks_external_iceberg", EngineStage.STARROCKS_EXTERNAL_REFRESH.name(), exception);
@@ -408,6 +410,7 @@ public class ComposeBenchmarkRunner {
 
     private EngineRunResult createHiveExternalTable(String hdfsRoot) {
         try {
+            serviceController.waitUntilReady(BenchmarkRoute.HIVE_HDFS_PARQUET);
             return hiveClient.createExternalTable(hdfsRoot);
         } catch (Exception exception) {
             return failed("hive", "hive_hdfs_parquet", "HIVE_HDFS_PARQUET_LOAD", exception);

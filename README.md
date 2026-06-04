@@ -71,6 +71,8 @@ Current Docker Compose resource limits:
 | hdfs-datanode | 2 | 1.5GB |
 | benchmark-runner | 2 | 1GB |
 
+The default Compose network uses subnet `172.20.0.0/24`; `starrocks-fe` is pinned to `172.20.0.10` and `starrocks-be` to `172.20.0.11` so StarRocks metadata does not drift across container recreates. The FE startup command rewrites `JAVA_OPTS` with `-Xmx1536m`, matching the 2GB FE container limit instead of the StarRocks default `-Xmx8192m`.
+
 Compose mode writes a standalone web report package under `reports/runs/<run_id>/`.
 Open the report directly:
 

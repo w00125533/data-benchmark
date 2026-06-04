@@ -4,12 +4,21 @@ services:
   starrocks-fe:
     image: starrocks/fe-ubuntu:3.3-latest
     hostname: starrocks-fe-0
-    command: ["/opt/starrocks/fe_entrypoint.sh", "starrocks-fe"]
+    command:
+      - bash
+      - -lc
+      - |
+        sed -i '/^JAVA_OPTS=/d' /opt/starrocks/fe/conf/fe.conf
+        printf '%s\n' 'JAVA_OPTS="-Dlog4j2.formatMsgNoLookups=true -Xmx1536m -XX:+UseG1GC -Djava.security.policy=/opt/starrocks/fe/conf/udf_security.policy"' >> /opt/starrocks/fe/conf/fe.conf
+        exec /opt/starrocks/fe_entrypoint.sh starrocks-fe
     environment:
       LOG_CONSOLE: "1"
     ports:
       - "8030:8030"
       - "9030:9030"
+    networks:
+      default:
+        ipv4_address: 172.20.0.10
     deploy:
       resources:
         limits:
@@ -26,6 +35,9 @@ services:
       - starrocks-fe
     ports:
       - "8040:8040"
+    networks:
+      default:
+        ipv4_address: 172.20.0.11
     deploy:
       resources:
         limits:
@@ -177,3 +189,6 @@ services:
 networks:
   default:
     name: databenchmark
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24

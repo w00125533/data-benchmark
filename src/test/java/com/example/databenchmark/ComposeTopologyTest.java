@@ -42,12 +42,20 @@ class ComposeTopologyTest {
         );
         EXPECTED_RESOURCE_LIMITS.forEach((serviceName, expected) ->
             assertResourceLimit(service(services, serviceName), expected.cpus(), expected.memory()));
-        assertThat(stringList(service(services, "starrocks-fe"), "command"))
-            .containsExactly("/opt/starrocks/fe_entrypoint.sh", "starrocks-fe");
+        List<String> starRocksFeCommand = stringList(service(services, "starrocks-fe"), "command");
+        assertThat(starRocksFeCommand).startsWith("bash", "-lc");
+        assertThat(starRocksFeCommand.get(2))
+            .contains("sed -i '/^JAVA_OPTS=/d' /opt/starrocks/fe/conf/fe.conf")
+            .contains("JAVA_OPTS=\"-Dlog4j2.formatMsgNoLookups=true -Xmx1536m -XX:+UseG1GC -Djava.security.policy=/opt/starrocks/fe/conf/udf_security.policy\"")
+            .contains("exec /opt/starrocks/fe_entrypoint.sh starrocks-fe");
         assertThat(service(services, "starrocks-fe").get("hostname")).isEqualTo("starrocks-fe-0");
+        assertThat(map(map(service(services, "starrocks-fe").get("networks")).get("default")))
+            .containsEntry("ipv4_address", "172.20.0.10");
         assertThat(stringList(service(services, "starrocks-be"), "command"))
             .containsExactly("/opt/starrocks/be_entrypoint.sh", "starrocks-fe");
         assertThat(service(services, "starrocks-be").get("hostname")).isEqualTo("starrocks-be-0");
+        assertThat(map(map(service(services, "starrocks-be").get("networks")).get("default")))
+            .containsEntry("ipv4_address", "172.20.0.11");
         assertThat(services).containsKeys("hdfs-namenode", "hdfs-datanode", "hdfs-init");
         assertThat(services).doesNotContainKeys("minio", REMOVED_METRICS_SERVICE, REMOVED_DASHBOARD_SERVICE);
 
@@ -112,7 +120,10 @@ class ComposeTopologyTest {
             .contains("hdfs dfs -fs hdfs://hdfs-namenode:8020 -chmod -R 777 /warehouse");
         assertThat(dependencyNames(hdfsInit)).contains("hdfs-namenode", "hdfs-datanode");
 
-        assertThat(map(map(compose.get("networks")).get("default"))).containsEntry("name", "databenchmark");
+        Map<String, Object> defaultNetwork = map(map(compose.get("networks")).get("default"));
+        assertThat(defaultNetwork).containsEntry("name", "databenchmark");
+        assertThat(map(list(map(defaultNetwork.get("ipam")), "config").get(0)))
+            .containsEntry("subnet", "172.20.0.0/24");
     }
 
     @Test
@@ -141,7 +152,10 @@ class ComposeTopologyTest {
             .contains("| Service | CPU | Memory |");
         assertThat(readme)
             .contains("docker compose -f docker-compose.yml build benchmark-runner")
-            .contains("mvn package");
+            .contains("mvn package")
+            .contains("172.20.0.10")
+            .contains("172.20.0.11")
+            .contains("-Xmx1536m");
     }
 
     private Map<String, Object> service(Map<String, Object> services, String name) {

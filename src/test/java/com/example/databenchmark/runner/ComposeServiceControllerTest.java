@@ -23,11 +23,23 @@ class ComposeServiceControllerTest {
         assertThat(controller.restartCommands(BenchmarkRoute.SPARK_ICEBERG))
             .containsExactly(List.of("docker", "compose", "-f", "docker-compose.yml", "restart", "spark"));
         assertThat(controller.restartCommands(BenchmarkRoute.STARROCKS_INTERNAL))
-            .containsExactly(List.of("docker", "compose", "-f", "docker-compose.yml", "restart", "starrocks-fe", "starrocks-be"));
+            .containsExactly(
+                List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "starrocks-be"),
+                List.of("docker", "compose", "-f", "docker-compose.yml", "up", "-d", "--force-recreate", "starrocks-fe"),
+                List.of("docker", "compose", "-f", "docker-compose.yml", "up", "-d", "--force-recreate", "starrocks-be")
+            );
         assertThat(controller.restartCommands(BenchmarkRoute.STARROCKS_EXTERNAL_ICEBERG))
-            .containsExactly(List.of("docker", "compose", "-f", "docker-compose.yml", "restart", "starrocks-fe", "starrocks-be"));
+            .containsExactly(
+                List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "starrocks-be"),
+                List.of("docker", "compose", "-f", "docker-compose.yml", "up", "-d", "--force-recreate", "starrocks-fe"),
+                List.of("docker", "compose", "-f", "docker-compose.yml", "up", "-d", "--force-recreate", "starrocks-be")
+            );
         assertThat(controller.restartCommands(BenchmarkRoute.HIVE_HDFS_PARQUET))
-            .containsExactly(List.of("docker", "compose", "-f", "docker-compose.yml", "restart", "hive-server"));
+            .containsExactly(
+                List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "hive-server"),
+                List.of("docker", "compose", "-f", "docker-compose.yml", "rm", "-f", "hive-server"),
+                List.of("docker", "compose", "-f", "docker-compose.yml", "up", "-d", "hive-server")
+            );
     }
 
     @Test
@@ -40,6 +52,36 @@ class ComposeServiceControllerTest {
 
         assertThat(commandRunner.commands)
             .containsExactly(List.of("docker", "compose", "-f", "docker-compose.yml", "restart", "spark"));
+    }
+
+    @Test
+    void restartStarRocksWaitsForFeMysqlBeforeStartingBackend() throws Exception {
+        FakeCommandRunner commandRunner = new FakeCommandRunner();
+        commandRunner.enqueueSuccess();
+        commandRunner.enqueueSuccess();
+        commandRunner.enqueueFailure("fe mysql booting");
+        commandRunner.enqueueSuccess("1\n1");
+        commandRunner.enqueueSuccess();
+        ComposeServiceController controller = new ComposeServiceController(
+            commandRunner,
+            Path.of("."),
+            Duration.ofSeconds(30),
+            3,
+            Duration.ZERO,
+            ignored -> { }
+        );
+
+        controller.restart(BenchmarkRoute.STARROCKS_INTERNAL);
+
+        assertThat(commandRunner.commands).containsExactly(
+            List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "starrocks-be"),
+            List.of("docker", "compose", "-f", "docker-compose.yml", "up", "-d", "--force-recreate", "starrocks-fe"),
+            List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
+                "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SELECT 1"),
+            List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
+                "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SELECT 1"),
+            List.of("docker", "compose", "-f", "docker-compose.yml", "up", "-d", "--force-recreate", "starrocks-be")
+        );
     }
 
     @Test
