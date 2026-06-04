@@ -458,6 +458,30 @@ class ComposeBenchmarkRunnerTest {
     }
 
     @Test
+    void defaultHdfsPublisherUsesLocalHadoopCliInContainer() throws Exception {
+        CapturingCommandRunner commandRunner = new CapturingCommandRunner();
+        ComposeBenchmarkRunner.HdfsDatasetPublisher publisher = defaultHdfsPublisher(commandRunner, tempDir, true);
+        DatasetResult dataset = new DatasetResult(tempDir.resolve("data/generated"), List.of(tempDir.resolve("data/generated/part.parquet")), 5L, 123L);
+
+        EngineRunResult result = publisher.publish(dataset, "/data/generated");
+
+        assertThat(result.success()).isTrue();
+        assertThat(commandRunner.commands()).hasSize(3);
+        assertThat(commandRunner.commands().get(0)).containsExactly(
+            "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
+            "-rm", "-r", "-f", "/data/generated"
+        );
+        assertThat(commandRunner.commands().get(1)).containsExactly(
+            "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
+            "-mkdir", "-p", "/data"
+        );
+        assertThat(commandRunner.commands().get(2)).containsExactly(
+            "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
+            "-put", "-f", "/workspace/data/generated", "/data/generated"
+        );
+    }
+
+    @Test
     void composeRunnerRunsTpchSuiteWithoutTouchingKpiFlow() throws Exception {
         List<String> calls = new ArrayList<>();
         TpchDatasetResult tpchDataset = TestTpchFixtures.dataset(tempDir.resolve("data/tpch/tpch-unit"));

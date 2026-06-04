@@ -36,9 +36,11 @@ The default verification config is [configs/benchmark-smoke.yml](configs/benchma
 
 The formal KPI benchmark config is [configs/benchmark-kpi-10m.yml](configs/benchmark-kpi-10m.yml). It uses the same KPI shape with `rowCap: 10000000` for a 10m-row / 1000 万行 benchmark dataset.
 
-Docker Compose uses the packaged runner jar from `target/`, so run `mvn package` before starting Compose. The runner service executes the real compose path:
+Docker Compose uses the packaged runner jar from `target/`, so run `mvn package` before starting Compose. Build the benchmark-runner image after packaging so the container has Java 17, Spark, and the Hadoop `hdfs` CLI available for Hive HDFS Parquet publish. The runner service executes the real compose path:
 
 ```powershell
+mvn package
+docker compose -f docker-compose.yml build benchmark-runner
 docker compose -f docker-compose.yml up benchmark-runner
 ```
 
@@ -50,6 +52,7 @@ HDFS infrastructure is provisioned by Docker Compose. The HDFS Iceberg warehouse
 
 ```powershell
 mvn package
+docker compose -f docker-compose.yml build benchmark-runner
 docker compose -f docker-compose.yml up -d hdfs-namenode hdfs-datanode hdfs-init hive-metastore hive-server spark starrocks-fe starrocks-be
 java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --config configs/benchmark-smoke.yml --run-id compose-smoke
 java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --config configs/benchmark-kpi-10m.yml --run-id compose-kpi-10m

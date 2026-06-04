@@ -52,7 +52,10 @@ class ComposeTopologyTest {
         assertThat(services).doesNotContainKeys("minio", REMOVED_METRICS_SERVICE, REMOVED_DASHBOARD_SERVICE);
 
         Map<String, Object> runner = service(services, "benchmark-runner");
-        assertThat(runner.get("image").toString()).isEqualTo("apache/spark:3.5.8-java17");
+        assertThat(runner).doesNotContainKey("image");
+        assertThat(map(runner.get("build")))
+            .containsEntry("context", "./docker/benchmark-runner")
+            .containsEntry("dockerfile", "Dockerfile");
         assertThat(runner.get("working_dir")).isEqualTo("/workspace");
         assertThat(stringList(runner, "volumes")).contains(".:/workspace");
         assertThat(map(runner.get("environment")))
@@ -136,6 +139,9 @@ class ComposeTopologyTest {
             .contains("10m")
             .contains("hive-server")
             .contains("| Service | CPU | Memory |");
+        assertThat(readme)
+            .contains("docker compose -f docker-compose.yml build benchmark-runner")
+            .contains("mvn package");
     }
 
     private Map<String, Object> service(Map<String, Object> services, String name) {

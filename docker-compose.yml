@@ -143,7 +143,9 @@ services:
       - hdfs-datanode
 
   benchmark-runner:
-    image: apache/spark:3.5.8-java17
+    build:
+      context: ./docker/benchmark-runner
+      dockerfile: Dockerfile
     working_dir: /workspace
     volumes:
       - .:/workspace

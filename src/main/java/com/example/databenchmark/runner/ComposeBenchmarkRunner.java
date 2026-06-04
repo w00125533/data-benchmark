@@ -778,11 +778,6 @@ public class ComposeBenchmarkRunner {
         @Override
         public EngineRunResult publish(DatasetResult dataset, String hdfsRoot) {
             long started = System.nanoTime();
-            if (inContainer) {
-                return failedPublish(0.0,
-                    "HDFS publish requires Hadoop CLI. Run compose mode from the host, or update the benchmark-runner image to include hdfs.");
-            }
-
             String workspacePath;
             try {
                 workspacePath = toWorkspacePath(dataset.outputPath());
@@ -823,13 +818,15 @@ public class ComposeBenchmarkRunner {
 
         private List<String> hdfsCommand(String... hdfsArgs) {
             List<String> command = new ArrayList<>();
-            String workspaceMount = workingDirectory.toAbsolutePath().normalize() + ":/workspace";
-            command.addAll(List.of(
-                "docker", "run", "--rm", "--network", DOCKER_NETWORK,
-                "-v", workspaceMount,
-                "-w", "/workspace",
-                HADOOP_IMAGE
-            ));
+            if (!inContainer) {
+                String workspaceMount = workingDirectory.toAbsolutePath().normalize() + ":/workspace";
+                command.addAll(List.of(
+                    "docker", "run", "--rm", "--network", DOCKER_NETWORK,
+                    "-v", workspaceMount,
+                    "-w", "/workspace",
+                    HADOOP_IMAGE
+                ));
+            }
             command.addAll(List.of("hdfs", "dfs", "-fs", HDFS_URI));
             command.addAll(List.of(hdfsArgs));
             return command;
