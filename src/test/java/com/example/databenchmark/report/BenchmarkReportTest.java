@@ -31,6 +31,30 @@ class BenchmarkReportTest {
     }
 
     @Test
+    void nullTimestampsReturnZeroDurationSeconds() {
+        BenchmarkReport report = reportWith(
+            null,
+            "2026-06-04T00:01:00Z",
+            List.of(successfulLoad()),
+            List.of(successfulQuery())
+        );
+
+        assertThat(report.durationSeconds()).isZero();
+    }
+
+    @Test
+    void endedBeforeStartedReturnsZeroDurationSeconds() {
+        BenchmarkReport report = reportWith(
+            "2026-06-04T00:01:00Z",
+            "2026-06-04T00:00:00Z",
+            List.of(successfulLoad()),
+            List.of(successfulQuery())
+        );
+
+        assertThat(report.durationSeconds()).isZero();
+    }
+
+    @Test
     void emptyLoadSummariesMakeStatusDegraded() {
         BenchmarkReport report = reportWith(
             "2026-06-04T00:00:00Z",

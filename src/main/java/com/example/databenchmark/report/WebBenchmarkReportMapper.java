@@ -29,11 +29,43 @@ public class WebBenchmarkReportMapper {
                 report.columns(),
                 report.bytesWritten()
             ),
-            report.loadSummaries(),
-            report.querySummaries(),
+            loads(report),
+            queries(report),
             charts(report),
             notices(report)
         );
+    }
+
+    private List<WebBenchmarkReport.LoadSummary> loads(BenchmarkReport report) {
+        return report.loadSummaries().stream()
+            .map(load -> new WebBenchmarkReport.LoadSummary(
+                load.engine(),
+                load.tableShape(),
+                load.stage(),
+                load.rows(),
+                load.bytes(),
+                load.durationSeconds(),
+                load.success(),
+                load.error()
+            ))
+            .toList();
+    }
+
+    private List<WebBenchmarkReport.QuerySummary> queries(BenchmarkReport report) {
+        return report.querySummaries().stream()
+            .map(query -> new WebBenchmarkReport.QuerySummary(
+                query.engine(),
+                query.tableShape(),
+                query.queryName(),
+                query.p50Ms(),
+                query.p95Ms(),
+                query.p99Ms(),
+                query.rows(),
+                query.failures(),
+                query.success(),
+                query.error()
+            ))
+            .toList();
     }
 
     private WebBenchmarkReport.ChartData charts(BenchmarkReport report) {
@@ -75,25 +107,31 @@ public class WebBenchmarkReportMapper {
     }
 
     private List<WebBenchmarkReport.FailureSummaryPoint> failureSummary(BenchmarkReport report) {
-        Map<String, Integer> failures = new LinkedHashMap<>();
+        Map<FailureKey, Integer> failures = new LinkedHashMap<>();
         for (BenchmarkReport.LoadSummary load : report.loadSummaries()) {
             addFailure(failures, load.stage(), load.engine(), load.success() ? 0 : 1);
         }
         for (BenchmarkReport.QuerySummary query : report.querySummaries()) {
-            int failureCount = query.success() && query.failures() == 0 ? 0 : Math.max(1, query.failures());
+            int failureCount = query.success() ? query.failures() : Math.max(1, query.failures());
             addFailure(failures, query.queryName(), query.engine(), failureCount);
         }
         return failures.entrySet().stream()
-            .map(entry -> {
-                String[] parts = entry.getKey().split("\\|", 2);
-                return new WebBenchmarkReport.FailureSummaryPoint(parts[0], parts[1], entry.getValue());
-            })
+            .map(entry -> new WebBenchmarkReport.FailureSummaryPoint(
+                entry.getKey().stage(),
+                entry.getKey().engine(),
+                entry.getValue()
+            ))
             .toList();
     }
 
-    private void addFailure(Map<String, Integer> failures, String stage, String engine, int count) {
-        failures.merge(stage + "|" + engine, count, Integer::sum);
+    private void addFailure(Map<FailureKey, Integer> failures, String stage, String engine, int count) {
+        if (count <= 0) {
+            return;
+        }
+        failures.merge(new FailureKey(stage, engine), count, Integer::sum);
     }
+
+    private record FailureKey(String stage, String engine) {}
 
     private List<String> notices(BenchmarkReport report) {
         List<String> notices = new ArrayList<>();

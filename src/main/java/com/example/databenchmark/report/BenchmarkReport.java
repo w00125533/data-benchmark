@@ -1,8 +1,8 @@
 package com.example.databenchmark.report;
 
 import java.time.Duration;
+import java.time.DateTimeException;
 import java.time.Instant;
-import java.time.format.DateTimeParseException;
 import java.util.List;
 
 public record BenchmarkReport(
@@ -62,10 +62,13 @@ public record BenchmarkReport(
     }
 
     public double durationSeconds() {
+        if (startedAt == null || endedAt == null) {
+            return 0.0;
+        }
         try {
             long millis = Duration.between(Instant.parse(startedAt), Instant.parse(endedAt)).toMillis();
             return millis < 0 ? 0.0 : millis / 1000.0;
-        } catch (DateTimeParseException exception) {
+        } catch (DateTimeException exception) {
             return 0.0;
         }
     }

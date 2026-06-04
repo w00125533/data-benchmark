@@ -6,8 +6,8 @@ public record WebBenchmarkReport(
     int schemaVersion,
     RunInfo run,
     DatasetInfo dataset,
-    List<BenchmarkReport.LoadSummary> loads,
-    List<BenchmarkReport.QuerySummary> queries,
+    List<LoadSummary> loads,
+    List<QuerySummary> queries,
     ChartData charts,
     List<String> notices
 ) {
@@ -29,6 +29,30 @@ public record WebBenchmarkReport(
         long rows,
         int columns,
         long bytesWritten
+    ) {}
+
+    public record LoadSummary(
+        String engine,
+        String tableShape,
+        String stage,
+        long rows,
+        long bytes,
+        double durationSeconds,
+        boolean success,
+        String error
+    ) {}
+
+    public record QuerySummary(
+        String engine,
+        String tableShape,
+        String queryName,
+        double p50Ms,
+        double p95Ms,
+        double p99Ms,
+        long rows,
+        int failures,
+        boolean success,
+        String error
     ) {}
 
     public record ChartData(

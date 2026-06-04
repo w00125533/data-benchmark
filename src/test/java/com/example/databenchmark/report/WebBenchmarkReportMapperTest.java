@@ -2,11 +2,14 @@ package com.example.databenchmark.report;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class WebBenchmarkReportMapperTest {
     private final WebBenchmarkReportMapper mapper = new WebBenchmarkReportMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
     void mapsSuccessfulRunDatasetDetailsAndChartPoints() {
@@ -41,8 +44,18 @@ class WebBenchmarkReportMapperTest {
                 100L,
                 true
             ));
-        assertThat(web.charts().failureSummary())
-            .contains(new WebBenchmarkReport.FailureSummaryPoint("generate", "local", 0));
+        assertThat(web.charts().failureSummary()).isEmpty();
+    }
+
+    @Test
+    void webReportSerializesWithDefaultJacksonMapper() throws Exception {
+        WebBenchmarkReport web = mapper.map(BenchmarkReport.sample("run-web"));
+
+        JsonNode json = objectMapper.readTree(objectMapper.writeValueAsString(web));
+
+        assertThat(json.path("loads").path(0).path("stage").asText()).isEqualTo("generate");
+        assertThat(json.path("queries").path(0).path("queryName").asText()).isEqualTo("topn_high_load_cells");
+        assertThat(json.path("charts").path("failureSummary")).isEmpty();
     }
 
     @Test
@@ -93,6 +106,42 @@ class WebBenchmarkReportMapperTest {
             .contains(
                 new WebBenchmarkReport.FailureSummaryPoint("LOAD", "spark_iceberg", 1),
                 new WebBenchmarkReport.FailureSummaryPoint("q01_pricing_summary_report", "starrocks_internal", 1)
+            );
+    }
+
+    @Test
+    void aggregatesOnlyRealFailuresWithoutDelimiterCollisions() {
+        BenchmarkReport report = new BenchmarkReport(
+            "run-delimiters",
+            "smoke",
+            "kpi",
+            "smoke",
+            "2026-06-04T00:00:00Z",
+            "2026-06-04T00:00:10Z",
+            0,
+            0,
+            0,
+            0,
+            0,
+            List.of(
+                new BenchmarkReport.LoadSummary("engine|a", "shape", "stage", 0, 0, 1, false, "failed"),
+                new BenchmarkReport.LoadSummary("a", "shape", "stage|engine", 0, 0, 1, false, "failed"),
+                new BenchmarkReport.LoadSummary("engine|a", "shape", "stage", 0, 0, 1, true, "")
+            ),
+            List.of(
+                new BenchmarkReport.QuerySummary("engine|a", "shape", "query", 0, 0, 0, 0, 2, true, "failed"),
+                new BenchmarkReport.QuerySummary("engine|a", "shape", "query", 0, 0, 0, 0, 0, true, "")
+            ),
+            false
+        );
+
+        WebBenchmarkReport web = mapper.map(report);
+
+        assertThat(web.charts().failureSummary())
+            .containsExactly(
+                new WebBenchmarkReport.FailureSummaryPoint("stage", "engine|a", 1),
+                new WebBenchmarkReport.FailureSummaryPoint("stage|engine", "a", 1),
+                new WebBenchmarkReport.FailureSummaryPoint("query", "engine|a", 2)
             );
     }
 }
