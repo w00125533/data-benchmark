@@ -27,7 +27,8 @@ class WebReportWriterTest {
 
         String html = Files.readString(output);
         assertThat(html).contains("window.__BENCHMARK_REPORT__");
-        assertThat(html).contains("report-ui.js");
+        assertThat(html).contains("<script defer src=\"./assets/report-ui.js\"></script>");
+        assertThat(html).doesNotContain("type=\"module\"");
 
         WebBenchmarkReport json = new ObjectMapper()
             .readValue(tempDir.resolve("run-web").resolve("report.json").toFile(), WebBenchmarkReport.class);

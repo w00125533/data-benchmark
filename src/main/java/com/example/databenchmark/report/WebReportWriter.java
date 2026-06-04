@@ -21,6 +21,9 @@ public class WebReportWriter {
     private static final Pattern SAFE_RUN_ID = Pattern.compile("[A-Za-z0-9._-]+");
     private static final String RESOURCE_ROOT = "report-ui";
     private static final String INJECTION_MARKER = "<!-- BENCHMARK_REPORT_DATA -->";
+    private static final Pattern MODULE_ENTRY_SCRIPT = Pattern.compile(
+        "<script\\s+type=\"module\"(?:\\s+crossorigin)?\\s+src=\"\\./assets/report-ui\\.js\"></script>"
+    );
 
     private final ObjectMapper objectMapper;
     private final WebBenchmarkReportMapper mapper;
@@ -70,7 +73,7 @@ public class WebReportWriter {
         }
 
         String script = "<script>window.__BENCHMARK_REPORT__ = " + scriptSafeJson(json) + ";</script>";
-        Files.writeString(index, html.replace(INJECTION_MARKER, script), StandardCharsets.UTF_8);
+        Files.writeString(index, normalizeFileOpenScript(html).replace(INJECTION_MARKER, script), StandardCharsets.UTF_8);
         return index;
     }
 
@@ -85,6 +88,11 @@ public class WebReportWriter {
             .replace("</", "<\\/")
             .replace("\u2028", "\\u2028")
             .replace("\u2029", "\\u2029");
+    }
+
+    private String normalizeFileOpenScript(String html) {
+        return MODULE_ENTRY_SCRIPT.matcher(html)
+            .replaceFirst("<script defer src=\"./assets/report-ui.js\"></script>");
     }
 
     private void copyReportUi(Path outputDir) throws IOException {
