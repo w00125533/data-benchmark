@@ -18,8 +18,6 @@ import com.example.databenchmark.tpch.TpchDatasetResult;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.prometheusmetrics.PrometheusConfig;
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -255,7 +253,6 @@ public class ComposeBenchmarkRunner {
             bytes,
             loadResults.stream().map(this::toLoadSummary).toList(),
             queryResults.stream().map(this::toQuerySummary).toList(),
-            grafanaUrl(runId, config),
             "full".equals(config.profile())
         );
     }
@@ -312,15 +309,6 @@ public class ComposeBenchmarkRunner {
 
     private String generatedRunId() {
         return "compose-" + Instant.now().toEpochMilli();
-    }
-
-    private String grafanaUrl(String runId, BenchmarkConfig config) {
-        return "http://localhost:3000/d/benchmark?var-run_id="
-            + URLEncoder.encode(runId, StandardCharsets.UTF_8)
-            + "&var-suite="
-            + URLEncoder.encode(config.suite().name(), StandardCharsets.UTF_8)
-            + "&var-query_set="
-            + URLEncoder.encode(config.suite().querySet(), StandardCharsets.UTF_8);
     }
 
     private static double elapsedSeconds(long startedNanos) {

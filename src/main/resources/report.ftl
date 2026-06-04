@@ -41,6 +41,5 @@
     </tbody>
   </table>
 
-  <p><a href="${report.grafanaUrl()}">Grafana dashboard for this run</a></p>
 </body>
 </html>

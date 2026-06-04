@@ -5,8 +5,6 @@ import com.example.databenchmark.generator.DatasetResult;
 import com.example.databenchmark.generator.KpiDataGenerator;
 import com.example.databenchmark.report.BenchmarkReport;
 import com.example.databenchmark.report.HtmlReportWriter;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -57,7 +55,6 @@ public class LocalBenchmarkRunner {
                 true,
                 ""
             )),
-            grafanaUrl(actualRunId, config),
             "full".equals(config.profile())
         );
 
@@ -76,15 +73,6 @@ public class LocalBenchmarkRunner {
 
     private String generatedRunId() {
         return "run-" + Instant.now().toEpochMilli();
-    }
-
-    private String grafanaUrl(String runId, BenchmarkConfig config) {
-        return "http://localhost:3000/d/benchmark?var-run_id="
-            + URLEncoder.encode(runId, StandardCharsets.UTF_8)
-            + "&var-suite="
-            + URLEncoder.encode(config.suite().name(), StandardCharsets.UTF_8)
-            + "&var-query_set="
-            + URLEncoder.encode(config.suite().querySet(), StandardCharsets.UTF_8);
     }
 
     public record LocalRunResult(DatasetResult dataset, Path reportPath) {}

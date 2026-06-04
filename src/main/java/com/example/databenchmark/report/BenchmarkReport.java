@@ -1,7 +1,8 @@
 package com.example.databenchmark.report;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 
 public record BenchmarkReport(
@@ -18,7 +19,6 @@ public record BenchmarkReport(
     long bytesWritten,
     List<LoadSummary> loadSummaries,
     List<QuerySummary> querySummaries,
-    String grafanaUrl,
     boolean fullProfile
 ) {
     public static BenchmarkReport sample(String runId) {
@@ -47,9 +47,6 @@ public record BenchmarkReport(
                 true,
                 ""
             )),
-            "http://localhost:3000/d/benchmark?var-run_id="
-                + URLEncoder.encode(runId, StandardCharsets.UTF_8)
-                + "&var-suite=kpi&var-query_set=smoke",
             false
         );
     }
@@ -62,6 +59,15 @@ public record BenchmarkReport(
         boolean allQueriesSuccessful = querySummaries.stream()
             .allMatch(query -> query.success() && query.failures() == 0);
         return allLoadsSuccessful && allQueriesSuccessful ? "SUCCESS" : "DEGRADED";
+    }
+
+    public double durationSeconds() {
+        try {
+            long millis = Duration.between(Instant.parse(startedAt), Instant.parse(endedAt)).toMillis();
+            return millis < 0 ? 0.0 : millis / 1000.0;
+        } catch (DateTimeParseException exception) {
+            return 0.0;
+        }
     }
 
     public record LoadSummary(

@@ -10,8 +10,6 @@ import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 
 class HtmlReportWriterTest {
     @TempDir
@@ -31,41 +29,17 @@ class HtmlReportWriterTest {
         assertThat(html).contains("Dataset Summary");
         assertThat(html).contains("Load Summary");
         assertThat(html).contains("Query Summary");
-        assertThat(html).contains("Grafana dashboard for this run");
         assertThat(html).contains("run-test");
         assertThat(html).contains("not a 4.032B row full-profile validation");
     }
 
     @Test
     void unsafeRunIdIsRejected() {
-        BenchmarkReport report = reportWith("../outside", "http://localhost:3000/d/benchmark", false);
+        BenchmarkReport report = reportWith("../outside", false);
 
         assertThatThrownBy(() -> new HtmlReportWriter().write(report, tempDir))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("runId");
-    }
-
-    @Test
-    void unsafeGrafanaUrlIsRejected() {
-        BenchmarkReport report = reportWith("run-test", "javascript:alert(1)", false);
-
-        assertThatThrownBy(() -> new HtmlReportWriter().write(report, tempDir))
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("grafanaUrl");
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {
-        "http:example.com",
-        "http:/example.com",
-        "https://exa mple.com/path"
-    })
-    void malformedGrafanaUrlsAreRejected(String grafanaUrl) {
-        BenchmarkReport report = reportWith("run-test", grafanaUrl, false);
-
-        assertThatThrownBy(() -> new HtmlReportWriter().write(report, tempDir))
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("grafanaUrl");
     }
 
     @Test
@@ -104,7 +78,6 @@ class HtmlReportWriterTest {
                 true,
                 ""
             )),
-            "http://localhost:3000/d/benchmark?var-run_id=run-xss",
             false
         );
 
@@ -182,7 +155,6 @@ class HtmlReportWriterTest {
                     "query failed"
                 )
             ),
-            "http://localhost:3000/d/benchmark?var-run_id=run-degraded",
             false
         );
 
@@ -197,7 +169,7 @@ class HtmlReportWriterTest {
 
     @Test
     void representativeLoadAndQueryValuesRender() throws Exception {
-        BenchmarkReport report = reportWith("run-values", "https://grafana.example/d/benchmark", false);
+        BenchmarkReport report = reportWith("run-values", false);
 
         String html = Files.readString(new HtmlReportWriter().write(report, tempDir));
 
@@ -216,7 +188,7 @@ class HtmlReportWriterTest {
 
     @Test
     void fullProfileSuppressesValidationNotice() throws Exception {
-        BenchmarkReport report = reportWith("run-full", "http://localhost:3000/d/benchmark", true);
+        BenchmarkReport report = reportWith("run-full", true);
 
         String html = Files.readString(new HtmlReportWriter().write(report, tempDir));
 
@@ -224,19 +196,9 @@ class HtmlReportWriterTest {
     }
 
     @Test
-    void sampleUrlEncodesRunIdForGrafanaQueryParameter() {
-        BenchmarkReport report = BenchmarkReport.sample("run test");
-
-        assertThat(report.grafanaUrl()).contains("var-run_id=run+test");
-        assertThat(report.grafanaUrl()).contains("var-suite=kpi");
-        assertThat(report.grafanaUrl()).contains("var-query_set=smoke");
-    }
-
-    @Test
     void emptyLoadSummariesMakeStatusDegraded() {
         BenchmarkReport report = reportWith(
             "run-empty-load",
-            "http://localhost:3000/d/benchmark",
             false,
             List.of(),
             List.of(successfulQuery())
@@ -249,7 +211,6 @@ class HtmlReportWriterTest {
     void emptyQuerySummariesMakeStatusDegraded() {
         BenchmarkReport report = reportWith(
             "run-empty-query",
-            "http://localhost:3000/d/benchmark",
             false,
             List.of(successfulLoad()),
             List.of()
@@ -262,7 +223,6 @@ class HtmlReportWriterTest {
     void queryFailuresMakeStatusDegradedEvenWhenQuerySucceeded() {
         BenchmarkReport report = reportWith(
             "run-query-failure-count",
-            "http://localhost:3000/d/benchmark",
             false,
             List.of(successfulLoad()),
             List.of(new BenchmarkReport.QuerySummary(
@@ -295,10 +255,9 @@ class HtmlReportWriterTest {
         assertThat(BenchmarkMetrics.QUERY_FAILURES_TOTAL).isEqualTo("benchmark_query_failures_total");
     }
 
-    private BenchmarkReport reportWith(String runId, String grafanaUrl, boolean fullProfile) {
+    private BenchmarkReport reportWith(String runId, boolean fullProfile) {
         return reportWith(
             runId,
-            grafanaUrl,
             fullProfile,
             List.of(successfulLoad()),
             List.of(successfulQuery())
@@ -307,7 +266,6 @@ class HtmlReportWriterTest {
 
     private BenchmarkReport reportWith(
         String runId,
-        String grafanaUrl,
         boolean fullProfile,
         List<BenchmarkReport.LoadSummary> loadSummaries,
         List<BenchmarkReport.QuerySummary> querySummaries
@@ -326,7 +284,6 @@ class HtmlReportWriterTest {
             2_048,
             loadSummaries,
             querySummaries,
-            grafanaUrl,
             fullProfile
         );
     }

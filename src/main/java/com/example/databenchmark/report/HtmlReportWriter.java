@@ -6,14 +6,10 @@ import freemarker.template.TemplateException;
 import freemarker.template.TemplateExceptionHandler;
 import java.io.IOException;
 import java.io.Writer;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.regex.Pattern;
 
 public class HtmlReportWriter {
@@ -32,7 +28,6 @@ public class HtmlReportWriter {
 
     public Path write(BenchmarkReport report, Path outputRoot) throws IOException {
         validateRunId(report.runId());
-        validateGrafanaUrl(report.grafanaUrl());
 
         Path root = outputRoot.toAbsolutePath().normalize();
         Path outputDir = root.resolve(report.runId()).normalize();
@@ -53,27 +48,6 @@ public class HtmlReportWriter {
     private void validateRunId(String runId) {
         if (runId == null || !SAFE_RUN_ID.matcher(runId).matches()) {
             throw new IllegalArgumentException("Invalid runId: " + runId);
-        }
-    }
-
-    private void validateGrafanaUrl(String grafanaUrl) {
-        try {
-            URI uri = new URI(grafanaUrl);
-            String scheme = uri.getScheme();
-            if (
-                scheme == null
-                    || !Set.of("http", "https").contains(scheme.toLowerCase(Locale.ROOT))
-                    || uri.isOpaque()
-            ) {
-                throw new IllegalArgumentException("Invalid grafanaUrl: " + grafanaUrl);
-            }
-            URI serverUri = uri.parseServerAuthority();
-            String host = serverUri.getHost();
-            if (host == null || host.isBlank()) {
-                throw new IllegalArgumentException("Invalid grafanaUrl: " + grafanaUrl);
-            }
-        } catch (URISyntaxException | NullPointerException exception) {
-            throw new IllegalArgumentException("Invalid grafanaUrl: " + grafanaUrl, exception);
         }
     }
 
