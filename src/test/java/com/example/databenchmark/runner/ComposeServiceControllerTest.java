@@ -1,0 +1,116 @@
+package com.example.databenchmark.runner;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.example.databenchmark.engine.CommandResult;
+import com.example.databenchmark.engine.CommandRunner;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Queue;
+import org.junit.jupiter.api.Test;
+
+class ComposeServiceControllerTest {
+    @Test
+    void restartCommandsReturnsRouteSpecificDockerComposeRestartCommands() {
+        FakeCommandRunner commandRunner = new FakeCommandRunner();
+        ComposeServiceController controller = new ComposeServiceController(commandRunner);
+
+        assertThat(controller.restartCommands(BenchmarkRoute.SPARK_ICEBERG))
+            .containsExactly(List.of("docker", "compose", "-f", "docker-compose.yml", "restart", "spark"));
+        assertThat(controller.restartCommands(BenchmarkRoute.STARROCKS_INTERNAL))
+            .containsExactly(List.of("docker", "compose", "-f", "docker-compose.yml", "restart", "starrocks-fe", "starrocks-be"));
+        assertThat(controller.restartCommands(BenchmarkRoute.STARROCKS_EXTERNAL_ICEBERG))
+            .containsExactly(List.of("docker", "compose", "-f", "docker-compose.yml", "restart", "starrocks-fe", "starrocks-be"));
+        assertThat(controller.restartCommands(BenchmarkRoute.HIVE_HDFS_PARQUET))
+            .containsExactly(List.of("docker", "compose", "-f", "docker-compose.yml", "restart", "hive-server"));
+    }
+
+    @Test
+    void restartRunsRouteSpecificCommands() throws Exception {
+        FakeCommandRunner commandRunner = new FakeCommandRunner();
+        commandRunner.enqueueSuccess();
+        ComposeServiceController controller = new ComposeServiceController(commandRunner);
+
+        controller.restart(BenchmarkRoute.SPARK_ICEBERG);
+
+        assertThat(commandRunner.commands)
+            .containsExactly(List.of("docker", "compose", "-f", "docker-compose.yml", "restart", "spark"));
+    }
+
+    @Test
+    void restartThrowsRouteCommandAndStderrWhenCommandFails() {
+        FakeCommandRunner commandRunner = new FakeCommandRunner();
+        commandRunner.enqueueFailure("spark restart failed");
+        ComposeServiceController controller = new ComposeServiceController(commandRunner);
+
+        assertThatThrownBy(() -> controller.restart(BenchmarkRoute.SPARK_ICEBERG))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("SPARK_ICEBERG")
+            .hasMessageContaining("docker compose -f docker-compose.yml restart spark")
+            .hasMessageContaining("spark restart failed");
+    }
+
+    @Test
+    void waitUntilReadyRunsLightweightReadinessCommandForEachRouteFamily() throws Exception {
+        FakeCommandRunner commandRunner = new FakeCommandRunner();
+        commandRunner.enqueueSuccess();
+        commandRunner.enqueueSuccess();
+        commandRunner.enqueueSuccess();
+        commandRunner.enqueueSuccess();
+        ComposeServiceController controller = new ComposeServiceController(commandRunner);
+
+        controller.waitUntilReady(BenchmarkRoute.SPARK_ICEBERG);
+        controller.waitUntilReady(BenchmarkRoute.STARROCKS_INTERNAL);
+        controller.waitUntilReady(BenchmarkRoute.STARROCKS_EXTERNAL_ICEBERG);
+        controller.waitUntilReady(BenchmarkRoute.HIVE_HDFS_PARQUET);
+
+        assertThat(commandRunner.commands).containsExactly(
+            List.of("docker", "compose", "-f", "docker-compose.yml", "ps", "spark"),
+            List.of("docker", "compose", "-f", "docker-compose.yml", "ps", "starrocks-fe", "starrocks-be"),
+            List.of("docker", "compose", "-f", "docker-compose.yml", "ps", "starrocks-fe", "starrocks-be"),
+            List.of("docker", "compose", "-f", "docker-compose.yml", "ps", "hive-server")
+        );
+    }
+
+    @Test
+    void waitUntilReadyThrowsRouteCommandAndStderrWhenReadinessCommandFails() {
+        FakeCommandRunner commandRunner = new FakeCommandRunner();
+        commandRunner.enqueueFailure("hive-server is missing");
+        ComposeServiceController controller = new ComposeServiceController(commandRunner);
+
+        assertThatThrownBy(() -> controller.waitUntilReady(BenchmarkRoute.HIVE_HDFS_PARQUET))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("HIVE_HDFS_PARQUET")
+            .hasMessageContaining("docker compose -f docker-compose.yml ps hive-server")
+            .hasMessageContaining("hive-server is missing");
+    }
+
+    private static final class FakeCommandRunner extends CommandRunner {
+        private final Queue<CommandResult> results = new ArrayDeque<>();
+        private final List<List<String>> commands = new ArrayList<>();
+
+        private void enqueueSuccess() {
+            results.add(new CommandResult(List.of(), 0, "ok", "", 0.0));
+        }
+
+        private void enqueueFailure(String stderr) {
+            results.add(new CommandResult(List.of(), 7, "", stderr, 0.0));
+        }
+
+        @Override
+        public CommandResult run(List<String> command, Path workingDirectory, Duration timeout)
+            throws IOException, InterruptedException {
+            commands.add(command);
+            CommandResult result = results.poll();
+            if (result == null) {
+                throw new AssertionError("No fake result queued for command: " + command);
+            }
+            return new CommandResult(command, result.exitCode(), result.stdout(), result.stderr(), result.durationSeconds());
+        }
+    }
+}
