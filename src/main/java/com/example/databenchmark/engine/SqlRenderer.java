@@ -21,6 +21,16 @@ public final class SqlRenderer {
         if (engineKey.startsWith("starrocks")) {
             return sql.replaceAll("TIMESTAMP '([^']+)'", "CAST('$1' AS DATETIME)");
         }
+        if (engineKey.equals("hive_hdfs_parquet")) {
+            return renderHiveSql(sql);
+        }
         return sql;
+    }
+
+    private static String renderHiveSql(String sql) {
+        return sql
+            .replace("DATE_TRUNC('day', event_time)", "date_format(event_time, 'yyyy-MM-dd 00:00:00')")
+            .replace("DATE_TRUNC('minute', event_time)", "date_format(event_time, 'yyyy-MM-dd HH:mm:00')")
+            .replace("DATE_TRUNC('hour', event_time)", "date_format(event_time, 'yyyy-MM-dd HH:00:00')");
     }
 }

@@ -5,7 +5,9 @@ import com.example.databenchmark.engine.CommandRunner;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public class ComposeServiceController {
     private static final Path DEFAULT_WORKING_DIRECTORY = Path.of(".");
@@ -209,12 +211,125 @@ public class ComposeServiceController {
         if (!command.contains("SHOW PROC '/backends'")) {
             return true;
         }
-        String output = nullToEmpty(result.stdout()).toLowerCase();
-        if (output.contains("empty set")) {
+        String output = nullToEmpty(result.stdout()) + "\n" + nullToEmpty(result.stderr());
+        String lowerOutput = output.toLowerCase(Locale.ROOT);
+        if (lowerOutput.contains("empty set")) {
             return false;
         }
-        return output.contains("alive") && output.contains("true");
+        if (lowerOutput.matches("(?s).*\\b(?:inblacklist|blacklist)\\b\\s*[:=]\\s*true\\b.*")) {
+            return false;
+        }
+
+        BackendReadiness readiness = parseBackendReadiness(output);
+        if (readiness.hasBlacklistedBackend()) {
+            return false;
+        }
+        if (readiness.hasAliveBackend()) {
+            return true;
+        }
+        return lowerOutput.matches("(?s).*\\balive\\b\\s*[:=]\\s*true\\b.*");
     }
+
+    private BackendReadiness parseBackendReadiness(String output) {
+        List<List<String>> rows = parseBackendRows(output);
+        for (int headerIndex = 0; headerIndex < rows.size(); headerIndex++) {
+            List<String> header = rows.get(headerIndex);
+            int aliveIndex = indexOfNormalized(header, "alive");
+            if (aliveIndex < 0) {
+                continue;
+            }
+
+            List<Integer> blacklistIndexes = blacklistIndexes(header);
+            boolean hasAliveBackend = false;
+            for (int rowIndex = headerIndex + 1; rowIndex < rows.size(); rowIndex++) {
+                List<String> row = rows.get(rowIndex);
+                if (hasTrueValue(row, blacklistIndexes)) {
+                    return new BackendReadiness(false, true);
+                }
+                if (hasValue(row, aliveIndex, "true")) {
+                    hasAliveBackend = true;
+                }
+            }
+            return new BackendReadiness(hasAliveBackend, false);
+        }
+        return new BackendReadiness(false, false);
+    }
+
+    private List<List<String>> parseBackendRows(String output) {
+        List<List<String>> rows = new ArrayList<>();
+        for (String line : output.split("\\R")) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty() || trimmed.matches("\\+-+.*")) {
+                continue;
+            }
+            List<String> columns = splitBackendRow(trimmed);
+            if (!columns.isEmpty()) {
+                rows.add(columns);
+            }
+        }
+        return rows;
+    }
+
+    private List<String> splitBackendRow(String line) {
+        String[] rawColumns;
+        if (line.startsWith("|") || line.contains("|")) {
+            rawColumns = line.replaceAll("^\\|", "").replaceAll("\\|$", "").split("\\|");
+        } else if (line.contains("\t")) {
+            rawColumns = line.split("\\t");
+        } else {
+            rawColumns = line.split("\\s{2,}");
+        }
+
+        List<String> columns = new ArrayList<>();
+        for (String rawColumn : rawColumns) {
+            String column = rawColumn.trim();
+            if (!column.isEmpty()) {
+                columns.add(column);
+            }
+        }
+        return columns;
+    }
+
+    private int indexOfNormalized(List<String> values, String expected) {
+        for (int index = 0; index < values.size(); index++) {
+            if (normalizeBackendColumn(values.get(index)).equals(expected)) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private List<Integer> blacklistIndexes(List<String> header) {
+        List<Integer> indexes = new ArrayList<>();
+        for (int index = 0; index < header.size(); index++) {
+            String normalized = normalizeBackendColumn(header.get(index));
+            if (normalized.equals("blacklist") || normalized.equals("inblacklist")) {
+                indexes.add(index);
+            }
+        }
+        return indexes;
+    }
+
+    private boolean hasTrueValue(List<String> row, List<Integer> indexes) {
+        for (int index : indexes) {
+            if (hasValue(row, index, "true")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasValue(List<String> row, int index, String expected) {
+        return index >= 0
+            && index < row.size()
+            && row.get(index).trim().equalsIgnoreCase(expected);
+    }
+
+    private String normalizeBackendColumn(String value) {
+        return value.toLowerCase(Locale.ROOT).replaceAll("[^a-z]", "");
+    }
+
+    private record BackendReadiness(boolean hasAliveBackend, boolean hasBlacklistedBackend) {}
 
     private void runChecked(BenchmarkRoute route, List<String> command, String action) {
         CommandResult result;

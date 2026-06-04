@@ -171,6 +171,54 @@ class ComposeServiceControllerTest {
     }
 
     @Test
+    void waitUntilReadyRetriesStarRocksUntilBackendLeavesBlacklist() {
+        FakeCommandRunner commandRunner = new FakeCommandRunner();
+        commandRunner.enqueueSuccess("1\n1");
+        commandRunner.enqueueSuccess("BackendId\tAlive\tInBlacklist\n10001\ttrue\ttrue");
+        commandRunner.enqueueSuccess("1\n1");
+        commandRunner.enqueueSuccess("BackendId\tAlive\tInBlacklist\n10001\ttrue\tfalse");
+        ComposeServiceController controller = new ComposeServiceController(
+            commandRunner,
+            Path.of("."),
+            Duration.ofSeconds(30),
+            3,
+            Duration.ZERO,
+            ignored -> { }
+        );
+
+        controller.waitUntilReady(BenchmarkRoute.STARROCKS_INTERNAL);
+
+        assertThat(commandRunner.commands).hasSize(4);
+        assertThat(commandRunner.commands.get(1)).containsSequence("-e", "SHOW PROC '/backends'");
+        assertThat(commandRunner.commands.get(3)).containsSequence("-e", "SHOW PROC '/backends'");
+    }
+
+    @Test
+    void waitUntilReadyFailsWhenStarRocksBackendStaysBlacklisted() {
+        FakeCommandRunner commandRunner = new FakeCommandRunner();
+        commandRunner.enqueueSuccess("1\n1");
+        commandRunner.enqueueSuccess("BackendId\tAlive\tinBlacklist\n10001\ttrue\ttrue");
+        commandRunner.enqueueSuccess("1\n1");
+        commandRunner.enqueueSuccess("BackendId\tAlive\tinBlacklist\n10001\ttrue\ttrue");
+        ComposeServiceController controller = new ComposeServiceController(
+            commandRunner,
+            Path.of("."),
+            Duration.ofSeconds(30),
+            2,
+            Duration.ZERO,
+            ignored -> { }
+        );
+
+        assertThatThrownBy(() -> controller.waitUntilReady(BenchmarkRoute.STARROCKS_INTERNAL))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("STARROCKS_INTERNAL")
+            .hasMessageContaining("SHOW PROC '/backends'")
+            .hasMessageContaining("inBlacklist");
+
+        assertThat(commandRunner.commands).hasSize(4);
+    }
+
+    @Test
     void waitUntilReadyRejectsMalformedStarRocksBackendOutputWithoutAliveColumn() {
         FakeCommandRunner commandRunner = new FakeCommandRunner();
         commandRunner.enqueueSuccess("1\n1");

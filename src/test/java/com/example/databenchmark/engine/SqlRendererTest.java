@@ -25,6 +25,28 @@ class SqlRendererTest {
     }
 
     @Test
+    void hiveQueriesUseHiveCompatibleTimeBucketExpressions() {
+        String hiveDaySql = SqlRenderer.render("single_cell_week_trend", "hive_hdfs_parquet");
+        String hiveMinuteSql = SqlRenderer.render("city_vendor_band_rat_minute_agg", "hive_hdfs_parquet");
+        String hiveHourSql = SqlRenderer.render("date_partition_pruning", "hive_hdfs_parquet");
+        String sparkSql = SqlRenderer.render("single_cell_week_trend", "spark_iceberg");
+        String starRocksSql = SqlRenderer.render("single_cell_week_trend", "starrocks_internal");
+
+        assertThat(hiveDaySql)
+            .contains("date_format(event_time, 'yyyy-MM-dd 00:00:00') AS event_day")
+            .contains("GROUP BY date_format(event_time, 'yyyy-MM-dd 00:00:00'), cell_id")
+            .doesNotContainIgnoringCase("DATE_TRUNC");
+        assertThat(hiveMinuteSql)
+            .contains("date_format(event_time, 'yyyy-MM-dd HH:mm:00')")
+            .doesNotContainIgnoringCase("DATE_TRUNC");
+        assertThat(hiveHourSql)
+            .contains("date_format(event_time, 'yyyy-MM-dd HH:00:00')")
+            .doesNotContainIgnoringCase("DATE_TRUNC");
+        assertThat(sparkSql).contains("DATE_TRUNC('day', event_time)");
+        assertThat(starRocksSql).contains("DATE_TRUNC('day', event_time)");
+    }
+
+    @Test
     void unknownEngineOrQueryThrowsIllegalArgumentException() {
         assertThatThrownBy(() -> SqlRenderer.render("single_cell_day_trend", "missing_engine"))
             .isInstanceOf(IllegalArgumentException.class)
