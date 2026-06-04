@@ -112,8 +112,10 @@ class ComposeServiceControllerTest {
         commandRunner.enqueueSuccess();
         commandRunner.enqueueSuccess();
         commandRunner.enqueueSuccess("BackendId\tAlive\n10001\ttrue");
+        commandRunner.enqueueSuccess("Empty set");
         commandRunner.enqueueSuccess();
         commandRunner.enqueueSuccess("BackendId\tAlive\n10001\ttrue");
+        commandRunner.enqueueSuccess("BackendId\tAddBlackListType\tLostConnectionTime");
         commandRunner.enqueueSuccess();
         ComposeServiceController controller = new ComposeServiceController(
             commandRunner,
@@ -137,9 +139,13 @@ class ComposeServiceControllerTest {
             List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
                 "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SHOW PROC '/backends'"),
             List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
+                "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SHOW BACKEND BLACKLIST"),
+            List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
                 "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SELECT 1"),
             List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
                 "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SHOW PROC '/backends'"),
+            List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
+                "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SHOW BACKEND BLACKLIST"),
             List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "hive-server",
                 "beeline", "-u", "jdbc:hive2://hive-server:10000/default", "-e", "SELECT 1")
         );
@@ -152,6 +158,7 @@ class ComposeServiceControllerTest {
         commandRunner.enqueueSuccess("BackendId\tAlive\n10001\tfalse");
         commandRunner.enqueueSuccess("1\n1");
         commandRunner.enqueueSuccess("BackendId\tAlive\n10001\ttrue");
+        commandRunner.enqueueSuccess("Empty set");
         ComposeServiceController controller = new ComposeServiceController(
             commandRunner,
             Path.of("."),
@@ -163,20 +170,23 @@ class ComposeServiceControllerTest {
 
         controller.waitUntilReady(BenchmarkRoute.STARROCKS_INTERNAL);
 
-        assertThat(commandRunner.commands).hasSize(4);
+        assertThat(commandRunner.commands).hasSize(5);
         assertThat(commandRunner.commands.get(0)).containsSequence("-e", "SELECT 1");
         assertThat(commandRunner.commands.get(1)).containsSequence("-e", "SHOW PROC '/backends'");
         assertThat(commandRunner.commands.get(2)).containsSequence("-e", "SELECT 1");
         assertThat(commandRunner.commands.get(3)).containsSequence("-e", "SHOW PROC '/backends'");
+        assertThat(commandRunner.commands.get(4)).containsSequence("-e", "SHOW BACKEND BLACKLIST");
     }
 
     @Test
     void waitUntilReadyRetriesStarRocksUntilBackendLeavesBlacklist() {
         FakeCommandRunner commandRunner = new FakeCommandRunner();
         commandRunner.enqueueSuccess("1\n1");
-        commandRunner.enqueueSuccess("BackendId\tAlive\tInBlacklist\n10001\ttrue\ttrue");
+        commandRunner.enqueueSuccess("BackendId\tAlive\n10001\ttrue");
+        commandRunner.enqueueSuccess("BackendId\tAddBlackListType\tLostConnectionTime\n10001\tAUTO\t2026-06-05 10:00:00");
         commandRunner.enqueueSuccess("1\n1");
-        commandRunner.enqueueSuccess("BackendId\tAlive\tInBlacklist\n10001\ttrue\tfalse");
+        commandRunner.enqueueSuccess("BackendId\tAlive\n10001\ttrue");
+        commandRunner.enqueueSuccess("BackendId\tAddBlackListType\tLostConnectionTime");
         ComposeServiceController controller = new ComposeServiceController(
             commandRunner,
             Path.of("."),
@@ -188,18 +198,22 @@ class ComposeServiceControllerTest {
 
         controller.waitUntilReady(BenchmarkRoute.STARROCKS_INTERNAL);
 
-        assertThat(commandRunner.commands).hasSize(4);
+        assertThat(commandRunner.commands).hasSize(6);
         assertThat(commandRunner.commands.get(1)).containsSequence("-e", "SHOW PROC '/backends'");
-        assertThat(commandRunner.commands.get(3)).containsSequence("-e", "SHOW PROC '/backends'");
+        assertThat(commandRunner.commands.get(2)).containsSequence("-e", "SHOW BACKEND BLACKLIST");
+        assertThat(commandRunner.commands.get(4)).containsSequence("-e", "SHOW PROC '/backends'");
+        assertThat(commandRunner.commands.get(5)).containsSequence("-e", "SHOW BACKEND BLACKLIST");
     }
 
     @Test
     void waitUntilReadyFailsWhenStarRocksBackendStaysBlacklisted() {
         FakeCommandRunner commandRunner = new FakeCommandRunner();
         commandRunner.enqueueSuccess("1\n1");
-        commandRunner.enqueueSuccess("BackendId\tAlive\tinBlacklist\n10001\ttrue\ttrue");
+        commandRunner.enqueueSuccess("BackendId\tAlive\n10001\ttrue");
+        commandRunner.enqueueSuccess("BackendId\tAddBlackListType\tLostConnectionTime\n10001\tAUTO\t2026-06-05 10:00:00");
         commandRunner.enqueueSuccess("1\n1");
-        commandRunner.enqueueSuccess("BackendId\tAlive\tinBlacklist\n10001\ttrue\ttrue");
+        commandRunner.enqueueSuccess("BackendId\tAlive\n10001\ttrue");
+        commandRunner.enqueueSuccess("BackendId\tAddBlackListType\tLostConnectionTime\n10001\tAUTO\t2026-06-05 10:00:01");
         ComposeServiceController controller = new ComposeServiceController(
             commandRunner,
             Path.of("."),
@@ -212,10 +226,10 @@ class ComposeServiceControllerTest {
         assertThatThrownBy(() -> controller.waitUntilReady(BenchmarkRoute.STARROCKS_INTERNAL))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("STARROCKS_INTERNAL")
-            .hasMessageContaining("SHOW PROC '/backends'")
-            .hasMessageContaining("inBlacklist");
+            .hasMessageContaining("SHOW BACKEND BLACKLIST")
+            .hasMessageContaining("AddBlackListType");
 
-        assertThat(commandRunner.commands).hasSize(4);
+        assertThat(commandRunner.commands).hasSize(6);
     }
 
     @Test
@@ -243,6 +257,34 @@ class ComposeServiceControllerTest {
         assertThat(commandRunner.commands).hasSize(4);
         assertThat(commandRunner.commands.get(1)).containsSequence("-e", "SHOW PROC '/backends'");
         assertThat(commandRunner.commands.get(3)).containsSequence("-e", "SHOW PROC '/backends'");
+    }
+
+    @Test
+    void waitUntilReadyRetriesStarRocksWhenAliveBackendHasStatusJsonWithoutTabletReport() {
+        FakeCommandRunner commandRunner = new FakeCommandRunner();
+        commandRunner.enqueueSuccess("1\n1");
+        commandRunner.enqueueSuccess("BackendId\tAlive\tStatus\n10001\ttrue\t{\"lastStartTime\":\"2026-06-05 10:00:00\"}");
+        commandRunner.enqueueSuccess("1\n1");
+        commandRunner.enqueueSuccess(
+            "BackendId\tAlive\tStatus\n10001\ttrue\t"
+                + "{\"lastSuccessReportTabletsTime\":\"2026-06-05 10:01:00\"}"
+        );
+        commandRunner.enqueueSuccess("Empty set");
+        ComposeServiceController controller = new ComposeServiceController(
+            commandRunner,
+            Path.of("."),
+            Duration.ofSeconds(30),
+            2,
+            Duration.ZERO,
+            ignored -> { }
+        );
+
+        controller.waitUntilReady(BenchmarkRoute.STARROCKS_INTERNAL);
+
+        assertThat(commandRunner.commands).hasSize(5);
+        assertThat(commandRunner.commands.get(1)).containsSequence("-e", "SHOW PROC '/backends'");
+        assertThat(commandRunner.commands.get(3)).containsSequence("-e", "SHOW PROC '/backends'");
+        assertThat(commandRunner.commands.get(4)).containsSequence("-e", "SHOW BACKEND BLACKLIST");
     }
 
     @Test

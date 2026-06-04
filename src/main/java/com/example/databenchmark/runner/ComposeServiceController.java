@@ -8,12 +8,18 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class ComposeServiceController {
     private static final Path DEFAULT_WORKING_DIRECTORY = Path.of(".");
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(30);
     private static final int DEFAULT_READINESS_ATTEMPTS = 90;
     private static final Duration DEFAULT_READINESS_DELAY = Duration.ofSeconds(2);
+    private static final Pattern TABLET_REPORT_TIME_PATTERN = Pattern.compile(
+        "\"?lastSuccessReportTabletsTime\"?\\s*[:=]\\s*\"?([^\",}\\s][^\",}]*)\"?",
+        Pattern.CASE_INSENSITIVE
+    );
 
     private final CommandRunner commandRunner;
     private final Path workingDirectory;
@@ -143,7 +149,8 @@ public class ComposeServiceController {
                 ));
             case STARROCKS_INTERNAL, STARROCKS_EXTERNAL_ICEBERG -> List.of(
                 starRocksMysqlCommand("SELECT 1"),
-                starRocksMysqlCommand("SHOW PROC '/backends'")
+                starRocksMysqlCommand("SHOW PROC '/backends'"),
+                starRocksMysqlCommand("SHOW BACKEND BLACKLIST")
             );
             case HIVE_HDFS_PARQUET -> List.of(List.of(
                     "docker",
@@ -208,10 +215,13 @@ public class ComposeServiceController {
     }
 
     private boolean readinessOutputIsReady(List<String> command, CommandResult result) {
-        if (!command.contains("SHOW PROC '/backends'")) {
+        String output = nullToEmpty(result.stdout()) + "\n" + nullToEmpty(result.stderr());
+        if (command.contains("SHOW BACKEND BLACKLIST")) {
+            return backendBlacklistIsEmpty(output);
+        }
+        if (!command.contains("SHOW PROC '/backends'") && !command.contains("SHOW BACKENDS")) {
             return true;
         }
-        String output = nullToEmpty(result.stdout()) + "\n" + nullToEmpty(result.stderr());
         String lowerOutput = output.toLowerCase(Locale.ROOT);
         if (lowerOutput.contains("empty set")) {
             return false;
@@ -225,9 +235,12 @@ public class ComposeServiceController {
             return false;
         }
         if (readiness.hasAliveBackend()) {
-            return true;
+            return !readiness.hasStatusJson() || readiness.hasTabletReportTime();
         }
-        return lowerOutput.matches("(?s).*\\balive\\b\\s*[:=]\\s*true\\b.*");
+        if (!lowerOutput.matches("(?s).*\\balive\\b\\s*[:=]\\s*true\\b.*")) {
+            return false;
+        }
+        return !containsStatusJson(output) || hasTabletReportTime(output);
     }
 
     private BackendReadiness parseBackendReadiness(String output) {
@@ -240,19 +253,77 @@ public class ComposeServiceController {
             }
 
             List<Integer> blacklistIndexes = blacklistIndexes(header);
+            int statusIndex = indexOfNormalized(header, "status");
             boolean hasAliveBackend = false;
+            boolean hasStatusJson = false;
+            boolean hasTabletReportTime = false;
             for (int rowIndex = headerIndex + 1; rowIndex < rows.size(); rowIndex++) {
                 List<String> row = rows.get(rowIndex);
                 if (hasTrueValue(row, blacklistIndexes)) {
-                    return new BackendReadiness(false, true);
+                    return new BackendReadiness(false, true, false, false);
                 }
                 if (hasValue(row, aliveIndex, "true")) {
                     hasAliveBackend = true;
+                    String status = valueAt(row, statusIndex);
+                    if (containsStatusJson(status)) {
+                        hasStatusJson = true;
+                        hasTabletReportTime = hasTabletReportTime || hasTabletReportTime(status);
+                    }
                 }
             }
-            return new BackendReadiness(hasAliveBackend, false);
+            return new BackendReadiness(hasAliveBackend, false, hasStatusJson, hasTabletReportTime);
         }
-        return new BackendReadiness(false, false);
+        return new BackendReadiness(false, false, false, false);
+    }
+
+    private boolean backendBlacklistIsEmpty(String output) {
+        String lowerOutput = output.toLowerCase(Locale.ROOT);
+        if (lowerOutput.contains("empty set")) {
+            return true;
+        }
+
+        List<List<String>> rows = parseBackendRows(output);
+        for (int headerIndex = 0; headerIndex < rows.size(); headerIndex++) {
+            List<String> header = rows.get(headerIndex);
+            int backendIdIndex = indexOfNormalized(header, "backendid");
+            int blacklistTypeIndex = indexOfNormalized(header, "addblacklisttype");
+            if (backendIdIndex < 0 && blacklistTypeIndex < 0) {
+                continue;
+            }
+
+            for (int rowIndex = headerIndex + 1; rowIndex < rows.size(); rowIndex++) {
+                if (isBackendBlacklistDataRow(rows.get(rowIndex), backendIdIndex)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        for (List<String> row : rows) {
+            if (isBackendBlacklistDataRow(row, 0)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isBackendBlacklistDataRow(List<String> row, int backendIdIndex) {
+        String backendId = valueAt(row, backendIdIndex);
+        return !backendId.isEmpty() && backendId.matches("\\d+");
+    }
+
+    private boolean containsStatusJson(String value) {
+        String trimmed = nullToEmpty(value).trim();
+        return trimmed.startsWith("{") && trimmed.endsWith("}");
+    }
+
+    private boolean hasTabletReportTime(String value) {
+        Matcher matcher = TABLET_REPORT_TIME_PATTERN.matcher(nullToEmpty(value));
+        if (!matcher.find()) {
+            return false;
+        }
+        String reportTime = matcher.group(1).trim();
+        return !reportTime.isEmpty() && !reportTime.equalsIgnoreCase("null");
     }
 
     private List<List<String>> parseBackendRows(String output) {
@@ -325,11 +396,23 @@ public class ComposeServiceController {
             && row.get(index).trim().equalsIgnoreCase(expected);
     }
 
+    private String valueAt(List<String> row, int index) {
+        if (index < 0 || index >= row.size()) {
+            return "";
+        }
+        return row.get(index).trim();
+    }
+
     private String normalizeBackendColumn(String value) {
         return value.toLowerCase(Locale.ROOT).replaceAll("[^a-z]", "");
     }
 
-    private record BackendReadiness(boolean hasAliveBackend, boolean hasBlacklistedBackend) {}
+    private record BackendReadiness(
+        boolean hasAliveBackend,
+        boolean hasBlacklistedBackend,
+        boolean hasStatusJson,
+        boolean hasTabletReportTime
+    ) {}
 
     private void runChecked(BenchmarkRoute route, List<String> command, String action) {
         CommandResult result;
