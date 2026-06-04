@@ -1,6 +1,7 @@
 package com.example.databenchmark.report;
 
 import java.util.List;
+import java.util.Map;
 
 public record WebBenchmarkReport(
     int schemaVersion,
@@ -8,7 +9,7 @@ public record WebBenchmarkReport(
     DatasetInfo dataset,
     List<LoadSummary> loads,
     List<QuerySummary> queries,
-    ChartData charts,
+    List<PerformanceMatrixRow> performanceMatrix,
     List<String> notices
 ) {
     public record RunInfo(
@@ -43,6 +44,9 @@ public record WebBenchmarkReport(
     ) {}
 
     public record QuerySummary(
+        String datasetId,
+        String datasetName,
+        String querySet,
         String engine,
         String tableShape,
         String queryName,
@@ -50,45 +54,26 @@ public record WebBenchmarkReport(
         double p95Ms,
         double p99Ms,
         long rows,
-        int failures,
-        boolean success,
+        String status,
         String error
     ) {}
 
-    public record ChartData(
-        List<LoadDurationPoint> loadDurationByEngine,
-        List<QueryLatencyPoint> queryLatencyByEngine,
-        List<QueryRowsPoint> queryRowsByEngine,
-        List<FailureSummaryPoint> failureSummary
-    ) {}
-
-    public record LoadDurationPoint(
-        String engine,
-        String tableShape,
-        String stage,
-        double durationSeconds,
-        boolean success
-    ) {}
-
-    public record QueryLatencyPoint(
-        String engine,
-        String tableShape,
+    public record PerformanceMatrixRow(
+        String datasetId,
+        String datasetName,
+        String querySet,
         String queryName,
-        String metric,
-        double latencyMs,
-        boolean success
+        Map<String, RouteResult> routes,
+        String bestRoute,
+        double bestRouteP95Ms
     ) {}
 
-    public record QueryRowsPoint(
-        String engine,
-        String queryName,
+    public record RouteResult(
+        String status,
+        double p50Ms,
+        double p95Ms,
+        double p99Ms,
         long rows,
-        boolean success
-    ) {}
-
-    public record FailureSummaryPoint(
-        String stage,
-        String engine,
-        int failures
+        String error
     ) {}
 }

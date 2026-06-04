@@ -64,7 +64,6 @@ public class WebReportWriter {
 
         WebBenchmarkReport webReport = mapper.map(report);
         String json = objectMapper.writeValueAsString(webReport);
-        Files.writeString(outputDir.resolve("report.json"), json, StandardCharsets.UTF_8);
 
         Path index = outputDir.resolve("index.html");
         if (!Files.exists(index)) {

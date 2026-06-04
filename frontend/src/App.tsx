@@ -1,10 +1,9 @@
 import { Alert, Card, Layout, Space, Spin, Typography } from 'antd';
 import { useEffect, useState } from 'react';
-import EngineComparison from './components/EngineComparison';
 import LoadDetailsTable from './components/LoadDetailsTable';
+import PerformanceMatrixTable from './components/PerformanceMatrixTable';
 import QueryDetailsTable from './components/QueryDetailsTable';
 import RunSummary from './components/RunSummary';
-import StageTimeline from './components/StageTimeline';
 import { loadReport } from './data/reportLoader';
 import type { WebBenchmarkReport } from './types/report';
 
@@ -62,8 +61,9 @@ export default function App() {
             <Alert type="warning" showIcon message="本次运行存在失败阶段，请查看明细错误。" />
           ) : null}
           <RunSummary report={report} />
-          <EngineComparison report={report} />
-          <StageTimeline report={report} />
+          <Card size="small" title="性能矩阵">
+            <PerformanceMatrixTable rows={report.performanceMatrix} />
+          </Card>
           <Card size="small" title="Load 明细">
             <LoadDetailsTable rows={report.loads} />
           </Card>

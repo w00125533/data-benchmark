@@ -1,12 +1,14 @@
 export type RunStatus = 'SUCCESS' | 'DEGRADED';
+export type RouteStatus = 'SUCCESS' | 'FAILED' | 'SKIPPED';
+export type RouteKey = 'spark_iceberg' | 'starrocks_internal' | 'starrocks_external_iceberg';
 
 export interface WebBenchmarkReport {
-  schemaVersion: 1;
+  schemaVersion: 2;
   run: RunInfo;
   dataset: DatasetInfo;
   loads: LoadSummary[];
   queries: QuerySummary[];
-  charts: ChartData;
+  performanceMatrix: PerformanceMatrixRow[];
   notices: string[];
 }
 
@@ -42,6 +44,9 @@ export interface LoadSummary {
 }
 
 export interface QuerySummary {
+  datasetId: string;
+  datasetName: string;
+  querySet: string;
   engine: string;
   tableShape: string;
   queryName: string;
@@ -49,46 +54,27 @@ export interface QuerySummary {
   p95Ms: number;
   p99Ms: number;
   rows: number;
-  failures: number;
-  success: boolean;
+  status: RouteStatus;
   error: string;
 }
 
-export interface ChartData {
-  loadDurationByEngine: LoadDurationPoint[];
-  queryLatencyByEngine: QueryLatencyPoint[];
-  queryRowsByEngine: QueryRowsPoint[];
-  failureSummary: FailureSummaryPoint[];
-}
-
-export interface LoadDurationPoint {
-  engine: string;
-  tableShape: string;
-  stage: string;
-  durationSeconds: number;
-  success: boolean;
-}
-
-export interface QueryLatencyPoint {
-  engine: string;
-  tableShape: string;
+export interface PerformanceMatrixRow {
+  datasetId: string;
+  datasetName: string;
+  querySet: string;
   queryName: string;
-  metric: 'p50' | 'p95' | 'p99';
-  latencyMs: number;
-  success: boolean;
+  routes: Record<RouteKey, RouteResult>;
+  bestRoute: RouteKey | '';
+  bestRouteP95Ms: number;
 }
 
-export interface QueryRowsPoint {
-  engine: string;
-  queryName: string;
+export interface RouteResult {
+  status: RouteStatus;
+  p50Ms: number;
+  p95Ms: number;
+  p99Ms: number;
   rows: number;
-  success: boolean;
-}
-
-export interface FailureSummaryPoint {
-  stage: string;
-  engine: string;
-  failures: number;
+  error: string;
 }
 
 declare global {

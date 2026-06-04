@@ -20,7 +20,7 @@
 - Modify `src/main/java/com/example/databenchmark/report/WebReportWriter.java`
   - Keep embedded data injection.
   - Stop requiring the page to fetch `report.json`.
-  - If `report.json` remains temporarily for diagnostics, tests must confirm rendering does not depend on it.
+  - Do not emit `report.json`; the generated HTML owns the embedded report payload.
 - Modify `src/test/java/com/example/databenchmark/report/WebBenchmarkReportMapperTest.java`
   - Cover schema v2 and matrix generation.
 - Modify `src/test/java/com/example/databenchmark/report/WebReportWriterTest.java`
@@ -124,7 +124,6 @@ public record WebBenchmarkReport(
     List<LoadSummary> loads,
     List<QuerySummary> queries,
     List<PerformanceMatrixRow> performanceMatrix,
-    ChartData charts,
     List<String> notices
 ) {
     public record QuerySummary(
@@ -163,7 +162,7 @@ public record WebBenchmarkReport(
 }
 ```
 
-Keep the existing `RunInfo`, `DatasetInfo`, `LoadSummary`, `ChartData`, `LoadDurationPoint`, `QueryLatencyPoint`, `QueryRowsPoint`, and `FailureSummaryPoint` records in the same file. Do not delete chart records in this task; removing chart dependency is a frontend task.
+Keep the existing `RunInfo`, `DatasetInfo`, and `LoadSummary` records in the same file. Remove chart-only records because the simplified static report contract no longer exposes chart data.
 
 - [ ] **Step 4: Run test to confirm current mapper still fails**
 
@@ -248,7 +247,7 @@ private static final List<String> ROUTES = List.of(
 );
 ```
 
-Update the top-level constructor call to pass `performanceMatrix(report)` before `charts(report)`:
+Update the top-level constructor call to pass `performanceMatrix(report)` before `notices(report)`:
 
 ```java
 return new WebBenchmarkReport(
@@ -274,7 +273,6 @@ return new WebBenchmarkReport(
     loads(report),
     queries(report),
     performanceMatrix(report),
-    charts(report),
     notices(report)
 );
 ```
@@ -490,11 +488,11 @@ assertThat(html).doesNotContain("fetch('./report.json')");
 assertThat(tempDir.resolve("run-web").resolve("assets").resolve("report-ui.js")).exists();
 ```
 
-Remove the assertion that `report.json` must exist as a required artifact. If the implementation still writes it temporarily, do not assert on it.
+Assert that `report.json` is not emitted as part of the static report package.
 
-- [ ] **Step 5: Adjust writer only if tests expose a hard dependency**
+- [ ] **Step 5: Remove external JSON writer output**
 
-If `WebReportWriter` writes `report.json`, it can remain as a diagnostic artifact only if no frontend code fetches it. If the team wants to remove it now, delete this line:
+Delete this line from `WebReportWriter`:
 
 ```java
 Files.writeString(outputDir.resolve("report.json"), json, StandardCharsets.UTF_8);

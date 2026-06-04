@@ -3,7 +3,6 @@ package com.example.databenchmark.report;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,19 +20,15 @@ class WebReportWriterTest {
 
         assertThat(output).isEqualTo(tempDir.resolve("run-web").resolve("index.html"));
         assertThat(output).exists();
-        assertThat(tempDir.resolve("run-web").resolve("report.json")).exists();
         assertThat(tempDir.resolve("run-web").resolve("assets").resolve("report-ui.js")).exists();
+        assertThat(tempDir.resolve("run-web").resolve("report.json")).doesNotExist();
 
         String html = Files.readString(output);
         assertThat(html).contains("window.__BENCHMARK_REPORT__");
         assertThat(html).contains("<script defer src=\"./assets/report-ui.js\"></script>");
         assertThat(html).doesNotContain("type=\"module\"");
+        assertThat(html).doesNotContain("fetch('./report.json')");
         assertThat(html).doesNotContain("crossorigin");
-
-        WebBenchmarkReport json = new ObjectMapper()
-            .readValue(tempDir.resolve("run-web").resolve("report.json").toFile(), WebBenchmarkReport.class);
-        assertThat(json.schemaVersion()).isEqualTo(1);
-        assertThat(json.run().runId()).isEqualTo("run-web");
     }
 
     @Test
@@ -58,7 +53,7 @@ class WebReportWriterTest {
     }
 
     @Test
-    void escapesEmbeddedJsonWithoutCorruptingReportJson() throws Exception {
+    void escapesEmbeddedJsonWithoutWritingExternalReportData() throws Exception {
         BenchmarkReport report = new BenchmarkReport(
             "run-xss",
             "smoke \"quoted\"",
@@ -87,14 +82,13 @@ class WebReportWriterTest {
 
         Path index = new WebReportWriter().write(report, tempDir);
         String html = Files.readString(index);
-        WebBenchmarkReport json = new ObjectMapper()
-            .readValue(tempDir.resolve("run-xss").resolve("report.json").toFile(), WebBenchmarkReport.class);
 
         assertThat(html).doesNotContain("</script><script>alert(1)</script>");
         assertThat(html).contains("<\\/script>");
         assertThat(html).contains("\\u2028");
         assertThat(html).contains("smoke \\\"quoted\\\"");
-        assertThat(json.loads().get(0).tableShape()).isEqualTo("</script><script>alert(1)</script>");
+        assertThat(html).contains("window.__BENCHMARK_REPORT__");
+        assertThat(tempDir.resolve("run-xss").resolve("report.json")).doesNotExist();
     }
 
     @Test

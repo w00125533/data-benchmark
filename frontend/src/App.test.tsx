@@ -5,11 +5,6 @@ import App from './App';
 import { sampleReport } from './data/sampleReport';
 import type { WebBenchmarkReport } from './types/report';
 
-vi.mock('@ant-design/plots', () => ({
-  Bar: ({ data }: { data: unknown[] }) => <div data-testid="bar-chart">{data.length}</div>,
-  Column: ({ data }: { data: unknown[] }) => <div data-testid="column-chart">{data.length}</div>
-}));
-
 beforeAll(() => {
   const getComputedStyle = window.getComputedStyle;
   window.getComputedStyle = ((element: Element) => getComputedStyle(element)) as typeof window.getComputedStyle;
@@ -24,8 +19,8 @@ beforeAll(() => {
       removeListener: vi.fn(),
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn()
-    }))
+      dispatchEvent: vi.fn(),
+    })),
   });
 });
 
@@ -33,23 +28,41 @@ beforeEach(() => {
   window.__BENCHMARK_REPORT__ = sampleReport;
 });
 
-test('renders run summary, chart sections, stage flow, and detail tables', async () => {
+test('renders run summary, performance matrix, and detail tables', async () => {
   render(<App />);
 
   expect(await screen.findByText('Data Benchmark Report')).toBeInTheDocument();
-  expect(screen.getByText('运行摘要')).toBeInTheDocument();
-  expect(screen.getByText('加载耗时对比')).toBeInTheDocument();
-  expect(screen.getByText('查询 P95 延迟对比')).toBeInTheDocument();
-  expect(screen.getByText('阶段状态流')).toBeInTheDocument();
+  expect(screen.getByText('Run ID')).toBeInTheDocument();
+  expect(screen.getByText('性能矩阵')).toBeInTheDocument();
   expect(screen.getByText('Load 明细')).toBeInTheDocument();
+  expect(screen.getByText('Query 明细')).toBeInTheDocument();
+  expect(
+    screen.getByText('TPC-H smoke data is compatible test data, not an official TPC-H benchmark result.'),
+  ).toBeInTheDocument();
+});
+
+test('renders performance matrix with route statuses and best route', async () => {
+  render(<App />);
+
+  expect(await screen.findByText('性能矩阵')).toBeInTheDocument();
+  expect(screen.getByText('q03_shipping_priority')).toBeInTheDocument();
+  expect(screen.getByText('top_region_sales')).toBeInTheDocument();
+  expect(screen.getAllByText('StarRocks Internal').length).toBeGreaterThan(0);
+  expect(screen.getByText('p95 760 ms')).toBeInTheDocument();
+  expect(screen.getByText('best p95 760 ms')).toBeInTheDocument();
+  expect(screen.getByText('catalog timeout')).toBeInTheDocument();
+  expect(screen.getByText('SKIPPED')).toBeInTheDocument();
+});
+
+test('keeps load and query detail sections visible', async () => {
+  render(<App />);
+
+  expect(await screen.findByText('Load 明细')).toBeInTheDocument();
   expect(screen.getByText('Query 明细')).toBeInTheDocument();
   expect(screen.getAllByText('表形态').length).toBeGreaterThan(0);
   expect(screen.getAllByText('阶段').length).toBeGreaterThan(0);
   expect(screen.getAllByText('耗时 秒').length).toBeGreaterThan(0);
   expect(screen.getAllByText('q01_pricing_summary_report').length).toBeGreaterThan(0);
-  expect(
-    screen.getByText('TPC-H smoke data is compatible test data, not an official TPC-H benchmark result.')
-  ).toBeInTheDocument();
 });
 
 test('renders localized load failure message with readable Chinese', async () => {
@@ -58,7 +71,7 @@ test('renders localized load failure message with readable Chinese', async () =>
   render(<App />);
 
   expect(await screen.findByText('报告数据加载失败')).toBeInTheDocument();
-  expect(screen.getByText('Unsupported report schemaVersion: undefined')).toBeInTheDocument();
+  expect(screen.getByText('Unsupported report schema version: undefined')).toBeInTheDocument();
 });
 
 test('renders degraded alert and failed query row', async () => {
@@ -67,12 +80,20 @@ test('renders degraded alert and failed query row', async () => {
     run: { ...sampleReport.run, status: 'DEGRADED' },
     queries: [
       {
-        ...sampleReport.queries[0],
-        success: false,
-        failures: 1,
-        error: 'query failed'
-      }
-    ]
+        datasetId: 'tpch',
+        datasetName: 'TPC-H SF 0.01',
+        querySet: 'smoke',
+        engine: 'starrocks_internal',
+        tableShape: 'sr_internal_tpch',
+        queryName: 'q01_pricing_summary_report',
+        p50Ms: 0,
+        p95Ms: 0,
+        p99Ms: 0,
+        rows: 0,
+        status: 'FAILED',
+        error: 'query failed',
+      },
+    ],
   };
 
   render(<App />);

@@ -1,86 +1,80 @@
 import type { WebBenchmarkReport } from '../types/report';
 
 export const sampleReport: WebBenchmarkReport = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   run: {
-    runId: 'sample-run',
+    runId: 'sample-matrix-run',
     profile: 'tpch-smoke',
     suite: 'tpch',
     querySet: 'smoke',
-    status: 'SUCCESS',
+    status: 'DEGRADED',
     startedAt: '2026-06-04T00:00:00Z',
-    endedAt: '2026-06-04T00:00:12Z',
-    durationSeconds: 12,
-    fullProfile: false
+    endedAt: '2026-06-04T00:00:03Z',
+    durationSeconds: 3,
+    fullProfile: false,
   },
   dataset: {
     cells: 10000,
     days: 1,
-    rows: 899,
-    columns: 0,
-    bytesWritten: 123456
+    rows: 60000,
+    columns: 8,
+    bytesWritten: 1024,
   },
   loads: [
     {
       engine: 'spark_iceberg',
-      tableShape: 'tpch_iceberg',
-      stage: 'LOAD',
-      rows: 899,
-      bytes: 123456,
-      durationSeconds: 1.2,
+      tableShape: 'iceberg_catalog.tpch',
+      stage: 'load',
+      rows: 60000,
+      bytes: 1024,
+      durationSeconds: 2.1,
       success: true,
-      error: ''
-    }
+      error: '',
+    },
   ],
   queries: [
     {
-      engine: 'spark_iceberg',
-      tableShape: 'tpch_iceberg',
+      datasetId: 'tpch',
+      datasetName: 'TPC-H SF 0.01',
+      querySet: 'smoke',
+      engine: 'starrocks_internal',
+      tableShape: 'sr_internal_tpch',
       queryName: 'q01_pricing_summary_report',
-      p50Ms: 120,
-      p95Ms: 120,
-      p99Ms: 120,
-      rows: 4,
-      failures: 0,
-      success: true,
-      error: ''
-    }
+      p50Ms: 390,
+      p95Ms: 410,
+      p99Ms: 455,
+      rows: 120,
+      status: 'SUCCESS',
+      error: '',
+    },
   ],
-  charts: {
-    loadDurationByEngine: [
-      {
-        engine: 'spark_iceberg',
-        tableShape: 'tpch_iceberg',
-        stage: 'LOAD',
-        durationSeconds: 1.2,
-        success: true
-      }
-    ],
-    queryLatencyByEngine: [
-      {
-        engine: 'spark_iceberg',
-        tableShape: 'tpch_iceberg',
-        queryName: 'q01_pricing_summary_report',
-        metric: 'p95',
-        latencyMs: 120,
-        success: true
-      }
-    ],
-    queryRowsByEngine: [
-      {
-        engine: 'spark_iceberg',
-        queryName: 'q01_pricing_summary_report',
-        rows: 4,
-        success: true
-      }
-    ],
-    failureSummary: [
-      {
-        stage: 'LOAD',
-        engine: 'spark_iceberg',
-        failures: 0
-      }
-    ]
-  },
-  notices: ['TPC-H smoke data is compatible test data, not an official TPC-H benchmark result.']
+  performanceMatrix: [
+    {
+      datasetId: 'tpch',
+      datasetName: 'TPC-H SF 0.01',
+      querySet: 'smoke',
+      queryName: 'q03_shipping_priority',
+      routes: {
+        spark_iceberg: { status: 'SUCCESS', p50Ms: 2310, p95Ms: 2450, p99Ms: 2600, rows: 120, error: '' },
+        starrocks_internal: { status: 'SUCCESS', p50Ms: 720, p95Ms: 760, p99Ms: 810, rows: 120, error: '' },
+        starrocks_external_iceberg: { status: 'FAILED', p50Ms: 0, p95Ms: 0, p99Ms: 0, rows: 0, error: 'catalog timeout' },
+      },
+      bestRoute: 'starrocks_internal',
+      bestRouteP95Ms: 760,
+    },
+    {
+      datasetId: 'custom-sales',
+      datasetName: 'Custom Sales',
+      querySet: 'daily',
+      queryName: 'top_region_sales',
+      routes: {
+        spark_iceberg: { status: 'SUCCESS', p50Ms: 1210, p95Ms: 1330, p99Ms: 1450, rows: 120, error: '' },
+        starrocks_internal: { status: 'SUCCESS', p50Ms: 330, p95Ms: 350, p99Ms: 380, rows: 120, error: '' },
+        starrocks_external_iceberg: { status: 'SKIPPED', p50Ms: 0, p95Ms: 0, p99Ms: 0, rows: 0, error: '' },
+      },
+      bestRoute: 'starrocks_internal',
+      bestRouteP95Ms: 350,
+    },
+  ],
+  notices: ['TPC-H smoke data is compatible test data, not an official TPC-H benchmark result.'],
 };

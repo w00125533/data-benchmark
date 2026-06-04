@@ -12,12 +12,12 @@ class WebBenchmarkReportMapperTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    void mapsSuccessfulRunDatasetDetailsAndChartPoints() {
+    void mapsSuccessfulRunDatasetDetailsAndMatrixRows() {
         BenchmarkReport report = BenchmarkReport.sample("run-web");
 
         WebBenchmarkReport web = mapper.map(report);
 
-        assertThat(web.schemaVersion()).isEqualTo(1);
+        assertThat(web.schemaVersion()).isEqualTo(2);
         assertThat(web.run().runId()).isEqualTo("run-web");
         assertThat(web.run().suite()).isEqualTo("kpi");
         assertThat(web.run().querySet()).isEqualTo("smoke");
@@ -26,25 +26,9 @@ class WebBenchmarkReportMapperTest {
         assertThat(web.dataset().rows()).isEqualTo(14_400L);
         assertThat(web.loads()).hasSize(1);
         assertThat(web.queries()).hasSize(1);
-        assertThat(web.charts().loadDurationByEngine())
-            .containsExactly(new WebBenchmarkReport.LoadDurationPoint(
-                "local",
-                "generated_parquet",
-                "generate",
-                1.2,
-                true
-            ));
-        assertThat(web.charts().queryLatencyByEngine())
-            .extracting(WebBenchmarkReport.QueryLatencyPoint::metric)
-            .containsExactly("p50", "p95", "p99");
-        assertThat(web.charts().queryRowsByEngine())
-            .containsExactly(new WebBenchmarkReport.QueryRowsPoint(
-                "spark_iceberg",
-                "topn_high_load_cells",
-                100L,
-                true
-            ));
-        assertThat(web.charts().failureSummary()).isEmpty();
+        assertThat(web.performanceMatrix()).hasSize(1);
+        assertThat(web.performanceMatrix().get(0).queryName()).isEqualTo("topn_high_load_cells");
+        assertThat(web.performanceMatrix().get(0).routes().get("spark_iceberg").status()).isEqualTo("SUCCESS");
     }
 
     @Test
@@ -55,11 +39,163 @@ class WebBenchmarkReportMapperTest {
 
         assertThat(json.path("loads").path(0).path("stage").asText()).isEqualTo("generate");
         assertThat(json.path("queries").path(0).path("queryName").asText()).isEqualTo("topn_high_load_cells");
-        assertThat(json.path("charts").path("failureSummary")).isEmpty();
+        assertThat(json.path("performanceMatrix")).hasSize(1);
+        assertThat(json.has("charts")).isFalse();
     }
 
     @Test
-    void mapsDegradedTpchReportNoticesAndFailureSummary() {
+    void mapsSchemaVersionTwoMatrixFields() {
+        BenchmarkReport report = new BenchmarkReport(
+            "matrix-run",
+            "tpch-smoke",
+            "tpch",
+            "smoke",
+            "2026-06-04T00:00:00Z",
+            "2026-06-04T00:00:03Z",
+            10000,
+            1,
+            60000,
+            8,
+            1024,
+            List.of(),
+            List.of(new BenchmarkReport.QuerySummary(
+                "starrocks_internal",
+                "sr_internal_tpch",
+                "q01_pricing_summary_report",
+                390,
+                410,
+                455,
+                120,
+                0,
+                true,
+                ""
+            )),
+            false
+        );
+
+        WebBenchmarkReport mapped = mapper.map(report);
+
+        assertThat(mapped.schemaVersion()).isEqualTo(2);
+        assertThat(mapped.performanceMatrix()).hasSize(1);
+        WebBenchmarkReport.PerformanceMatrixRow row = mapped.performanceMatrix().get(0);
+        assertThat(row.datasetId()).isEqualTo("tpch");
+        assertThat(row.datasetName()).isEqualTo("TPC-H SF 0.01");
+        assertThat(row.querySet()).isEqualTo("smoke");
+        assertThat(row.queryName()).isEqualTo("q01_pricing_summary_report");
+        assertThat(row.routes().get("starrocks_internal").status()).isEqualTo("SUCCESS");
+        assertThat(row.routes().get("spark_iceberg").status()).isEqualTo("SKIPPED");
+        assertThat(row.routes().get("starrocks_external_iceberg").status()).isEqualTo("SKIPPED");
+        assertThat(row.bestRoute()).isEqualTo("starrocks_internal");
+        assertThat(row.bestRouteP95Ms()).isEqualTo(410);
+    }
+
+    @Test
+    void matrixMarksFailedRoutesAndChoosesFastestSuccessfulP95() {
+        BenchmarkReport report = new BenchmarkReport(
+            "matrix-run",
+            "tpch-smoke",
+            "tpch",
+            "smoke",
+            "2026-06-04T00:00:00Z",
+            "2026-06-04T00:00:03Z",
+            10000,
+            1,
+            60000,
+            8,
+            1024,
+            List.of(),
+            List.of(
+                new BenchmarkReport.QuerySummary(
+                    "spark_iceberg",
+                    "iceberg_catalog.tpch",
+                    "q03_shipping_priority",
+                    2310,
+                    2450,
+                    2600,
+                    120,
+                    0,
+                    true,
+                    ""
+                ),
+                new BenchmarkReport.QuerySummary(
+                    "starrocks_internal",
+                    "sr_internal_tpch",
+                    "q03_shipping_priority",
+                    720,
+                    760,
+                    810,
+                    120,
+                    0,
+                    true,
+                    ""
+                ),
+                new BenchmarkReport.QuerySummary(
+                    "starrocks_external_iceberg",
+                    "sr_external_iceberg.tpch",
+                    "q03_shipping_priority",
+                    0,
+                    0,
+                    0,
+                    0,
+                    1,
+                    false,
+                    "catalog timeout"
+                )
+            ),
+            false
+        );
+
+        WebBenchmarkReport.PerformanceMatrixRow row = mapper.map(report).performanceMatrix().get(0);
+
+        assertThat(row.routes().get("spark_iceberg").status()).isEqualTo("SUCCESS");
+        assertThat(row.routes().get("starrocks_internal").status()).isEqualTo("SUCCESS");
+        assertThat(row.routes().get("starrocks_external_iceberg").status()).isEqualTo("FAILED");
+        assertThat(row.routes().get("starrocks_external_iceberg").error()).isEqualTo("catalog timeout");
+        assertThat(row.bestRoute()).isEqualTo("starrocks_internal");
+        assertThat(row.bestRouteP95Ms()).isEqualTo(760);
+    }
+
+    @Test
+    void usesDefaultDatasetNameWhenSuiteAndProfileAreMissing() {
+        BenchmarkReport report = new BenchmarkReport(
+            "matrix-run",
+            null,
+            " ",
+            "smoke",
+            "2026-06-04T00:00:00Z",
+            "2026-06-04T00:00:03Z",
+            10000,
+            1,
+            60000,
+            8,
+            1024,
+            List.of(),
+            List.of(new BenchmarkReport.QuerySummary(
+                "starrocks_internal",
+                "sr_internal_tpch",
+                "q01_pricing_summary_report",
+                390,
+                410,
+                455,
+                120,
+                0,
+                true,
+                ""
+            )),
+            false
+        );
+
+        WebBenchmarkReport mapped = mapper.map(report);
+        WebBenchmarkReport.PerformanceMatrixRow row = mapped.performanceMatrix().get(0);
+
+        assertThat(row.datasetId()).isEqualTo("default");
+        assertThat(row.datasetName()).isEqualTo("Default Dataset");
+        assertThat(mapped.queries().get(0).datasetId()).isEqualTo("default");
+        assertThat(mapped.queries().get(0).datasetName()).isEqualTo("Default Dataset");
+    }
+
+    @Test
+    void mapsDegradedTpchReportNoticesAndFailedMatrixRoute() {
         BenchmarkReport report = new BenchmarkReport(
             "run-degraded",
             "tpch-smoke",
@@ -102,17 +238,15 @@ class WebBenchmarkReportMapperTest {
         assertThat(web.run().status()).isEqualTo("DEGRADED");
         assertThat(web.notices())
             .contains("TPC-H smoke data is compatible test data, not an official TPC-H benchmark result.");
-        assertThat(web.charts().failureSummary())
-            .contains(
-                new WebBenchmarkReport.FailureSummaryPoint("LOAD", "spark_iceberg", 1),
-                new WebBenchmarkReport.FailureSummaryPoint("q01_pricing_summary_report", "starrocks_internal", 1)
-            );
+        assertThat(web.performanceMatrix()).hasSize(1);
+        assertThat(web.performanceMatrix().get(0).routes().get("starrocks_internal").status()).isEqualTo("FAILED");
+        assertThat(web.performanceMatrix().get(0).routes().get("starrocks_internal").error()).isEqualTo("query failed");
     }
 
     @Test
-    void aggregatesOnlyRealFailuresWithoutDelimiterCollisions() {
+    void matrixIncludesUnknownRoutesAsSkippedStandardRoutes() {
         BenchmarkReport report = new BenchmarkReport(
-            "run-delimiters",
+            "run-local",
             "smoke",
             "kpi",
             "smoke",
@@ -123,25 +257,17 @@ class WebBenchmarkReportMapperTest {
             0,
             0,
             0,
-            List.of(
-                new BenchmarkReport.LoadSummary("engine|a", "shape", "stage", 0, 0, 1, false, "failed"),
-                new BenchmarkReport.LoadSummary("a", "shape", "stage|engine", 0, 0, 1, false, "failed"),
-                new BenchmarkReport.LoadSummary("engine|a", "shape", "stage", 0, 0, 1, true, "")
-            ),
-            List.of(
-                new BenchmarkReport.QuerySummary("engine|a", "shape", "query", 0, 0, 0, 0, 2, true, "failed"),
-                new BenchmarkReport.QuerySummary("engine|a", "shape", "query", 0, 0, 0, 0, 0, true, "")
-            ),
+            List.of(),
+            List.of(new BenchmarkReport.QuerySummary("local", "generated_parquet", "catalog_render_check", 0, 0, 0, 0, 0, true, "")),
             false
         );
 
-        WebBenchmarkReport web = mapper.map(report);
+        WebBenchmarkReport.PerformanceMatrixRow row = mapper.map(report).performanceMatrix().get(0);
 
-        assertThat(web.charts().failureSummary())
-            .containsExactly(
-                new WebBenchmarkReport.FailureSummaryPoint("stage", "engine|a", 1),
-                new WebBenchmarkReport.FailureSummaryPoint("stage|engine", "a", 1),
-                new WebBenchmarkReport.FailureSummaryPoint("query", "engine|a", 2)
-            );
+        assertThat(row.queryName()).isEqualTo("catalog_render_check");
+        assertThat(row.routes().values())
+            .extracting(WebBenchmarkReport.RouteResult::status)
+            .containsExactly("SKIPPED", "SKIPPED", "SKIPPED");
+        assertThat(row.bestRoute()).isEmpty();
     }
 }

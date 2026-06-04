@@ -191,7 +191,7 @@ The report writer injects the complete report payload directly into `index.html`
 
 The static page must not call `fetch('./report.json')` during normal rendering. It must be usable by opening `index.html` directly from disk.
 
-`report.json` is not part of the required rendered artifact for this simplified design. If a future diagnostic export is needed, it should be explicitly added as an optional artifact and must not be required by the page.
+`report.json` is not emitted for this simplified design. If a future diagnostic export is needed, it should be explicitly added as a separate option and must not be required by the page.
 
 ## Frontend Requirements
 
@@ -261,7 +261,7 @@ Backend tests:
 - Mapper marks failed query results as `FAILED`.
 - Mapper computes best route by lowest successful `p95Ms`.
 - Writer embeds `window.__BENCHMARK_REPORT__`.
-- Writer does not require `report.json` for rendering.
+- Writer does not emit or require `report.json` for rendering.
 - Writer still escapes embedded JSON safely.
 
 Frontend tests:

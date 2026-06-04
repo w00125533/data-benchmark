@@ -1,19 +1,43 @@
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, it, test, vi } from 'vitest';
 import { sampleReport } from './sampleReport';
-import { validateReport } from './reportLoader';
+import { loadReport } from './reportLoader';
 
-describe('validateReport', () => {
-  test('accepts schema version 1 report', () => {
-    expect(validateReport(sampleReport).run.runId).toBe('sample-run');
+describe('loadReport', () => {
+  function setEmbeddedReportPayload(payload: unknown) {
+    Object.defineProperty(window, '__BENCHMARK_REPORT__', {
+      value: payload,
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.__BENCHMARK_REPORT__ = undefined;
   });
 
-  test('rejects unsupported schema version', () => {
-    expect(() => validateReport({ ...sampleReport, schemaVersion: 99 })).toThrow(
-      'Unsupported report schemaVersion'
+  it('loads embedded report without fetching report.json', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    window.__BENCHMARK_REPORT__ = sampleReport;
+
+    const report = await loadReport();
+
+    expect(report.run.runId).toBe(sampleReport.run.runId);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects missing embedded report data', async () => {
+    await expect(loadReport()).rejects.toThrow(
+      'Missing embedded report data: window.__BENCHMARK_REPORT__'
     );
   });
 
-  test('rejects incomplete report data', () => {
-    expect(() => validateReport({ schemaVersion: 1 })).toThrow('Report data is incomplete');
+  test('rejects unsupported schema version', async () => {
+    setEmbeddedReportPayload({ ...sampleReport, schemaVersion: 99 });
+
+    await expect(loadReport()).rejects.toThrow(
+      'Unsupported report schema version: 99'
+    );
   });
 });

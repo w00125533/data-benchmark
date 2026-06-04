@@ -1,32 +1,12 @@
 import type { WebBenchmarkReport } from '../types/report';
-import { sampleReport } from './sampleReport';
 
 export async function loadReport(): Promise<WebBenchmarkReport> {
-  if (window.__BENCHMARK_REPORT__) {
-    return validateReport(window.__BENCHMARK_REPORT__);
+  const embedded = window.__BENCHMARK_REPORT__ as (WebBenchmarkReport & { schemaVersion: number }) | undefined;
+  if (!embedded) {
+    throw new Error('Missing embedded report data: window.__BENCHMARK_REPORT__');
   }
-
-  if (import.meta.env.DEV) {
-    return sampleReport;
+  if (embedded.schemaVersion !== 2) {
+    throw new Error(`Unsupported report schema version: ${embedded.schemaVersion}`);
   }
-
-  const response = await fetch('./report.json');
-  if (!response.ok) {
-    throw new Error(`Failed to load report.json: HTTP ${response.status}`);
-  }
-  return validateReport(await response.json());
-}
-
-export function validateReport(value: unknown): WebBenchmarkReport {
-  if (!value || typeof value !== 'object') {
-    throw new Error('Report data is missing');
-  }
-  const report = value as Partial<WebBenchmarkReport>;
-  if (report.schemaVersion !== 1) {
-    throw new Error(`Unsupported report schemaVersion: ${String(report.schemaVersion)}`);
-  }
-  if (!report.run?.runId || !report.dataset || !report.charts) {
-    throw new Error('Report data is incomplete');
-  }
-  return report as WebBenchmarkReport;
+  return embedded;
 }

@@ -82,7 +82,7 @@ class BenchmarkRunnerAppTest {
         assertThat(result.out()).contains("report=" + reportDir.resolve("run-cli-test").resolve("index.html"));
         Path index = reportDir.resolve("run-cli-test").resolve("index.html");
         assertThat(index).exists();
-        assertThat(reportDir.resolve("run-cli-test").resolve("report.json")).exists();
+        assertThat(reportDir.resolve("run-cli-test").resolve("report.json")).doesNotExist();
         assertThat(Files.readString(index)).contains("window.__BENCHMARK_REPORT__");
     }
 

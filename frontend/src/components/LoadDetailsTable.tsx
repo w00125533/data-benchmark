@@ -14,13 +14,13 @@ const columns: ColumnsType<LoadSummary> = [
     dataIndex: 'success',
     render: (success: boolean) => (
       <Badge status={success ? 'success' : 'error'} text={success ? 'SUCCESS' : 'FAILED'} />
-    )
+    ),
   },
   {
     title: '错误',
     dataIndex: 'error',
-    render: (error: string) => (error ? <Typography.Text type="danger">{error}</Typography.Text> : '-')
-  }
+    render: (error: string) => (error ? <Typography.Text type="danger">{error}</Typography.Text> : '-'),
+  },
 ];
 
 export default function LoadDetailsTable({ rows }: { rows: LoadSummary[] }) {

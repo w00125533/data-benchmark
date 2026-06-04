@@ -39,12 +39,12 @@ class LocalBenchmarkRunnerTest {
 
         String html = Files.readString(result.reportPath());
         assertThat(html).contains("window.__BENCHMARK_REPORT__");
-        assertThat(result.reportPath().getParent().resolve("report.json")).exists();
-        String json = Files.readString(result.reportPath().getParent().resolve("report.json"));
-        assertThat(json).contains("\"engine\" : \"local\"");
-        assertThat(json).contains("\"tableShape\" : \"generated_parquet\"");
-        assertThat(json).contains("\"queryName\" : \"catalog_render_check\"");
-        assertThat(json).contains("This run is not a 4.032B row full-profile validation.");
+        assertThat(result.reportPath().getParent().resolve("report.json")).doesNotExist();
+        assertThat(html).contains("\"engine\" : \"local\"");
+        assertThat(html).contains("\"tableShape\" : \"generated_parquet\"");
+        assertThat(html).contains("\"queryName\" : \"catalog_render_check\"");
+        assertThat(html).contains("\"performanceMatrix\"");
+        assertThat(html).contains("This run is not a 4.032B row full-profile validation.");
     }
 
     @Test
