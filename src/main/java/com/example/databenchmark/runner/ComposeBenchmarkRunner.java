@@ -271,6 +271,7 @@ public class ComposeBenchmarkRunner {
             result.engine(),
             result.tableShape(),
             result.queryName(),
+            result.phase(),
             millis,
             millis,
             millis,

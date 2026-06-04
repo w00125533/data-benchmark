@@ -231,6 +231,9 @@ class ComposeBenchmarkRunnerTest {
         assertThat(reportWriter.report.querySummaries())
             .extracting(BenchmarkReport.QuerySummary::queryName)
             .containsOnly("q01_pricing_summary_report");
+        assertThat(reportWriter.report.querySummaries())
+            .extracting(BenchmarkReport.QuerySummary::phase)
+            .containsExactly(RoutePhase.COLD.name(), RoutePhase.WARM.name(), RoutePhase.HOT.name());
     }
 
     @Test
@@ -411,7 +414,7 @@ class ComposeBenchmarkRunnerTest {
         public List<EngineRunResult> runTpchQueries(String runId, String profile, String querySet) {
             calls.add("Spark TPC-H queries");
             return List.of(new EngineRunResult("spark", "tpch_iceberg", EngineStage.QUERY.name(),
-                "q01_pricing_summary_report", 3L, 0L, 0.2, true, ""));
+                "q01_pricing_summary_report", RoutePhase.COLD.name(), 3L, 0L, 0.2, true, ""));
         }
     }
 
@@ -466,9 +469,9 @@ class ComposeBenchmarkRunnerTest {
             calls.add("StarRocks TPC-H queries");
             return List.of(
                 new EngineRunResult("starrocks", "tpch_internal", EngineStage.QUERY.name(),
-                    "q01_pricing_summary_report", 4L, 0L, 0.3, true, ""),
+                    "q01_pricing_summary_report", RoutePhase.WARM.name(), 4L, 0L, 0.3, true, ""),
                 new EngineRunResult("starrocks", "tpch_external_iceberg", EngineStage.QUERY.name(),
-                    "q01_pricing_summary_report", 4L, 0L, 0.3, true, "")
+                    "q01_pricing_summary_report", RoutePhase.HOT.name(), 4L, 0L, 0.3, true, "")
             );
         }
     }
