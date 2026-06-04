@@ -65,7 +65,8 @@ class ComposeTopologyTest {
             .containsEntry("context", "./docker/benchmark-runner")
             .containsEntry("dockerfile", "Dockerfile");
         assertThat(runner.get("working_dir")).isEqualTo("/workspace");
-        assertThat(stringList(runner, "volumes")).contains(".:/workspace");
+        assertThat(stringList(runner, "volumes"))
+            .contains(".:/workspace", "/var/run/docker.sock:/var/run/docker.sock");
         assertThat(map(runner.get("environment")))
             .containsEntry("BENCHMARK_COMPOSE_IN_CONTAINER", "true")
             .containsEntry("STARROCKS_JDBC_URL",
@@ -82,6 +83,10 @@ class ComposeTopologyTest {
         assertThat(dependencyCondition(runner, "hdfs-init")).isEqualTo("service_completed_successfully");
         assertThat(dependencyCondition(runner, "hive-server")).isEqualTo("service_started");
         assertThat(stringList(runner, "ports")).doesNotContain("9108:9108");
+        String runnerDockerfile = Files.readString(Path.of("docker", "benchmark-runner", "Dockerfile"));
+        assertThat(runnerDockerfile)
+            .contains("docker-ce-cli")
+            .contains("docker-compose-plugin");
 
         assertThat(dependencyCondition(service(services, "spark"), "hdfs-init"))
             .isEqualTo("service_completed_successfully");
@@ -153,8 +158,11 @@ class ComposeTopologyTest {
         assertThat(readme)
             .contains("docker compose -f docker-compose.yml build benchmark-runner")
             .contains("mvn package")
+            .contains("/var/run/docker.sock")
+            .contains("docker compose down --remove-orphans")
             .contains("172.20.0.10")
             .contains("172.20.0.11")
+            .contains("172.20.0.0/24")
             .contains("-Xmx1536m");
     }
 

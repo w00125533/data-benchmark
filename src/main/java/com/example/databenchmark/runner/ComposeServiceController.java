@@ -60,8 +60,9 @@ public class ComposeServiceController {
             List<List<String>> commands = restartCommands(route);
             runChecked(route, commands.get(0), "restart");
             runChecked(route, commands.get(1), "restart");
-            waitForStarRocksFeMysql(route);
             runChecked(route, commands.get(2), "restart");
+            waitForStarRocksFeMysql(route);
+            runChecked(route, commands.get(3), "restart");
             return;
         }
 
@@ -113,13 +114,13 @@ public class ComposeServiceController {
             );
             case STARROCKS_INTERNAL, STARROCKS_EXTERNAL_ICEBERG -> List.of(
                 List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "starrocks-be"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "up", "-d", "--force-recreate", "starrocks-fe"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "up", "-d", "--force-recreate", "starrocks-be")
+                List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "starrocks-fe"),
+                List.of("docker", "compose", "-f", "docker-compose.yml", "start", "starrocks-fe"),
+                List.of("docker", "compose", "-f", "docker-compose.yml", "start", "starrocks-be")
             );
             case HIVE_HDFS_PARQUET -> List.of(
                 List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "hive-server"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "rm", "-f", "hive-server"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "up", "-d", "hive-server")
+                List.of("docker", "compose", "-f", "docker-compose.yml", "start", "hive-server")
             );
         };
     }
@@ -212,10 +213,7 @@ public class ComposeServiceController {
         if (output.contains("empty set")) {
             return false;
         }
-        if (output.contains("alive")) {
-            return output.contains("true");
-        }
-        return !output.isBlank();
+        return output.contains("alive") && output.contains("true");
     }
 
     private void runChecked(BenchmarkRoute route, List<String> command, String action) {

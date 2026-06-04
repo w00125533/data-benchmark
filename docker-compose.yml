@@ -161,6 +161,7 @@ services:
     working_dir: /workspace
     volumes:
       - .:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       BENCHMARK_COMPOSE_IN_CONTAINER: "true"
       STARROCKS_JDBC_URL: "jdbc:mysql://starrocks-fe:9030/?useSSL=false&allowPublicKeyRetrieval=true&allowMultiQueries=true"

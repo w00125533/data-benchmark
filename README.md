@@ -36,13 +36,15 @@ The default verification config is [configs/benchmark-smoke.yml](configs/benchma
 
 The formal KPI benchmark config is [configs/benchmark-kpi-10m.yml](configs/benchmark-kpi-10m.yml). It uses the same KPI shape with `rowCap: 10000000` for a 10m-row / 1000 万行 benchmark dataset.
 
-Docker Compose uses the packaged runner jar from `target/`, so run `mvn package` before starting Compose. Build the benchmark-runner image after packaging so the container has Java 17, Spark, and the Hadoop `hdfs` CLI available for Hive HDFS Parquet publish. The runner service executes the real compose path:
+Docker Compose uses the packaged runner jar from `target/`, so run `mvn package` before starting Compose. Build the benchmark-runner image after packaging so the container has Java 17, Spark, the Hadoop `hdfs` CLI, and `docker compose` available for Hive HDFS Parquet publish and route cold restarts. The runner service executes the real compose path:
 
 ```powershell
 mvn package
 docker compose -f docker-compose.yml build benchmark-runner
 docker compose -f docker-compose.yml up benchmark-runner
 ```
+
+The `benchmark-runner` service mounts `/var/run/docker.sock:/var/run/docker.sock` so the Java controller inside the container can run `docker compose exec`, `stop`, and `start` for cold restart/readiness orchestration. On Windows Docker Desktop this Linux socket path is normally exposed to Linux containers. If you do not want to mount the Docker socket, start the dependent services with Compose and run the packaged jar directly from the host instead of using the runner container.
 
 The generator writes deterministic, partitioned Parquet files under `event_date=YYYY-MM-DD/part-00000.parquet`. Local mode remains a fast Java-only smoke path; compose mode runs the Spark/Iceberg and StarRocks engine path.
 
@@ -71,7 +73,11 @@ Current Docker Compose resource limits:
 | hdfs-datanode | 2 | 1.5GB |
 | benchmark-runner | 2 | 1GB |
 
-The default Compose network uses subnet `172.20.0.0/24`; `starrocks-fe` is pinned to `172.20.0.10` and `starrocks-be` to `172.20.0.11` so StarRocks metadata does not drift across container recreates. The FE startup command rewrites `JAVA_OPTS` with `-Xmx1536m`, matching the 2GB FE container limit instead of the StarRocks default `-Xmx8192m`.
+The default Compose network uses subnet `172.20.0.0/24`; `starrocks-fe` is pinned to `172.20.0.10` and `starrocks-be` to `172.20.0.11` so StarRocks metadata does not drift across container starts. After adopting or changing the fixed subnet, run `docker compose down --remove-orphans` once from this directory, or `docker compose -f docker-compose.yml down --remove-orphans`, so Docker recreates the old `databenchmark` network with the current IPAM settings. If `172.20.0.0/24` conflicts with a host route, VPN, or corporate network, change the subnet in `docker-compose.yml` and update both pinned FE/BE IP addresses consistently.
+
+Cold restarts preserve container filesystems for loaded benchmark data: StarRocks uses `stop starrocks-be`, `stop starrocks-fe`, `start starrocks-fe`, wait for FE MySQL, then `start starrocks-be`; Hive uses `stop hive-server` then `start hive-server`. These routes intentionally avoid removing or force-recreating containers.
+
+The FE startup command rewrites `JAVA_OPTS` with `-Xmx1536m`, matching the 2GB FE container limit instead of the StarRocks default `-Xmx8192m`.
 
 Compose mode writes a standalone web report package under `reports/runs/<run_id>/`.
 Open the report directly:

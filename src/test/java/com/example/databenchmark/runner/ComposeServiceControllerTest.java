@@ -25,21 +25,28 @@ class ComposeServiceControllerTest {
         assertThat(controller.restartCommands(BenchmarkRoute.STARROCKS_INTERNAL))
             .containsExactly(
                 List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "starrocks-be"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "up", "-d", "--force-recreate", "starrocks-fe"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "up", "-d", "--force-recreate", "starrocks-be")
+                List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "starrocks-fe"),
+                List.of("docker", "compose", "-f", "docker-compose.yml", "start", "starrocks-fe"),
+                List.of("docker", "compose", "-f", "docker-compose.yml", "start", "starrocks-be")
             );
         assertThat(controller.restartCommands(BenchmarkRoute.STARROCKS_EXTERNAL_ICEBERG))
             .containsExactly(
                 List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "starrocks-be"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "up", "-d", "--force-recreate", "starrocks-fe"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "up", "-d", "--force-recreate", "starrocks-be")
+                List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "starrocks-fe"),
+                List.of("docker", "compose", "-f", "docker-compose.yml", "start", "starrocks-fe"),
+                List.of("docker", "compose", "-f", "docker-compose.yml", "start", "starrocks-be")
             );
         assertThat(controller.restartCommands(BenchmarkRoute.HIVE_HDFS_PARQUET))
             .containsExactly(
                 List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "hive-server"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "rm", "-f", "hive-server"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "up", "-d", "hive-server")
+                List.of("docker", "compose", "-f", "docker-compose.yml", "start", "hive-server")
             );
+        assertThat(controller.restartCommands(BenchmarkRoute.STARROCKS_INTERNAL).stream().flatMap(List::stream))
+            .doesNotContain("restart", "rm", "--force-recreate");
+        assertThat(controller.restartCommands(BenchmarkRoute.STARROCKS_EXTERNAL_ICEBERG).stream().flatMap(List::stream))
+            .doesNotContain("restart", "rm", "--force-recreate");
+        assertThat(controller.restartCommands(BenchmarkRoute.HIVE_HDFS_PARQUET).stream().flatMap(List::stream))
+            .doesNotContain("restart", "rm", "--force-recreate");
     }
 
     @Test
@@ -59,6 +66,7 @@ class ComposeServiceControllerTest {
         FakeCommandRunner commandRunner = new FakeCommandRunner();
         commandRunner.enqueueSuccess();
         commandRunner.enqueueSuccess();
+        commandRunner.enqueueSuccess();
         commandRunner.enqueueFailure("fe mysql booting");
         commandRunner.enqueueSuccess("1\n1");
         commandRunner.enqueueSuccess();
@@ -75,12 +83,13 @@ class ComposeServiceControllerTest {
 
         assertThat(commandRunner.commands).containsExactly(
             List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "starrocks-be"),
-            List.of("docker", "compose", "-f", "docker-compose.yml", "up", "-d", "--force-recreate", "starrocks-fe"),
+            List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "starrocks-fe"),
+            List.of("docker", "compose", "-f", "docker-compose.yml", "start", "starrocks-fe"),
             List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
                 "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SELECT 1"),
             List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
                 "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SELECT 1"),
-            List.of("docker", "compose", "-f", "docker-compose.yml", "up", "-d", "--force-recreate", "starrocks-be")
+            List.of("docker", "compose", "-f", "docker-compose.yml", "start", "starrocks-be")
         );
     }
 
@@ -102,9 +111,9 @@ class ComposeServiceControllerTest {
         FakeCommandRunner commandRunner = new FakeCommandRunner();
         commandRunner.enqueueSuccess();
         commandRunner.enqueueSuccess();
+        commandRunner.enqueueSuccess("BackendId\tAlive\n10001\ttrue");
         commandRunner.enqueueSuccess();
-        commandRunner.enqueueSuccess();
-        commandRunner.enqueueSuccess();
+        commandRunner.enqueueSuccess("BackendId\tAlive\n10001\ttrue");
         commandRunner.enqueueSuccess();
         ComposeServiceController controller = new ComposeServiceController(
             commandRunner,
@@ -158,6 +167,33 @@ class ComposeServiceControllerTest {
         assertThat(commandRunner.commands.get(0)).containsSequence("-e", "SELECT 1");
         assertThat(commandRunner.commands.get(1)).containsSequence("-e", "SHOW PROC '/backends'");
         assertThat(commandRunner.commands.get(2)).containsSequence("-e", "SELECT 1");
+        assertThat(commandRunner.commands.get(3)).containsSequence("-e", "SHOW PROC '/backends'");
+    }
+
+    @Test
+    void waitUntilReadyRejectsMalformedStarRocksBackendOutputWithoutAliveColumn() {
+        FakeCommandRunner commandRunner = new FakeCommandRunner();
+        commandRunner.enqueueSuccess("1\n1");
+        commandRunner.enqueueSuccess("BackendId\tHost\n10001\tstarrocks-be");
+        commandRunner.enqueueSuccess("1\n1");
+        commandRunner.enqueueSuccess("BackendId\tHost\n10001\tstarrocks-be");
+        ComposeServiceController controller = new ComposeServiceController(
+            commandRunner,
+            Path.of("."),
+            Duration.ofSeconds(30),
+            2,
+            Duration.ZERO,
+            ignored -> { }
+        );
+
+        assertThatThrownBy(() -> controller.waitUntilReady(BenchmarkRoute.STARROCKS_INTERNAL))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("STARROCKS_INTERNAL")
+            .hasMessageContaining("SHOW PROC '/backends'")
+            .hasMessageContaining("BackendId");
+
+        assertThat(commandRunner.commands).hasSize(4);
+        assertThat(commandRunner.commands.get(1)).containsSequence("-e", "SHOW PROC '/backends'");
         assertThat(commandRunner.commands.get(3)).containsSequence("-e", "SHOW PROC '/backends'");
     }
 

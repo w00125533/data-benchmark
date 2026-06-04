@@ -60,9 +60,10 @@ Uses StarRocks native/internal table loaded through stream load.
 Cold restart:
 
 - Stop `starrocks-be`.
-- Recreate/start `starrocks-fe`.
+- Stop `starrocks-fe`.
+- Start `starrocks-fe`.
 - Wait for FE MySQL `SELECT 1`.
-- Recreate/start `starrocks-be`.
+- Start `starrocks-be`.
 - Wait for FE MySQL `SELECT 1` and `SHOW PROC '/backends'` with `Alive=true`.
 
 ### StarRocks External Iceberg
@@ -72,9 +73,10 @@ Uses StarRocks external Iceberg catalog over Hive Metastore and HDFS.
 Cold restart:
 
 - Stop `starrocks-be`.
-- Recreate/start `starrocks-fe`.
+- Stop `starrocks-fe`.
+- Start `starrocks-fe`.
 - Wait for FE MySQL `SELECT 1`.
-- Recreate/start `starrocks-be`.
+- Start `starrocks-be`.
 - Wait for FE MySQL `SELECT 1` and `SHOW PROC '/backends'` with `Alive=true`.
 
 Hive Metastore and HDFS are not restarted for this route, because doing so adds metadata and filesystem recovery noise and can destabilize the benchmark.
@@ -92,7 +94,7 @@ Required infrastructure:
 
 Cold restart:
 
-- Stop and remove `hive-server`, then recreate it with Compose.
+- Stop `hive-server`, then start it with Compose.
 - Wait until Beeline can execute `SELECT 1`.
 
 ## Execution Model
@@ -201,7 +203,7 @@ Default resource allocation:
 | `hdfs-datanode` | 2 | 1.5 GB |
 | `benchmark-runner` | 2 | 1 GB |
 
-The default Compose network pins StarRocks FE/BE addresses in subnet `172.20.0.0/24`: FE uses `172.20.0.10`, BE uses `172.20.0.11`. This avoids StarRocks metadata recording a stale FE identity after container recreation. FE startup rewrites `JAVA_OPTS` with `-Xmx1536m`, keeping the JVM heap inside the 2 GB FE container limit instead of relying on the StarRocks default `-Xmx8192m`.
+The default Compose network pins StarRocks FE/BE addresses in subnet `172.20.0.0/24`: FE uses `172.20.0.10`, BE uses `172.20.0.11`. This avoids StarRocks metadata recording a stale FE identity across container starts. FE startup rewrites `JAVA_OPTS` with `-Xmx1536m`, keeping the JVM heap inside the 2 GB FE container limit instead of relying on the StarRocks default `-Xmx8192m`.
 
 The total memory limit is intentionally close to, but below, the observed Docker Desktop memory budget. Documentation must note that larger formal runs may benefit from increasing Docker Desktop memory and then raising service limits.
 
