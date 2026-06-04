@@ -6,8 +6,11 @@ export default defineConfig({
   base: './',
   build: {
     assetsDir: 'assets',
+    modulePreload: false,
     rollupOptions: {
       output: {
+        format: 'iife',
+        name: 'DataBenchmarkReportUi',
         entryFileNames: 'assets/report-ui.js',
         chunkFileNames: 'assets/report-ui-[name].js',
         assetFileNames: 'assets/report-ui.[ext]'

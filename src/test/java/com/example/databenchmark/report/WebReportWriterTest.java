@@ -23,12 +23,12 @@ class WebReportWriterTest {
         assertThat(output).exists();
         assertThat(tempDir.resolve("run-web").resolve("report.json")).exists();
         assertThat(tempDir.resolve("run-web").resolve("assets").resolve("report-ui.js")).exists();
-        assertThat(tempDir.resolve("run-web").resolve("assets").resolve("report-ui.css")).exists();
 
         String html = Files.readString(output);
         assertThat(html).contains("window.__BENCHMARK_REPORT__");
         assertThat(html).contains("<script defer src=\"./assets/report-ui.js\"></script>");
         assertThat(html).doesNotContain("type=\"module\"");
+        assertThat(html).doesNotContain("crossorigin");
 
         WebBenchmarkReport json = new ObjectMapper()
             .readValue(tempDir.resolve("run-web").resolve("report.json").toFile(), WebBenchmarkReport.class);
@@ -43,6 +43,18 @@ class WebReportWriterTest {
         assertThatThrownBy(() -> new WebReportWriter().write(report, tempDir))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("runId");
+    }
+
+    @Test
+    void removesStaleFilesWhenRewritingSameRunId() throws Exception {
+        Path outputDir = tempDir.resolve("run-web");
+        Files.createDirectories(outputDir.resolve("assets"));
+        Files.writeString(outputDir.resolve("assets").resolve("stale.css"), "old", StandardCharsets.UTF_8);
+
+        new WebReportWriter().write(BenchmarkReport.sample("run-web"), tempDir);
+
+        assertThat(outputDir.resolve("assets").resolve("stale.css")).doesNotExist();
+        assertThat(outputDir.resolve("assets").resolve("report-ui.js")).exists();
     }
 
     @Test

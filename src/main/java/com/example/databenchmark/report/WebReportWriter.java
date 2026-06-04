@@ -24,6 +24,9 @@ public class WebReportWriter {
     private static final Pattern MODULE_ENTRY_SCRIPT = Pattern.compile(
         "<script\\s+type=\"module\"(?:\\s+crossorigin)?\\s+src=\"\\./assets/report-ui\\.js\"></script>"
     );
+    private static final Pattern CROSSORIGIN_STYLESHEET = Pattern.compile(
+        "<link\\s+rel=\"stylesheet\"\\s+crossorigin\\s+href=\"\\./assets/report-ui\\.css\">"
+    );
 
     private final ObjectMapper objectMapper;
     private final WebBenchmarkReportMapper mapper;
@@ -55,7 +58,7 @@ public class WebReportWriter {
         if (!outputDir.startsWith(root)) {
             throw new IllegalArgumentException("runId resolves outside outputRoot");
         }
-        Files.createDirectories(outputDir);
+        recreateDirectory(outputDir);
 
         copyReportUi(outputDir);
 
@@ -91,8 +94,10 @@ public class WebReportWriter {
     }
 
     private String normalizeFileOpenScript(String html) {
-        return MODULE_ENTRY_SCRIPT.matcher(html)
+        String normalized = MODULE_ENTRY_SCRIPT.matcher(html)
             .replaceFirst("<script defer src=\"./assets/report-ui.js\"></script>");
+        return CROSSORIGIN_STYLESHEET.matcher(normalized)
+            .replaceFirst("<link rel=\"stylesheet\" href=\"./assets/report-ui.css\">");
     }
 
     private void copyReportUi(Path outputDir) throws IOException {
@@ -144,5 +149,16 @@ public class WebReportWriter {
                 }
             }
         }
+    }
+
+    private void recreateDirectory(Path directory) throws IOException {
+        if (Files.exists(directory)) {
+            try (Stream<Path> paths = Files.walk(directory)) {
+                for (Path path : paths.sorted((left, right) -> right.getNameCount() - left.getNameCount()).toList()) {
+                    Files.delete(path);
+                }
+            }
+        }
+        Files.createDirectories(directory);
     }
 }
