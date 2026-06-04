@@ -32,7 +32,9 @@ Generate data only:
 java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar generate --cells 10 --days 1 --row-cap 100
 ```
 
-The default smoke config is [configs/benchmark-smoke.yml](configs/benchmark-smoke.yml). It preserves the spec values for `10,000` cells and `1` day, and uses `rowCap: 10000` so local verification does not accidentally generate all `14,400,000` rows.
+The default verification config is [configs/benchmark-smoke.yml](configs/benchmark-smoke.yml). It preserves the spec values for `10,000` cells and `1` day, and uses `rowCap: 10000` for a 10k-row smoke dataset.
+
+The formal KPI benchmark config is [configs/benchmark-kpi-10m.yml](configs/benchmark-kpi-10m.yml). It uses the same KPI shape with `rowCap: 10000000` for a 10m-row / 1000 万行 benchmark dataset.
 
 Docker Compose uses the packaged runner jar from `target/`, so run `mvn package` before starting Compose. The runner service executes the real compose path:
 
@@ -48,9 +50,23 @@ HDFS infrastructure is provisioned by Docker Compose. The HDFS Iceberg warehouse
 
 ```powershell
 mvn package
-docker compose -f docker-compose.yml up -d hdfs-namenode hdfs-datanode hdfs-init hive-metastore spark starrocks-fe starrocks-be
-java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --run-id compose-smoke
+docker compose -f docker-compose.yml up -d hdfs-namenode hdfs-datanode hdfs-init hive-metastore hive-server spark starrocks-fe starrocks-be
+java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --config configs/benchmark-smoke.yml --run-id compose-smoke
+java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --config configs/benchmark-kpi-10m.yml --run-id compose-kpi-10m
 ```
+
+Current Docker Compose resource limits:
+
+| Service | CPU | Memory |
+| --- | ---: | ---: |
+| starrocks-fe | 2 | 2GB |
+| starrocks-be | 6 | 5GB |
+| spark | 6 | 3GB |
+| hive-metastore | 1 | 1GB |
+| hive-server | 2 | 2GB |
+| hdfs-namenode | 1 | 768MB |
+| hdfs-datanode | 2 | 1.5GB |
+| benchmark-runner | 2 | 1GB |
 
 Compose mode writes a standalone web report package under `reports/runs/<run_id>/`.
 Open the report directly:
@@ -59,6 +75,6 @@ Open the report directly:
 reports/runs/compose-smoke/index.html
 ```
 
-Each report directory contains `index.html`, `report.json`, and React assets. The HTML embeds the report data, so it can be opened directly from the filesystem.
+Each report directory contains `index.html` and React assets. The HTML embeds the report data, so it can be opened directly from the filesystem without an external JSON file.
 
 If a Spark, StarRocks, or external Iceberg stage fails, the CLI exits nonzero after writing a DEGRADED report with the failing stage and error detail.

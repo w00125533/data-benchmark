@@ -1,0 +1,16 @@
+profile: kpi-10m
+seed: 20260602
+dataset:
+  cells: 10000
+  days: 1
+  columns: 50
+  startTime: "2026-01-01T00:00:00"
+  output: "data/generated"
+  rowCap: 10000000
+query:
+  coldRuns: 1
+  warmRuns: 3
+  concurrency: 1
+report:
+  format: html
+  output: "reports/runs"

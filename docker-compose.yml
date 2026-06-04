@@ -10,6 +10,11 @@ services:
     ports:
       - "8030:8030"
       - "9030:9030"
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2GB
 
   starrocks-be:
     image: starrocks/be-ubuntu:3.3-latest
@@ -21,6 +26,11 @@ services:
       - starrocks-fe
     ports:
       - "8040:8040"
+    deploy:
+      resources:
+        limits:
+          cpus: "6"
+          memory: 5GB
 
   spark:
     image: apache/spark:3.5.8-java17
@@ -35,6 +45,11 @@ services:
         condition: service_completed_successfully
       hive-metastore:
         condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "6"
+          memory: 3GB
 
   hive-metastore:
     image: apache/hive:4.0.0
@@ -44,6 +59,29 @@ services:
     depends_on:
       hdfs-init:
         condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1GB
+
+  hive-server:
+    image: apache/hive:4.0.0
+    hostname: hive-server
+    environment:
+      SERVICE_NAME: hiveserver2
+    depends_on:
+      hdfs-init:
+        condition: service_completed_successfully
+      hive-metastore:
+        condition: service_started
+    ports:
+      - "10000:10000"
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2GB
 
   hdfs-namenode:
     image: apache/hadoop:3.3.6
@@ -59,6 +97,11 @@ services:
     ports:
       - "9870:9870"
       - "8020:8020"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 768MB
 
   hdfs-datanode:
     image: apache/hadoop:3.3.6
@@ -73,6 +116,11 @@ services:
       - hdfs-namenode
     ports:
       - "9864:9864"
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1.5GB
 
   hdfs-init:
     image: apache/hadoop:3.3.6
@@ -110,12 +158,19 @@ services:
         condition: service_completed_successfully
       hive-metastore:
         condition: service_started
+      hive-server:
+        condition: service_started
       spark:
         condition: service_started
       starrocks-fe:
         condition: service_started
       starrocks-be:
         condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1GB
 
 networks:
   default:
