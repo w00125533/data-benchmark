@@ -38,11 +38,13 @@ class LocalBenchmarkRunnerTest {
             .run(config, tempDir.resolve("reports"), "run-local-test");
 
         String html = Files.readString(result.reportPath());
-        assertThat(html).doesNotContain("Grafana dashboard for this run");
-        assertThat(html).contains("local");
-        assertThat(html).contains("generated_parquet");
-        assertThat(html).contains("catalog_render_check");
-        assertThat(html).contains("not a 4.032B row full-profile validation");
+        assertThat(html).contains("window.__BENCHMARK_REPORT__");
+        assertThat(result.reportPath().getParent().resolve("report.json")).exists();
+        String json = Files.readString(result.reportPath().getParent().resolve("report.json"));
+        assertThat(json).contains("\"engine\" : \"local\"");
+        assertThat(json).contains("\"tableShape\" : \"generated_parquet\"");
+        assertThat(json).contains("\"queryName\" : \"catalog_render_check\"");
+        assertThat(json).contains("This run is not a 4.032B row full-profile validation.");
     }
 
     @Test

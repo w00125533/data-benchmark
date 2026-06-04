@@ -74,7 +74,7 @@ class ComposeBenchmarkRunnerTest {
             "record load:STARROCKS_EXTERNAL_REFRESH",
             "record query:spark_query",
             "record query:starrocks_query",
-            "write HTML report"
+            "write web report"
         );
         assertThat(metricsRecorder.closed).isTrue();
         assertThat(reportWriter.report.runId()).isEqualTo("compose-test");
@@ -142,7 +142,7 @@ class ComposeBenchmarkRunnerTest {
             "record load:STARROCKS_EXTERNAL_REFRESH",
             "record query:spark_query",
             "record query:starrocks_query",
-            "write HTML report"
+            "write web report"
         );
         assertThat(metricsRecorder.closed).isTrue();
         assertThat(reportWriter.report.status()).isEqualTo("DEGRADED");
@@ -215,7 +215,7 @@ class ComposeBenchmarkRunnerTest {
             "record query:q01_pricing_summary_report",
             "record query:q01_pricing_summary_report",
             "record query:q01_pricing_summary_report",
-            "write HTML report"
+            "write web report"
         );
         assertThat(metricsRecorder.closed).isTrue();
         assertThat(reportWriter.report.runId()).isEqualTo("compose-test");
@@ -279,7 +279,7 @@ class ComposeBenchmarkRunnerTest {
             "start metrics",
             "generate TPC-H dataset",
             "record load:GENERATE",
-            "write HTML report"
+            "write web report"
         );
         assertThat(metricsRecorder.closed).isTrue();
         assertThat(reportWriter.report.status()).isEqualTo("DEGRADED");
@@ -343,7 +343,7 @@ class ComposeBenchmarkRunnerTest {
             "export TPC-H CSV",
             "record load:GENERATE",
             "record load:compose_prepare",
-            "write HTML report"
+            "write web report"
         );
         assertThat(metricsRecorder.closed).isTrue();
         assertThat(reportWriter.report.status()).isEqualTo("DEGRADED");
@@ -488,7 +488,7 @@ class ComposeBenchmarkRunnerTest {
 
         @Override
         public Path write(BenchmarkReport report, Path outputRoot) {
-            calls.add("write HTML report");
+            calls.add("write web report");
             this.report = report;
             return reportPath;
         }

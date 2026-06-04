@@ -8,16 +8,11 @@ import com.example.databenchmark.engine.StarRocksClient;
 import com.example.databenchmark.engine.StarRocksCsvExporter;
 import com.example.databenchmark.generator.DatasetResult;
 import com.example.databenchmark.generator.KpiDataGenerator;
-import com.example.databenchmark.metrics.BenchmarkMetrics;
-import com.example.databenchmark.metrics.PrometheusMetricsServer;
 import com.example.databenchmark.report.BenchmarkReport;
-import com.example.databenchmark.report.HtmlReportWriter;
+import com.example.databenchmark.report.WebReportWriter;
 import com.example.databenchmark.tpch.TpchCsvExporter;
 import com.example.databenchmark.tpch.TpchDataGenerator;
 import com.example.databenchmark.tpch.TpchDatasetResult;
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.prometheusmetrics.PrometheusConfig;
-import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -42,8 +37,8 @@ public class ComposeBenchmarkRunner {
             new TpchCsvExporter()::export,
             new SparkClientAdapter(new SparkIcebergClient()),
             new StarRocksClientAdapter(new StarRocksClient()),
-            new HtmlReportWriter()::write,
-            defaultMetricsRecorder()
+            new WebReportWriter()::write,
+            MetricsRecorder.noop()
         );
     }
 
@@ -302,11 +297,6 @@ public class ComposeBenchmarkRunner {
         queryResults.forEach(result -> metricsRecorder.recordQuery(runId, profile, suite, querySet, result));
     }
 
-    private static MetricsRecorder defaultMetricsRecorder() {
-        PrometheusMeterRegistry registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
-        return new MicrometerMetricsRecorder(registry, new PrometheusMetricsServer(registry));
-    }
-
     private String generatedRunId() {
         return "compose-" + Instant.now().toEpochMilli();
     }
@@ -465,56 +455,6 @@ public class ComposeBenchmarkRunner {
         @Override
         public List<EngineRunResult> runTpchQueries(String runId, String profile, String querySet) {
             return delegate.runTpchQueries(runId, profile, querySet);
-        }
-    }
-
-    private record MicrometerMetricsRecorder(
-        MeterRegistry registry,
-        PrometheusMetricsServer server
-    ) implements MetricsRecorder {
-        @Override
-        public void start() {
-            server.start();
-        }
-
-        @Override
-        public void recordLoad(String runId, String profile, String suite, String querySet, EngineRunResult result) {
-            BenchmarkMetrics.recordLoad(
-                registry,
-                runId,
-                profile,
-                suite,
-                querySet,
-                result.engine(),
-                result.tableShape(),
-                result.stage(),
-                result.rows(),
-                result.bytes(),
-                result.durationSeconds()
-            );
-        }
-
-        @Override
-        public void recordQuery(String runId, String profile, String suite, String querySet, EngineRunResult result) {
-            BenchmarkMetrics.recordQuery(
-                registry,
-                runId,
-                profile,
-                suite,
-                querySet,
-                result.engine(),
-                result.tableShape(),
-                result.stage(),
-                result.queryName(),
-                result.rows(),
-                result.success() ? 0 : 1,
-                result.durationSeconds()
-            );
-        }
-
-        @Override
-        public void close() {
-            server.close();
         }
     }
 

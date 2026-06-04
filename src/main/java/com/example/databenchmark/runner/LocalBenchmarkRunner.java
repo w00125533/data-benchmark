@@ -4,7 +4,7 @@ import com.example.databenchmark.config.BenchmarkConfig;
 import com.example.databenchmark.generator.DatasetResult;
 import com.example.databenchmark.generator.KpiDataGenerator;
 import com.example.databenchmark.report.BenchmarkReport;
-import com.example.databenchmark.report.HtmlReportWriter;
+import com.example.databenchmark.report.WebReportWriter;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -58,7 +58,7 @@ public class LocalBenchmarkRunner {
             "full".equals(config.profile())
         );
 
-        Path reportPath = new HtmlReportWriter().write(report, reportRoot);
+        Path reportPath = new WebReportWriter().write(report, reportRoot);
         return new LocalRunResult(dataset, reportPath);
     }
 
