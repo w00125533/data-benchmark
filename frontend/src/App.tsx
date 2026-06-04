@@ -1,5 +1,10 @@
-import { Alert, Layout, Space, Spin, Typography } from 'antd';
+import { Alert, Card, Layout, Space, Spin, Typography } from 'antd';
 import { useEffect, useState } from 'react';
+import EngineComparison from './components/EngineComparison';
+import LoadDetailsTable from './components/LoadDetailsTable';
+import QueryDetailsTable from './components/QueryDetailsTable';
+import RunSummary from './components/RunSummary';
+import StageTimeline from './components/StageTimeline';
 import { loadReport } from './data/reportLoader';
 import type { WebBenchmarkReport } from './types/report';
 
@@ -53,13 +58,18 @@ export default function App() {
           <Typography.Title level={3} style={{ margin: 0 }}>
             Data Benchmark Report
           </Typography.Title>
-          <Alert
-            type={report.run.status === 'SUCCESS' ? 'success' : 'warning'}
-            message={`运行状态: ${report.run.status}`}
-            showIcon
-          />
-          <Typography.Text>Run ID: {report.run.runId}</Typography.Text>
-          <Typography.Text>Suite: {report.run.suite}</Typography.Text>
+          {report.run.status === 'DEGRADED' ? (
+            <Alert type="warning" showIcon message="本次运行存在失败阶段，请查看明细错误。" />
+          ) : null}
+          <RunSummary report={report} />
+          <EngineComparison report={report} />
+          <StageTimeline report={report} />
+          <Card size="small" title="Load 明细">
+            <LoadDetailsTable rows={report.loads} />
+          </Card>
+          <Card size="small" title="Query 明细">
+            <QueryDetailsTable rows={report.queries} />
+          </Card>
         </Space>
       </Layout.Content>
     </Layout>
