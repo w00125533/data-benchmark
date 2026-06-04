@@ -425,12 +425,20 @@ class ComposeBenchmarkRunnerTest {
     void defaultHdfsPublisherUsesHadoopDockerCliFromHost() throws Exception {
         CapturingCommandRunner commandRunner = new CapturingCommandRunner();
         ComposeBenchmarkRunner.HdfsDatasetPublisher publisher = defaultHdfsPublisher(commandRunner, tempDir, false);
-        DatasetResult dataset = new DatasetResult(tempDir.resolve("data/generated"), List.of(tempDir.resolve("data/generated/part.parquet")), 5L, 123L);
+        DatasetResult dataset = new DatasetResult(
+            tempDir.resolve("data/generated"),
+            List.of(
+                tempDir.resolve("data/generated/event_date=2026-01-01/part-00000.parquet"),
+                tempDir.resolve("data/generated/event_date=2026-01-02/part-00000.parquet")
+            ),
+            5L,
+            123L
+        );
 
         EngineRunResult result = publisher.publish(dataset, "/data/generated");
 
         assertThat(result.success()).isTrue();
-        assertThat(commandRunner.commands()).hasSize(3);
+        assertThat(commandRunner.commands()).hasSize(6);
         assertThat(commandRunner.commands().get(0)).containsExactly(
             "docker", "run", "--rm", "--network", "databenchmark",
             "-v", tempDir.toAbsolutePath().normalize() + ":/workspace",
@@ -445,7 +453,7 @@ class ComposeBenchmarkRunnerTest {
             "-w", "/workspace",
             "apache/hadoop:3.3.6",
             "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
-            "-mkdir", "-p", "/data"
+            "-mkdir", "-p", "/data/generated"
         );
         assertThat(commandRunner.commands().get(2)).containsExactly(
             "docker", "run", "--rm", "--network", "databenchmark",
@@ -453,32 +461,69 @@ class ComposeBenchmarkRunnerTest {
             "-w", "/workspace",
             "apache/hadoop:3.3.6",
             "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
-            "-put", "-f", "/workspace/data/generated", "/data/generated"
+            "-mkdir", "-p", "/data/generated/event_date=2026-01-01"
         );
+        assertThat(commandRunner.commands().get(3)).containsExactly(
+            "docker", "run", "--rm", "--network", "databenchmark",
+            "-v", tempDir.toAbsolutePath().normalize() + ":/workspace",
+            "-w", "/workspace",
+            "apache/hadoop:3.3.6",
+            "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
+            "-put", "-f", "/workspace/data/generated/event_date=2026-01-01/part-00000.parquet", "/data/generated/event_date=2026-01-01"
+        );
+        assertThat(commandRunner.commands().get(4)).containsExactly(
+            "docker", "run", "--rm", "--network", "databenchmark",
+            "-v", tempDir.toAbsolutePath().normalize() + ":/workspace",
+            "-w", "/workspace",
+            "apache/hadoop:3.3.6",
+            "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
+            "-mkdir", "-p", "/data/generated/event_date=2026-01-02"
+        );
+        assertThat(commandRunner.commands().get(5)).containsExactly(
+            "docker", "run", "--rm", "--network", "databenchmark",
+            "-v", tempDir.toAbsolutePath().normalize() + ":/workspace",
+            "-w", "/workspace",
+            "apache/hadoop:3.3.6",
+            "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
+            "-put", "-f", "/workspace/data/generated/event_date=2026-01-02/part-00000.parquet", "/data/generated/event_date=2026-01-02"
+        );
+        assertThat(commandRunner.commands()).noneSatisfy(command ->
+            assertThat(command).containsSequence("-put", "-f", "/workspace/data/generated", "/data/generated"));
     }
 
     @Test
     void defaultHdfsPublisherUsesLocalHadoopCliInContainer() throws Exception {
         CapturingCommandRunner commandRunner = new CapturingCommandRunner();
         ComposeBenchmarkRunner.HdfsDatasetPublisher publisher = defaultHdfsPublisher(commandRunner, tempDir, true);
-        DatasetResult dataset = new DatasetResult(tempDir.resolve("data/generated"), List.of(tempDir.resolve("data/generated/part.parquet")), 5L, 123L);
+        DatasetResult dataset = new DatasetResult(
+            tempDir.resolve("data/generated"),
+            List.of(tempDir.resolve("data/generated/event_date=2026-01-01/part-00000.parquet")),
+            5L,
+            123L
+        );
 
         EngineRunResult result = publisher.publish(dataset, "/data/generated");
 
         assertThat(result.success()).isTrue();
-        assertThat(commandRunner.commands()).hasSize(3);
+        assertThat(commandRunner.commands()).hasSize(4);
         assertThat(commandRunner.commands().get(0)).containsExactly(
             "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
             "-rm", "-r", "-f", "/data/generated"
         );
         assertThat(commandRunner.commands().get(1)).containsExactly(
             "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
-            "-mkdir", "-p", "/data"
+            "-mkdir", "-p", "/data/generated"
         );
         assertThat(commandRunner.commands().get(2)).containsExactly(
             "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
-            "-put", "-f", "/workspace/data/generated", "/data/generated"
+            "-mkdir", "-p", "/data/generated/event_date=2026-01-01"
         );
+        assertThat(commandRunner.commands().get(3)).containsExactly(
+            "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
+            "-put", "-f", "/workspace/data/generated/event_date=2026-01-01/part-00000.parquet", "/data/generated/event_date=2026-01-01"
+        );
+        assertThat(commandRunner.commands()).noneSatisfy(command ->
+            assertThat(command).containsSequence("-put", "-f", "/workspace/data/generated", "/data/generated"));
     }
 
     @Test

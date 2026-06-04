@@ -778,20 +778,25 @@ public class ComposeBenchmarkRunner {
         @Override
         public EngineRunResult publish(DatasetResult dataset, String hdfsRoot) {
             long started = System.nanoTime();
-            String workspacePath;
+            String hdfsRootPath = hdfsPath(hdfsRoot);
+            List<List<String>> commands = new ArrayList<>();
+            commands.add(hdfsCommand("-rm", "-r", "-f", hdfsRootPath));
+            commands.add(hdfsCommand("-mkdir", "-p", hdfsRootPath));
             try {
-                workspacePath = toWorkspacePath(dataset.outputPath());
+                if (dataset.files().isEmpty()) {
+                    return failedPublish(0.0, "Dataset has no parquet files to publish");
+                }
+                for (Path file : dataset.files()) {
+                    String workspacePath = toWorkspacePath(file);
+                    String hdfsPartitionPath = hdfsFileParentPath(dataset, file, hdfsRootPath);
+                    commands.add(hdfsCommand("-mkdir", "-p", hdfsPartitionPath));
+                    commands.add(hdfsCommand("-put", "-f", workspacePath, hdfsPartitionPath));
+                }
             } catch (IllegalArgumentException exception) {
                 return failedPublish(0.0, exception.getMessage());
             }
 
-            String hdfsRootPath = hdfsPath(hdfsRoot);
-            String hdfsParentPath = hdfsParent(hdfsRootPath);
-            for (List<String> command : List.of(
-                hdfsCommand("-rm", "-r", "-f", hdfsRootPath),
-                hdfsCommand("-mkdir", "-p", hdfsParentPath),
-                hdfsCommand("-put", "-f", workspacePath, hdfsRootPath)
-            )) {
+            for (List<String> command : commands) {
                 CommandResult result;
                 try {
                     result = commandRunner.run(command, workingDirectory, timeout);
@@ -842,6 +847,19 @@ public class ComposeBenchmarkRunner {
             return relative.isEmpty() ? "/workspace" : "/workspace/" + relative;
         }
 
+        private String hdfsFileParentPath(DatasetResult dataset, Path file, String hdfsRootPath) {
+            Path datasetRoot = dataset.outputPath().toAbsolutePath().normalize();
+            Path fileParent = file.toAbsolutePath().normalize().getParent();
+            if (fileParent == null || !fileParent.startsWith(datasetRoot)) {
+                throw new IllegalArgumentException("Dataset file is outside dataset output path: " + file);
+            }
+            String relativeParent = datasetRoot.relativize(fileParent).toString().replace('\\', '/');
+            if (relativeParent.isBlank()) {
+                return hdfsRootPath;
+            }
+            return hdfsRootPath + "/" + relativeParent;
+        }
+
         private static EngineRunResult failedPublish(double durationSeconds, String error) {
             return new EngineRunResult(
                 "hive",
@@ -859,14 +877,6 @@ public class ComposeBenchmarkRunner {
         private static String hdfsPath(String path) {
             String normalized = path.replace('\\', '/');
             return normalized.startsWith("/") ? normalized : "/" + normalized;
-        }
-
-        private static String hdfsParent(String path) {
-            int lastSlash = path.lastIndexOf('/');
-            if (lastSlash <= 0) {
-                return "/";
-            }
-            return path.substring(0, lastSlash);
         }
 
         private static String commandError(CommandResult command) {

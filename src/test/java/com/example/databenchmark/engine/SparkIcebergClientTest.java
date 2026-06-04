@@ -42,6 +42,7 @@ class SparkIcebergClientTest {
             "--conf", "spark.sql.catalog.iceberg_catalog.type=hive",
             "--conf", "spark.sql.catalog.iceberg_catalog.uri=thrift://hive-metastore:9083",
             "--conf", "spark.sql.catalog.iceberg_catalog.warehouse=hdfs://hdfs-namenode:8020/warehouse/iceberg",
+            "--conf", "spark.sql.iceberg.vectorization.enabled=false",
             "-e", SqlTemplates.sparkCreateIcebergTable() + "\n" + SqlTemplates.sparkInsertFromParquet("/workspace/data/run-1/part.parquet")
         );
     }
@@ -69,6 +70,7 @@ class SparkIcebergClientTest {
             .contains("spark.jars.ivy=/tmp/.ivy2")
             .contains("spark.sql.catalog.iceberg_catalog.uri=thrift://hive-metastore:9083")
             .contains("spark.sql.catalog.iceberg_catalog.warehouse=hdfs://hdfs-namenode:8020/warehouse/iceberg")
+            .contains("spark.sql.iceberg.vectorization.enabled=false")
             .contains("org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1");
     }
 

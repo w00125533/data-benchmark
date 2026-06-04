@@ -62,6 +62,8 @@ class ComposeServiceControllerTest {
         commandRunner.enqueueSuccess();
         commandRunner.enqueueSuccess();
         commandRunner.enqueueSuccess();
+        commandRunner.enqueueSuccess();
+        commandRunner.enqueueSuccess();
         ComposeServiceController controller = new ComposeServiceController(
             commandRunner,
             Path.of("."),
@@ -82,10 +84,39 @@ class ComposeServiceControllerTest {
             List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
                 "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SELECT 1"),
             List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
+                "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SHOW PROC '/backends'"),
+            List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
                 "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SELECT 1"),
+            List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
+                "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SHOW PROC '/backends'"),
             List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "hive-server",
                 "beeline", "-u", "jdbc:hive2://hive-server:10000/default", "-e", "SELECT 1")
         );
+    }
+
+    @Test
+    void waitUntilReadyRetriesStarRocksUntilBackendIsAlive() {
+        FakeCommandRunner commandRunner = new FakeCommandRunner();
+        commandRunner.enqueueSuccess("1\n1");
+        commandRunner.enqueueSuccess("BackendId\tAlive\n10001\tfalse");
+        commandRunner.enqueueSuccess("1\n1");
+        commandRunner.enqueueSuccess("BackendId\tAlive\n10001\ttrue");
+        ComposeServiceController controller = new ComposeServiceController(
+            commandRunner,
+            Path.of("."),
+            Duration.ofSeconds(30),
+            3,
+            Duration.ZERO,
+            ignored -> { }
+        );
+
+        controller.waitUntilReady(BenchmarkRoute.STARROCKS_INTERNAL);
+
+        assertThat(commandRunner.commands).hasSize(4);
+        assertThat(commandRunner.commands.get(0)).containsSequence("-e", "SELECT 1");
+        assertThat(commandRunner.commands.get(1)).containsSequence("-e", "SHOW PROC '/backends'");
+        assertThat(commandRunner.commands.get(2)).containsSequence("-e", "SELECT 1");
+        assertThat(commandRunner.commands.get(3)).containsSequence("-e", "SHOW PROC '/backends'");
     }
 
     @Test
@@ -137,7 +168,11 @@ class ComposeServiceControllerTest {
         private final List<List<String>> commands = new ArrayList<>();
 
         private void enqueueSuccess() {
-            results.add(new CommandResult(List.of(), 0, "ok", "", 0.0));
+            enqueueSuccess("ok");
+        }
+
+        private void enqueueSuccess(String stdout) {
+            results.add(new CommandResult(List.of(), 0, stdout, "", 0.0));
         }
 
         private void enqueueFailure(String stderr) {

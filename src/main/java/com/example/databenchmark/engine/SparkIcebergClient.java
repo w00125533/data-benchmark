@@ -20,6 +20,7 @@ public class SparkIcebergClient {
     private static final String SPARK_SQL = "/opt/spark/bin/spark-sql";
     private static final String ICEBERG_RUNTIME = "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1";
     private static final String IVY_CACHE_CONF = "spark.jars.ivy=/tmp/.ivy2";
+    private static final String ICEBERG_VECTORIZATION_CONF = "spark.sql.iceberg.vectorization.enabled=false";
 
     private final CommandRunner commandRunner;
     private final Path workingDirectory;
@@ -198,6 +199,7 @@ public class SparkIcebergClient {
             "--conf", "spark.sql.catalog.iceberg_catalog.type=hive",
             "--conf", "spark.sql.catalog.iceberg_catalog.uri=thrift://hive-metastore:9083",
             "--conf", "spark.sql.catalog.iceberg_catalog.warehouse=hdfs://hdfs-namenode:8020/warehouse/iceberg",
+            "--conf", ICEBERG_VECTORIZATION_CONF,
             "-e", sql
         );
         if (inContainer) {
@@ -212,6 +214,7 @@ public class SparkIcebergClient {
             "--conf", "spark.sql.catalog.iceberg_catalog.type=hive",
             "--conf", "spark.sql.catalog.iceberg_catalog.uri=thrift://hive-metastore:9083",
             "--conf", "spark.sql.catalog.iceberg_catalog.warehouse=hdfs://hdfs-namenode:8020/warehouse/iceberg",
+            "--conf", ICEBERG_VECTORIZATION_CONF,
             "-e", sql
         ));
         return command;

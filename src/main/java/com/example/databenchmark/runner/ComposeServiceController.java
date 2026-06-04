@@ -62,28 +62,39 @@ public class ComposeServiceController {
     }
 
     public void waitUntilReady(BenchmarkRoute route) {
-        List<String> command = readinessCommand(route);
+        List<List<String>> commands = readinessCommands(route);
+        List<String> lastCommand = commands.get(commands.size() - 1);
         String lastOutput = "";
         for (int attempt = 1; attempt <= readinessAttempts; attempt++) {
-            try {
-                CommandResult result = commandRunner.run(command, workingDirectory, timeout);
-                if (result.exitCode() == 0) {
-                    return;
+            boolean ready = true;
+            for (List<String> command : commands) {
+                lastCommand = command;
+                try {
+                    CommandResult result = commandRunner.run(command, workingDirectory, timeout);
+                    lastOutput = commandOutput(result);
+                    if (result.exitCode() != 0 || !readinessOutputIsReady(command, result)) {
+                        ready = false;
+                        break;
+                    }
+                } catch (IOException e) {
+                    lastOutput = e.getMessage();
+                    ready = false;
+                    break;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(errorMessage(route, command, "readiness check", e.getMessage()), e);
                 }
-                lastOutput = commandOutput(result);
-            } catch (IOException e) {
-                lastOutput = e.getMessage();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException(errorMessage(route, command, "readiness check", e.getMessage()), e);
+            }
+            if (ready) {
+                return;
             }
 
             if (attempt < readinessAttempts) {
-                sleepBeforeRetry(route, command);
+                sleepBeforeRetry(route, lastCommand);
             }
         }
 
-        throw new IllegalStateException(errorMessage(route, command, "readiness check", lastOutput));
+        throw new IllegalStateException(errorMessage(route, lastCommand, "readiness check", lastOutput));
     }
 
     List<List<String>> restartCommands(BenchmarkRoute route) {
@@ -100,53 +111,73 @@ public class ComposeServiceController {
         };
     }
 
-    private List<String> readinessCommand(BenchmarkRoute route) {
+    private List<List<String>> readinessCommands(BenchmarkRoute route) {
         return switch (route) {
-            case SPARK_ICEBERG -> List.of(
-                "docker",
-                "compose",
-                "-f",
-                "docker-compose.yml",
-                "exec",
-                "-T",
-                "spark",
-                "/opt/spark/bin/spark-sql",
-                "-e",
-                "SELECT 1"
-            );
-            case STARROCKS_INTERNAL, STARROCKS_EXTERNAL_ICEBERG ->
-                List.of(
+            case SPARK_ICEBERG -> List.of(List.of(
                     "docker",
                     "compose",
                     "-f",
                     "docker-compose.yml",
                     "exec",
                     "-T",
-                    "starrocks-fe",
-                    "mysql",
-                    "-h",
-                    "127.0.0.1",
-                    "-P",
-                    "9030",
-                    "-uroot",
+                    "spark",
+                    "/opt/spark/bin/spark-sql",
                     "-e",
                     "SELECT 1"
-                );
-            case HIVE_HDFS_PARQUET -> List.of(
-                "docker",
-                "compose",
-                "-f",
-                "docker-compose.yml",
-                "exec",
-                "-T",
-                "hive-server",
-                "beeline",
-                "-u",
-                "jdbc:hive2://hive-server:10000/default",
-                "-e",
-                "SELECT 1"
+                ));
+            case STARROCKS_INTERNAL, STARROCKS_EXTERNAL_ICEBERG -> List.of(
+                starRocksMysqlCommand("SELECT 1"),
+                starRocksMysqlCommand("SHOW PROC '/backends'")
             );
+            case HIVE_HDFS_PARQUET -> List.of(List.of(
+                    "docker",
+                    "compose",
+                    "-f",
+                    "docker-compose.yml",
+                    "exec",
+                    "-T",
+                    "hive-server",
+                    "beeline",
+                    "-u",
+                    "jdbc:hive2://hive-server:10000/default",
+                    "-e",
+                    "SELECT 1"
+                ));
         };
+    }
+
+    private List<String> starRocksMysqlCommand(String sql) {
+        return List.of(
+            "docker",
+            "compose",
+            "-f",
+            "docker-compose.yml",
+            "exec",
+            "-T",
+            "starrocks-fe",
+            "mysql",
+            "-h",
+            "127.0.0.1",
+            "-P",
+            "9030",
+            "-uroot",
+            "-e",
+            sql
+        );
+    }
+
+    private boolean readinessOutputIsReady(List<String> command, CommandResult result) {
+        if (!command.contains("SHOW PROC '/backends'")) {
+            return true;
+        }
+        String output = nullToEmpty(result.stdout()).toLowerCase();
+        if (output.contains("empty set")) {
+            return false;
+        }
+        if (output.contains("alive")) {
+            return output.contains("true");
+        }
+        return !output.isBlank();
     }
 
     private void runChecked(BenchmarkRoute route, List<String> command, String action) {
