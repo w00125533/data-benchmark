@@ -37,6 +37,7 @@ class ComposeBenchmarkRunnerTest {
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
             new FakeStarRocksClient(calls, true),
+            new FakeHdfsDatasetPublisher(calls, true),
             new FakeHiveClient(calls),
             new FakeServiceController(calls),
             reportWriter,
@@ -72,6 +73,10 @@ class ComposeBenchmarkRunnerTest {
             "Hive query " + queryName + " WARM",
             "Hive query " + queryName + " HOT"
         );
+        assertThat(calls).containsSubsequence(
+            "Hive HDFS publish /data/generated",
+            "Hive external table /data/generated"
+        );
         assertThat(reportWriter.report.querySummaries())
             .filteredOn(summary -> summary.queryName().equals(queryName))
             .extracting(BenchmarkReport.QuerySummary::tableShape, BenchmarkReport.QuerySummary::phase)
@@ -105,6 +110,7 @@ class ComposeBenchmarkRunnerTest {
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
             new FakeStarRocksClient(calls, true),
+            new FakeHdfsDatasetPublisher(calls, true),
             new FakeHiveClient(calls),
             new FakeServiceController(calls, BenchmarkRoute.STARROCKS_INTERNAL),
             reportWriter,
@@ -156,6 +162,7 @@ class ComposeBenchmarkRunnerTest {
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
             new FakeStarRocksClient(calls, true),
+            new FakeHdfsDatasetPublisher(calls, true),
             new FakeHiveClient(calls),
             new FakeServiceController(calls),
             reportWriter,
@@ -181,6 +188,7 @@ class ComposeBenchmarkRunnerTest {
             "Spark load",
             "StarRocks internal load",
             "StarRocks external refresh",
+            "Hive HDFS publish /data/generated",
             "Hive external table /data/generated",
             "restart SPARK_ICEBERG",
             "ready SPARK_ICEBERG",
@@ -201,6 +209,7 @@ class ComposeBenchmarkRunnerTest {
                 EngineStage.SPARK_ICEBERG_LOAD.name(),
                 EngineStage.STARROCKS_INTERNAL_LOAD.name(),
                 EngineStage.STARROCKS_EXTERNAL_REFRESH.name(),
+                "HIVE_HDFS_PARQUET_PUBLISH",
                 "HIVE_HDFS_PARQUET_LOAD"
             );
         assertThat(reportWriter.report.querySummaries())
@@ -227,6 +236,7 @@ class ComposeBenchmarkRunnerTest {
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
             new FakeStarRocksClient(calls, false),
+            new FakeHdfsDatasetPublisher(calls, true),
             new FakeHiveClient(calls),
             new FakeServiceController(calls),
             reportWriter,
@@ -250,6 +260,7 @@ class ComposeBenchmarkRunnerTest {
             "Spark load",
             "StarRocks internal load",
             "StarRocks external refresh",
+            "Hive HDFS publish /data/generated",
             "Hive external table /data/generated",
             "restart SPARK_ICEBERG",
             "ready SPARK_ICEBERG",
@@ -263,6 +274,57 @@ class ComposeBenchmarkRunnerTest {
         assertThat(reportWriter.report.status()).isEqualTo("DEGRADED");
         assertThat(reportWriter.report.loadSummaries())
             .anySatisfy(summary -> assertThat(summary.error()).contains("catalog refresh failed"));
+    }
+
+    @Test
+    void composeRunnerRecordsHiveHdfsPublishFailureAndStillRunsQueries() throws Exception {
+        List<String> calls = new ArrayList<>();
+        String queryName = QueryCatalog.queries().get(0).name();
+        DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
+        CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
+
+        ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
+            config -> dataset,
+            (generatedDataset, outputDir) -> outputDir.resolve("cell_kpi_1min.csv"),
+            failingTpchGenerator(),
+            failingTpchCsvExport(),
+            new FakeSparkClient(calls),
+            new FakeStarRocksClient(calls, true),
+            new FakeHdfsDatasetPublisher(calls, false),
+            new FakeHiveClient(calls),
+            new FakeServiceController(calls),
+            reportWriter,
+            new CapturingMetricsRecorder(calls, "smoke", "kpi", "smoke")
+        );
+
+        ComposeBenchmarkRunner.ComposeRunResult result = runner.run(
+            BenchmarkConfig.defaultSmoke(),
+            tempDir.resolve("reports"),
+            "compose-test"
+        );
+
+        assertThat(result.success()).isFalse();
+        assertThat(reportWriter.report.status()).isEqualTo("DEGRADED");
+        assertThat(calls).containsSubsequence(
+            "Hive HDFS publish /data/generated",
+            "Hive external table /data/generated",
+            "restart HIVE_HDFS_PARQUET",
+            "ready HIVE_HDFS_PARQUET",
+            "Hive query " + queryName + " COLD"
+        );
+        assertThat(reportWriter.report.loadSummaries())
+            .anySatisfy(summary -> {
+                assertThat(summary.engine()).isEqualTo("hive");
+                assertThat(summary.tableShape()).isEqualTo("hive_hdfs_parquet");
+                assertThat(summary.stage()).isEqualTo("HIVE_HDFS_PARQUET_PUBLISH");
+                assertThat(summary.success()).isFalse();
+                assertThat(summary.error()).contains("hdfs publish failed");
+            });
+        assertThat(reportWriter.report.querySummaries())
+            .filteredOn(summary -> summary.tableShape().equals("hive_hdfs_parquet"))
+            .filteredOn(summary -> summary.queryName().equals(queryName))
+            .hasSize(3)
+            .allSatisfy(summary -> assertThat(summary.success()).isTrue());
     }
 
     @Test
@@ -602,6 +664,23 @@ class ComposeBenchmarkRunnerTest {
                 new EngineRunResult("starrocks", "tpch_external_iceberg", EngineStage.QUERY.name(),
                     "q01_pricing_summary_report", RoutePhase.HOT.name(), 4L, 0L, 0.3, true, "")
             );
+        }
+    }
+
+    private static final class FakeHdfsDatasetPublisher implements ComposeBenchmarkRunner.HdfsDatasetPublisher {
+        private final List<String> calls;
+        private final boolean succeeds;
+
+        private FakeHdfsDatasetPublisher(List<String> calls, boolean succeeds) {
+            this.calls = calls;
+            this.succeeds = succeeds;
+        }
+
+        @Override
+        public EngineRunResult publish(DatasetResult dataset, Path hdfsRoot) {
+            calls.add("Hive HDFS publish " + hdfsRoot.toString().replace('\\', '/'));
+            return new EngineRunResult("hive", "hive_hdfs_parquet", "HIVE_HDFS_PARQUET_PUBLISH",
+                null, dataset.rows(), dataset.bytesWritten(), 0.6, succeeds, succeeds ? "" : "hdfs publish failed");
         }
     }
 
