@@ -244,7 +244,7 @@ class WebBenchmarkReportMapperTest {
     }
 
     @Test
-    void matrixIncludesUnknownRoutesAsSkippedStandardRoutes() {
+    void matrixIgnoresUnknownRoutesBecauseTheyAreNotComparable() {
         BenchmarkReport report = new BenchmarkReport(
             "run-local",
             "smoke",
@@ -262,12 +262,10 @@ class WebBenchmarkReportMapperTest {
             false
         );
 
-        WebBenchmarkReport.PerformanceMatrixRow row = mapper.map(report).performanceMatrix().get(0);
+        WebBenchmarkReport web = mapper.map(report);
 
-        assertThat(row.queryName()).isEqualTo("catalog_render_check");
-        assertThat(row.routes().values())
-            .extracting(WebBenchmarkReport.RouteResult::status)
-            .containsExactly("SKIPPED", "SKIPPED", "SKIPPED");
-        assertThat(row.bestRoute()).isEmpty();
+        assertThat(web.queries()).hasSize(1);
+        assertThat(web.queries().get(0).engine()).isEqualTo("local");
+        assertThat(web.performanceMatrix()).isEmpty();
     }
 }

@@ -1,6 +1,6 @@
 import { Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import type { PerformanceMatrixRow, RouteKey, RouteResult } from '../types/report';
+import type { DatasetInfo, PerformanceMatrixRow, RouteKey, RouteResult } from '../types/report';
 
 const routeLabels: Record<RouteKey, string> = {
   spark_iceberg: 'Spark Iceberg',
@@ -59,9 +59,33 @@ function BestRouteCell({ row }: { row: PerformanceMatrixRow }) {
   );
 }
 
-export default function PerformanceMatrixTable({ rows }: { rows: PerformanceMatrixRow[] }) {
+function DatasetCell({ row, dataset }: { row: PerformanceMatrixRow; dataset: DatasetInfo }) {
+  return (
+    <div>
+      <strong>{row.datasetName}</strong>
+      <div>datasetId {row.datasetId}</div>
+      <div>rows {dataset.rows.toLocaleString()}</div>
+      <div>
+        cells {dataset.cells.toLocaleString()} / days {dataset.days.toLocaleString()}
+      </div>
+    </div>
+  );
+}
+
+export default function PerformanceMatrixTable({
+  rows,
+  dataset,
+}: {
+  rows: PerformanceMatrixRow[];
+  dataset: DatasetInfo;
+}) {
   const columns: ColumnsType<PerformanceMatrixRow> = [
-    { title: '数据集', dataIndex: 'datasetName', key: 'datasetName', width: 160 },
+    {
+      title: '数据集',
+      key: 'dataset',
+      width: 220,
+      render: (_, row) => <DatasetCell row={row} dataset={dataset} />,
+    },
     { title: 'Query Set', dataIndex: 'querySet', key: 'querySet', width: 120 },
     { title: 'SQL', dataIndex: 'queryName', key: 'queryName', width: 220 },
     {
@@ -99,6 +123,9 @@ export default function PerformanceMatrixTable({ rows }: { rows: PerformanceMatr
       )}
       pagination={false}
       scroll={{ x: 1200 }}
+      locale={{
+        emptyText: '本次运行没有三技术路线查询结果。请使用 compose 模式运行 Spark Iceberg、StarRocks Internal、StarRocks External Iceberg 后查看对比。',
+      }}
     />
   );
 }

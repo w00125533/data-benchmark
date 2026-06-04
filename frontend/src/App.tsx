@@ -62,7 +62,16 @@ export default function App() {
           ) : null}
           <RunSummary report={report} />
           <Card size="small" title="性能矩阵">
-            <PerformanceMatrixTable rows={report.performanceMatrix} />
+            {report.performanceMatrix.length === 0 ? (
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="本次运行没有三技术路线性能对比数据。"
+                description="local smoke 只生成本地数据并验证静态报告渲染，不会执行 Spark Iceberg、StarRocks Internal、StarRocks External Iceberg 查询。请使用 compose 模式生成真实对比报告。"
+              />
+            ) : null}
+            <PerformanceMatrixTable rows={report.performanceMatrix} dataset={report.dataset} />
           </Card>
           <Card size="small" title="Load 明细">
             <LoadDetailsTable rows={report.loads} />

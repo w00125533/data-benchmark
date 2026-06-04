@@ -44,6 +44,7 @@ class LocalBenchmarkRunnerTest {
         assertThat(html).contains("\"tableShape\" : \"generated_parquet\"");
         assertThat(html).contains("\"queryName\" : \"catalog_render_check\"");
         assertThat(html).contains("\"performanceMatrix\"");
+        assertThat(html).contains("\"performanceMatrix\" : [ ]");
         assertThat(html).contains("This run is not a 4.032B row full-profile validation.");
     }
 

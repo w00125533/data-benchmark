@@ -47,6 +47,9 @@ test('renders performance matrix with route statuses and best route', async () =
   expect(await screen.findByText('性能矩阵')).toBeInTheDocument();
   expect(screen.getByText('q03_shipping_priority')).toBeInTheDocument();
   expect(screen.getByText('top_region_sales')).toBeInTheDocument();
+  expect(screen.getByText('datasetId tpch')).toBeInTheDocument();
+  expect(screen.getAllByText('rows 60,000').length).toBeGreaterThan(0);
+  expect(screen.getAllByText('cells 10,000 / days 1').length).toBeGreaterThan(0);
   expect(screen.getAllByText('StarRocks Internal').length).toBeGreaterThan(0);
   expect(screen.getByText('p95 760 ms')).toBeInTheDocument();
   expect(screen.getByText('best p95 760 ms')).toBeInTheDocument();
@@ -101,4 +104,34 @@ test('renders degraded alert and failed query row', async () => {
   expect(await screen.findByText('本次运行存在失败阶段，请查看明细错误。')).toBeInTheDocument();
   expect(screen.getAllByText('FAILED').length).toBeGreaterThan(0);
   expect(screen.getAllByText('query failed').length).toBeGreaterThan(0);
+});
+
+test('explains when a local smoke run has no comparable route matrix', async () => {
+  window.__BENCHMARK_REPORT__ = {
+    ...sampleReport,
+    performanceMatrix: [],
+    queries: [
+      {
+        datasetId: 'kpi',
+        datasetName: 'KPI smoke',
+        querySet: 'smoke',
+        engine: 'local',
+        tableShape: 'generated_parquet',
+        queryName: 'catalog_render_check',
+        p50Ms: 0,
+        p95Ms: 0,
+        p99Ms: 0,
+        rows: 0,
+        status: 'SUCCESS',
+        error: '',
+      },
+    ],
+  };
+
+  render(<App />);
+
+  expect(await screen.findByText('本次运行没有三技术路线性能对比数据。')).toBeInTheDocument();
+  expect(screen.getAllByText(/local smoke 只生成本地数据/).length).toBeGreaterThan(0);
+  expect(screen.queryByText('datasetId kpi')).not.toBeInTheDocument();
+  expect(screen.getByText('catalog_render_check')).toBeInTheDocument();
 });

@@ -84,11 +84,11 @@ public class WebBenchmarkReportMapper {
         String datasetName = datasetName(report);
         for (BenchmarkReport.QuerySummary query : report.querySummaries()) {
             String route = normalizeRoute(query.engine());
-            MatrixKey key = new MatrixKey(datasetId, datasetName, report.querySet(), query.queryName());
-            Map<String, WebBenchmarkReport.RouteResult> routes = grouped.computeIfAbsent(key, ignored -> skippedRoutes());
             if (!ROUTES.contains(route)) {
                 continue;
             }
+            MatrixKey key = new MatrixKey(datasetId, datasetName, report.querySet(), query.queryName());
+            Map<String, WebBenchmarkReport.RouteResult> routes = grouped.computeIfAbsent(key, ignored -> skippedRoutes());
             routes.put(route, new WebBenchmarkReport.RouteResult(
                 status(query),
                 query.p50Ms(),
