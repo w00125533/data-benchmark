@@ -30,7 +30,7 @@ export default function App() {
     return (
       <Layout style={{ minHeight: '100vh', background: '#f5f7fb' }}>
         <Layout.Content style={{ padding: 24 }}>
-          <Alert type="error" message="鎶ュ憡鏁版嵁鍔犺浇澶辫触" description={error} />
+          <Alert type="error" message="报告数据加载失败" description={error} />
         </Layout.Content>
       </Layout>
     );
@@ -55,7 +55,7 @@ export default function App() {
           </Typography.Title>
           <Alert
             type={report.run.status === 'SUCCESS' ? 'success' : 'warning'}
-            message={`杩愯鐘舵€? ${report.run.status}`}
+            message={`运行状态: ${report.run.status}`}
             showIcon
           />
           <Typography.Text>Run ID: {report.run.runId}</Typography.Text>
