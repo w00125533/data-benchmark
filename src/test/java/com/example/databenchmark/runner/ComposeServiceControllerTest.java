@@ -62,7 +62,14 @@ class ComposeServiceControllerTest {
         commandRunner.enqueueSuccess();
         commandRunner.enqueueSuccess();
         commandRunner.enqueueSuccess();
-        ComposeServiceController controller = new ComposeServiceController(commandRunner);
+        ComposeServiceController controller = new ComposeServiceController(
+            commandRunner,
+            Path.of("."),
+            Duration.ofSeconds(30),
+            10,
+            Duration.ZERO,
+            ignored -> { }
+        );
 
         controller.waitUntilReady(BenchmarkRoute.SPARK_ICEBERG);
         controller.waitUntilReady(BenchmarkRoute.STARROCKS_INTERNAL);
@@ -70,24 +77,59 @@ class ComposeServiceControllerTest {
         controller.waitUntilReady(BenchmarkRoute.HIVE_HDFS_PARQUET);
 
         assertThat(commandRunner.commands).containsExactly(
-            List.of("docker", "compose", "-f", "docker-compose.yml", "ps", "spark"),
-            List.of("docker", "compose", "-f", "docker-compose.yml", "ps", "starrocks-fe", "starrocks-be"),
-            List.of("docker", "compose", "-f", "docker-compose.yml", "ps", "starrocks-fe", "starrocks-be"),
-            List.of("docker", "compose", "-f", "docker-compose.yml", "ps", "hive-server")
+            List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "spark",
+                "/opt/spark/bin/spark-sql", "-e", "SELECT 1"),
+            List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
+                "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SELECT 1"),
+            List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
+                "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SELECT 1"),
+            List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "hive-server",
+                "beeline", "-u", "jdbc:hive2://hive-server:10000/default", "-e", "SELECT 1")
         );
     }
 
     @Test
-    void waitUntilReadyThrowsRouteCommandAndStderrWhenReadinessCommandFails() {
+    void waitUntilReadyRetriesUntilReadinessCommandSucceeds() {
         FakeCommandRunner commandRunner = new FakeCommandRunner();
+        commandRunner.enqueueFailure("spark not ready");
+        commandRunner.enqueueFailure("spark still not ready");
+        commandRunner.enqueueSuccess();
+        ComposeServiceController controller = new ComposeServiceController(
+            commandRunner,
+            Path.of("."),
+            Duration.ofSeconds(30),
+            10,
+            Duration.ZERO,
+            ignored -> { }
+        );
+
+        controller.waitUntilReady(BenchmarkRoute.SPARK_ICEBERG);
+
+        assertThat(commandRunner.commands).hasSize(3);
+    }
+
+    @Test
+    void waitUntilReadyThrowsRouteCommandAndLastOutputWhenReadinessCommandNeverSucceeds() {
+        FakeCommandRunner commandRunner = new FakeCommandRunner();
+        commandRunner.enqueueFailure("hive-server booting");
         commandRunner.enqueueFailure("hive-server is missing");
-        ComposeServiceController controller = new ComposeServiceController(commandRunner);
+        ComposeServiceController controller = new ComposeServiceController(
+            commandRunner,
+            Path.of("."),
+            Duration.ofSeconds(30),
+            2,
+            Duration.ZERO,
+            ignored -> { }
+        );
 
         assertThatThrownBy(() -> controller.waitUntilReady(BenchmarkRoute.HIVE_HDFS_PARQUET))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("HIVE_HDFS_PARQUET")
-            .hasMessageContaining("docker compose -f docker-compose.yml ps hive-server")
+            .hasMessageContaining("readiness check")
+            .hasMessageContaining("docker compose -f docker-compose.yml exec -T hive-server beeline -u jdbc:hive2://hive-server:10000/default -e SELECT 1")
             .hasMessageContaining("hive-server is missing");
+
+        assertThat(commandRunner.commands).hasSize(2);
     }
 
     private static final class FakeCommandRunner extends CommandRunner {
