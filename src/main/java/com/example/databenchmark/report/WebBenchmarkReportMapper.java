@@ -1,17 +1,20 @@
 package com.example.databenchmark.report;
 
+import com.example.databenchmark.runner.RoutePhase;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
 public class WebBenchmarkReportMapper {
-    private static final int SCHEMA_VERSION = 2;
+    private static final int SCHEMA_VERSION = 3;
     private static final List<String> ROUTES = List.of(
         "spark_iceberg",
         "starrocks_internal",
-        "starrocks_external_iceberg"
+        "starrocks_external_iceberg",
+        "hive_hdfs_parquet"
     );
 
     public WebBenchmarkReport map(BenchmarkReport report) {
@@ -65,7 +68,7 @@ public class WebBenchmarkReportMapper {
                 datasetId,
                 datasetName,
                 report.querySet(),
-                normalizeRoute(query.engine()),
+                normalizeRouteOrEngine(query.engine(), query.tableShape()),
                 query.tableShape(),
                 query.queryName(),
                 query.p50Ms(),
@@ -79,7 +82,7 @@ public class WebBenchmarkReportMapper {
     }
 
     private List<WebBenchmarkReport.PerformanceMatrixRow> performanceMatrix(BenchmarkReport report) {
-        Map<MatrixKey, Map<String, WebBenchmarkReport.RouteResult>> grouped = new LinkedHashMap<>();
+        Map<MatrixKey, Map<String, List<BenchmarkReport.QuerySummary>>> grouped = new LinkedHashMap<>();
         String datasetId = datasetId(report);
         String datasetName = datasetName(report);
         for (BenchmarkReport.QuerySummary query : report.querySummaries()) {
@@ -88,27 +91,61 @@ public class WebBenchmarkReportMapper {
                 continue;
             }
             MatrixKey key = new MatrixKey(datasetId, datasetName, report.querySet(), query.queryName());
-            Map<String, WebBenchmarkReport.RouteResult> routes = grouped.computeIfAbsent(key, ignored -> skippedRoutes());
-            routes.put(route, new WebBenchmarkReport.RouteResult(
-                status(query),
-                query.p50Ms(),
-                query.p95Ms(),
-                query.p99Ms(),
-                query.rows(),
-                query.error()
-            ));
+            grouped.computeIfAbsent(key, ignored -> new LinkedHashMap<>())
+                .computeIfAbsent(route, ignored -> new ArrayList<>())
+                .add(query);
         }
         return grouped.entrySet().stream()
-            .map(entry -> matrixRow(entry.getKey(), entry.getValue()))
+            .map(entry -> matrixRow(entry.getKey(), aggregateRoutes(entry.getValue())))
             .toList();
     }
 
-    private Map<String, WebBenchmarkReport.RouteResult> skippedRoutes() {
+    private Map<String, WebBenchmarkReport.RouteResult> aggregateRoutes(
+        Map<String, List<BenchmarkReport.QuerySummary>> grouped
+    ) {
         Map<String, WebBenchmarkReport.RouteResult> routes = new LinkedHashMap<>();
         for (String route : ROUTES) {
-            routes.put(route, new WebBenchmarkReport.RouteResult("SKIPPED", 0, 0, 0, 0, ""));
+            routes.put(route, routeResult(grouped.getOrDefault(route, List.of())));
         }
         return routes;
+    }
+
+    private WebBenchmarkReport.RouteResult routeResult(List<BenchmarkReport.QuerySummary> samples) {
+        if (samples.isEmpty()) {
+            return skippedRouteResult();
+        }
+
+        Map<RoutePhase, BenchmarkReport.QuerySummary> byPhase = new EnumMap<>(RoutePhase.class);
+        for (BenchmarkReport.QuerySummary sample : samples) {
+            RoutePhase phase = phase(sample.phase());
+            if (phase != null) {
+                byPhase.put(phase, sample);
+            }
+        }
+        if (byPhase.isEmpty()) {
+            return skippedRouteResult();
+        }
+
+        String coldStatus = phaseStatus(byPhase.get(RoutePhase.COLD));
+        String warmStatus = phaseStatus(byPhase.get(RoutePhase.WARM));
+        String hotStatus = phaseStatus(byPhase.get(RoutePhase.HOT));
+        boolean hasFailure = byPhase.values().stream().anyMatch(sample -> !"SUCCESS".equals(status(sample)));
+        String routeStatus = hasFailure ? "FAILED" : "SUCCESS";
+        return new WebBenchmarkReport.RouteResult(
+            routeStatus,
+            phaseMillis(byPhase.get(RoutePhase.COLD)),
+            phaseMillis(byPhase.get(RoutePhase.WARM)),
+            phaseMillis(byPhase.get(RoutePhase.HOT)),
+            coldStatus,
+            warmStatus,
+            hotStatus,
+            rows(byPhase),
+            error(byPhase)
+        );
+    }
+
+    private WebBenchmarkReport.RouteResult skippedRouteResult() {
+        return new WebBenchmarkReport.RouteResult("SKIPPED", 0, 0, 0, "SKIPPED", "SKIPPED", "SKIPPED", 0, "");
     }
 
     private WebBenchmarkReport.PerformanceMatrixRow matrixRow(
@@ -116,15 +153,15 @@ public class WebBenchmarkReportMapper {
         Map<String, WebBenchmarkReport.RouteResult> routes
     ) {
         String bestRoute = "";
-        double bestP95 = 0;
+        double bestHotMs = 0;
         for (Map.Entry<String, WebBenchmarkReport.RouteResult> entry : routes.entrySet()) {
             WebBenchmarkReport.RouteResult result = entry.getValue();
-            if (!"SUCCESS".equals(result.status())) {
+            if (!"SUCCESS".equals(result.status()) || !"SUCCESS".equals(result.hotStatus())) {
                 continue;
             }
-            if (bestRoute.isEmpty() || result.p95Ms() < bestP95) {
+            if (bestRoute.isEmpty() || result.hotMs() < bestHotMs) {
                 bestRoute = entry.getKey();
-                bestP95 = result.p95Ms();
+                bestHotMs = result.hotMs();
             }
         }
         return new WebBenchmarkReport.PerformanceMatrixRow(
@@ -134,12 +171,59 @@ public class WebBenchmarkReportMapper {
             key.queryName(),
             routes,
             bestRoute,
-            bestP95
+            bestHotMs
         );
     }
 
     private String status(BenchmarkReport.QuerySummary query) {
         return query.success() && query.failures() == 0 ? "SUCCESS" : "FAILED";
+    }
+
+    private String phaseStatus(BenchmarkReport.QuerySummary query) {
+        return query == null ? "SKIPPED" : status(query);
+    }
+
+    private double phaseMillis(BenchmarkReport.QuerySummary query) {
+        return query == null ? 0 : query.p95Ms();
+    }
+
+    private long rows(Map<RoutePhase, BenchmarkReport.QuerySummary> byPhase) {
+        BenchmarkReport.QuerySummary hot = byPhase.get(RoutePhase.HOT);
+        if (hot != null) {
+            return hot.rows();
+        }
+        return byPhase.values().stream()
+            .mapToLong(BenchmarkReport.QuerySummary::rows)
+            .filter(rows -> rows > 0)
+            .findFirst()
+            .orElse(0);
+    }
+
+    private String error(Map<RoutePhase, BenchmarkReport.QuerySummary> byPhase) {
+        return byPhase.values().stream()
+            .map(BenchmarkReport.QuerySummary::error)
+            .filter(error -> error != null && !error.isBlank())
+            .findFirst()
+            .orElse("");
+    }
+
+    private RoutePhase phase(String phase) {
+        if (phase == null || phase.isBlank()) {
+            return RoutePhase.HOT;
+        }
+        try {
+            return RoutePhase.valueOf(phase.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
+    }
+
+    private String normalizeRouteOrEngine(String engine, String tableShape) {
+        String route = normalizeRoute(engine, tableShape);
+        if (!route.isEmpty()) {
+            return route;
+        }
+        return engine == null ? "" : engine.toLowerCase(Locale.ROOT);
     }
 
     private String normalizeRoute(String engine) {
@@ -174,6 +258,9 @@ public class WebBenchmarkReportMapper {
         }
         if (normalized.contains("starrocks") && normalized.contains("internal")) {
             return "starrocks_internal";
+        }
+        if (normalized.contains("hive") && (normalized.contains("parquet") || normalized.contains("hdfs"))) {
+            return "hive_hdfs_parquet";
         }
         return "";
     }

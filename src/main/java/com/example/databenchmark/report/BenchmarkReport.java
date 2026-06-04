@@ -1,5 +1,6 @@
 package com.example.databenchmark.report;
 
+import com.example.databenchmark.runner.RoutePhase;
 import java.time.Duration;
 import java.time.DateTimeException;
 import java.time.Instant;
@@ -39,6 +40,7 @@ public record BenchmarkReport(
                 "spark_iceberg",
                 "iceberg_db.cell_kpi_1min",
                 "topn_high_load_cells",
+                RoutePhase.HOT.name(),
                 10.0,
                 12.0,
                 15.0,
@@ -88,6 +90,7 @@ public record BenchmarkReport(
         String engine,
         String tableShape,
         String queryName,
+        String phase,
         double p50Ms,
         double p95Ms,
         double p99Ms,
@@ -95,5 +98,36 @@ public record BenchmarkReport(
         int failures,
         boolean success,
         String error
-    ) {}
+    ) {
+        public QuerySummary {
+            phase = phase == null || phase.isBlank() ? RoutePhase.HOT.name() : phase;
+        }
+
+        public QuerySummary(
+            String engine,
+            String tableShape,
+            String queryName,
+            double p50Ms,
+            double p95Ms,
+            double p99Ms,
+            long rows,
+            int failures,
+            boolean success,
+            String error
+        ) {
+            this(
+                engine,
+                tableShape,
+                queryName,
+                RoutePhase.HOT.name(),
+                p50Ms,
+                p95Ms,
+                p99Ms,
+                rows,
+                failures,
+                success,
+                error
+            );
+        }
+    }
 }

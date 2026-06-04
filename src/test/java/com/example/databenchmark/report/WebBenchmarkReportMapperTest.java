@@ -12,12 +12,56 @@ class WebBenchmarkReportMapperTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
+    void schemaThreeMatrixAggregatesColdWarmHotForFourRoutesAndChoosesHotWinner() {
+        BenchmarkReport report = new BenchmarkReport(
+            "four-route-run",
+            "smoke",
+            "kpi",
+            "smoke",
+            "2026-06-04T00:00:00Z",
+            "2026-06-04T00:00:09Z",
+            10000,
+            1,
+            10000,
+            50,
+            2048,
+            List.of(),
+            List.of(
+                query("spark", "spark_iceberg", "topn_high_load_cells", "COLD", 900, true),
+                query("spark", "spark_iceberg", "topn_high_load_cells", "WARM", 700, true),
+                query("spark", "spark_iceberg", "topn_high_load_cells", "HOT", 650, true),
+                query("starrocks", "starrocks_internal", "topn_high_load_cells", "COLD", 300, true),
+                query("starrocks", "starrocks_internal", "topn_high_load_cells", "WARM", 80, true),
+                query("starrocks", "starrocks_internal", "topn_high_load_cells", "HOT", 70, true),
+                query("starrocks", "starrocks_external_iceberg", "topn_high_load_cells", "COLD", 500, true),
+                query("starrocks", "starrocks_external_iceberg", "topn_high_load_cells", "WARM", 90, true),
+                query("starrocks", "starrocks_external_iceberg", "topn_high_load_cells", "HOT", 60, true),
+                query("hive", "hive_hdfs_parquet", "topn_high_load_cells", "COLD", 1200, true),
+                query("hive", "hive_hdfs_parquet", "topn_high_load_cells", "WARM", 800, true),
+                query("hive", "hive_hdfs_parquet", "topn_high_load_cells", "HOT", 760, true)
+            ),
+            false
+        );
+
+        WebBenchmarkReport web = mapper.map(report);
+        WebBenchmarkReport.PerformanceMatrixRow row = web.performanceMatrix().get(0);
+
+        assertThat(web.schemaVersion()).isEqualTo(3);
+        assertThat(row.routes().get("spark_iceberg").coldMs()).isEqualTo(900);
+        assertThat(row.routes().get("spark_iceberg").warmMs()).isEqualTo(700);
+        assertThat(row.routes().get("spark_iceberg").hotMs()).isEqualTo(650);
+        assertThat(row.routes().get("hive_hdfs_parquet").hotMs()).isEqualTo(760);
+        assertThat(row.bestRoute()).isEqualTo("starrocks_external_iceberg");
+        assertThat(row.bestRouteHotMs()).isEqualTo(60);
+    }
+
+    @Test
     void mapsSuccessfulRunDatasetDetailsAndMatrixRows() {
         BenchmarkReport report = BenchmarkReport.sample("run-web");
 
         WebBenchmarkReport web = mapper.map(report);
 
-        assertThat(web.schemaVersion()).isEqualTo(2);
+        assertThat(web.schemaVersion()).isEqualTo(3);
         assertThat(web.run().runId()).isEqualTo("run-web");
         assertThat(web.run().suite()).isEqualTo("kpi");
         assertThat(web.run().querySet()).isEqualTo("smoke");
@@ -44,7 +88,7 @@ class WebBenchmarkReportMapperTest {
     }
 
     @Test
-    void mapsSchemaVersionTwoMatrixFields() {
+    void mapsSchemaVersionThreeMatrixFields() {
         BenchmarkReport report = new BenchmarkReport(
             "matrix-run",
             "tpch-smoke",
@@ -75,7 +119,7 @@ class WebBenchmarkReportMapperTest {
 
         WebBenchmarkReport mapped = mapper.map(report);
 
-        assertThat(mapped.schemaVersion()).isEqualTo(2);
+        assertThat(mapped.schemaVersion()).isEqualTo(3);
         assertThat(mapped.performanceMatrix()).hasSize(1);
         WebBenchmarkReport.PerformanceMatrixRow row = mapped.performanceMatrix().get(0);
         assertThat(row.datasetId()).isEqualTo("tpch");
@@ -83,14 +127,17 @@ class WebBenchmarkReportMapperTest {
         assertThat(row.querySet()).isEqualTo("smoke");
         assertThat(row.queryName()).isEqualTo("q01_pricing_summary_report");
         assertThat(row.routes().get("starrocks_internal").status()).isEqualTo("SUCCESS");
+        assertThat(row.routes().get("starrocks_internal").hotMs()).isEqualTo(410);
+        assertThat(row.routes().get("starrocks_internal").hotStatus()).isEqualTo("SUCCESS");
         assertThat(row.routes().get("spark_iceberg").status()).isEqualTo("SKIPPED");
         assertThat(row.routes().get("starrocks_external_iceberg").status()).isEqualTo("SKIPPED");
+        assertThat(row.routes().get("hive_hdfs_parquet").status()).isEqualTo("SKIPPED");
         assertThat(row.bestRoute()).isEqualTo("starrocks_internal");
-        assertThat(row.bestRouteP95Ms()).isEqualTo(410);
+        assertThat(row.bestRouteHotMs()).isEqualTo(410);
     }
 
     @Test
-    void matrixMarksFailedRoutesAndChoosesFastestSuccessfulP95() {
+    void matrixMarksFailedRoutesAndChoosesFastestSuccessfulHot() {
         BenchmarkReport report = new BenchmarkReport(
             "matrix-run",
             "tpch-smoke",
@@ -150,9 +197,10 @@ class WebBenchmarkReportMapperTest {
         assertThat(row.routes().get("spark_iceberg").status()).isEqualTo("SUCCESS");
         assertThat(row.routes().get("starrocks_internal").status()).isEqualTo("SUCCESS");
         assertThat(row.routes().get("starrocks_external_iceberg").status()).isEqualTo("FAILED");
+        assertThat(row.routes().get("starrocks_external_iceberg").hotStatus()).isEqualTo("FAILED");
         assertThat(row.routes().get("starrocks_external_iceberg").error()).isEqualTo("catalog timeout");
         assertThat(row.bestRoute()).isEqualTo("starrocks_internal");
-        assertThat(row.bestRouteP95Ms()).isEqualTo(760);
+        assertThat(row.bestRouteHotMs()).isEqualTo(760);
     }
 
     @Test
@@ -192,8 +240,9 @@ class WebBenchmarkReportMapperTest {
         WebBenchmarkReport.PerformanceMatrixRow row = mapper.map(report).performanceMatrix().get(0);
 
         assertThat(row.routes().get("spark_iceberg").status()).isEqualTo("SUCCESS");
-        assertThat(row.routes().get("starrocks_internal").p95Ms()).isEqualTo(45);
-        assertThat(row.routes().get("starrocks_external_iceberg").p95Ms()).isEqualTo(75);
+        assertThat(row.routes().get("starrocks_internal").hotMs()).isEqualTo(45);
+        assertThat(row.routes().get("starrocks_external_iceberg").hotMs()).isEqualTo(75);
+        assertThat(row.routes().get("hive_hdfs_parquet").status()).isEqualTo("SKIPPED");
         assertThat(row.bestRoute()).isEqualTo("starrocks_internal");
     }
 
@@ -309,5 +358,28 @@ class WebBenchmarkReportMapperTest {
         assertThat(web.queries()).hasSize(1);
         assertThat(web.queries().get(0).engine()).isEqualTo("local");
         assertThat(web.performanceMatrix()).isEmpty();
+    }
+
+    private static BenchmarkReport.QuerySummary query(
+        String engine,
+        String tableShape,
+        String queryName,
+        String phase,
+        double millis,
+        boolean success
+    ) {
+        return new BenchmarkReport.QuerySummary(
+            engine,
+            tableShape,
+            queryName,
+            phase,
+            millis,
+            millis,
+            millis,
+            10,
+            success ? 0 : 1,
+            success,
+            success ? "" : phase + " failed"
+        );
     }
 }

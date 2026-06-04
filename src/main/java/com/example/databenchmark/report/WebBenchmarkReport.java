@@ -65,14 +65,17 @@ public record WebBenchmarkReport(
         String queryName,
         Map<String, RouteResult> routes,
         String bestRoute,
-        double bestRouteP95Ms
+        double bestRouteHotMs
     ) {}
 
     public record RouteResult(
         String status,
-        double p50Ms,
-        double p95Ms,
-        double p99Ms,
+        double coldMs,
+        double warmMs,
+        double hotMs,
+        String coldStatus,
+        String warmStatus,
+        String hotStatus,
         long rows,
         String error
     ) {}
