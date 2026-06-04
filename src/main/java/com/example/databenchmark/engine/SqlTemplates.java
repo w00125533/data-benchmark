@@ -72,8 +72,11 @@ public final class SqlTemplates {
             CREATE EXTERNAL TABLE IF NOT EXISTS hive_hdfs_parquet.cell_kpi_1min (
             %s
             )
+            PARTITIONED BY (event_date STRING)
             STORED AS PARQUET
             LOCATION '%s';
+
+            MSCK REPAIR TABLE hive_hdfs_parquet.cell_kpi_1min;
             """.formatted(hiveColumns(), escapeSqlLiteral(parquetRoot));
     }
 

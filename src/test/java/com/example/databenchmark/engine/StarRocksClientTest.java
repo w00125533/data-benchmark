@@ -251,6 +251,42 @@ class StarRocksClientTest {
     }
 
     @Test
+    void runQueryForUnknownTableShapeReturnsFailedResultWithoutQuerying() {
+        FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
+
+        EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        )).runQueryFor("missing_shape", "topn_high_load_cells", RoutePhase.COLD);
+
+        assertThat(result.engine()).isEqualTo("starrocks");
+        assertThat(result.tableShape()).isEqualTo("missing_shape");
+        assertThat(result.stage()).isEqualTo(EngineStage.QUERY.name());
+        assertThat(result.queryName()).isEqualTo("topn_high_load_cells");
+        assertThat(result.phase()).isEqualTo(RoutePhase.COLD.name());
+        assertThat(result.success()).isFalse();
+        assertThat(result.error()).contains("Unknown engine key: missing_shape");
+        assertThat(jdbc.sql()).isEmpty();
+    }
+
+    @Test
+    void runQueryForUnknownQueryReturnsFailedResultWithoutQuerying() {
+        FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
+
+        EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        )).runQueryFor("starrocks_internal", "missing_query", RoutePhase.WARM);
+
+        assertThat(result.engine()).isEqualTo("starrocks");
+        assertThat(result.tableShape()).isEqualTo("starrocks_internal");
+        assertThat(result.stage()).isEqualTo(EngineStage.QUERY.name());
+        assertThat(result.queryName()).isEqualTo("missing_query");
+        assertThat(result.phase()).isEqualTo(RoutePhase.WARM.name());
+        assertThat(result.success()).isFalse();
+        assertThat(result.error()).contains("Unknown query: missing_query");
+        assertThat(jdbc.sql()).isEmpty();
+    }
+
+    @Test
     void tpchLoadCreatesTablesAndStreamsEachCsv() {
         FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
         CapturingStreamLoadClient streamLoad = new CapturingStreamLoadClient(

@@ -40,7 +40,14 @@ public class HiveClient {
     }
 
     public EngineRunResult createExternalTable(Path parquetRoot) {
-        CommandResult command = runHiveSql(SqlTemplates.hiveCreateExternalParquetTable(hdfsLocation(parquetRoot)));
+        String location = hdfsLocation(parquetRoot);
+        if (location == null) {
+            return failed(LOAD_STAGE, null, RoutePhase.HOT, 0.0,
+                "Invalid HDFS location: " + normalizedPath(parquetRoot)
+                    + ". Expected hdfs://... or absolute HDFS path such as /data/...");
+        }
+
+        CommandResult command = runHiveSql(SqlTemplates.hiveCreateExternalParquetTable(location));
         if (command.exitCode() == 0) {
             return new EngineRunResult(
                 "hive",
@@ -112,19 +119,44 @@ public class HiveClient {
         );
     }
 
+    private static EngineRunResult failed(
+        String stage,
+        String queryName,
+        RoutePhase phase,
+        double durationSeconds,
+        String error
+    ) {
+        return new EngineRunResult(
+            "hive",
+            TABLE_SHAPE,
+            stage,
+            queryName,
+            phase.name(),
+            0,
+            0,
+            durationSeconds,
+            false,
+            error
+        );
+    }
+
     private static String commandError(CommandResult command) {
         return command.stderr().isBlank() ? command.stdout() : command.stderr();
     }
 
     private static String hdfsLocation(Path path) {
-        String normalized = path.toString().replace('\\', '/');
+        String normalized = normalizedPath(path);
         if (normalized.startsWith("hdfs://")) {
             return normalized;
         }
-        if (!normalized.startsWith("/")) {
-            normalized = "/" + normalized;
+        if (normalized.matches("^[A-Za-z]:/.*") || !normalized.startsWith("/")) {
+            return null;
         }
         return HDFS_DEFAULT_FS + normalized;
+    }
+
+    private static String normalizedPath(Path path) {
+        return path.toString().replace('\\', '/');
     }
 
     private static boolean defaultInContainer() {

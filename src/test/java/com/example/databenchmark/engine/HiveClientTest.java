@@ -3,6 +3,7 @@ package com.example.databenchmark.engine;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.databenchmark.runner.RoutePhase;
+import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -31,8 +32,53 @@ class HiveClientTest {
             .contains("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "hive-server", "beeline");
         assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
             .contains("CREATE EXTERNAL TABLE IF NOT EXISTS hive_hdfs_parquet.cell_kpi_1min")
+            .contains("PARTITIONED BY (event_date STRING)")
             .contains("STORED AS PARQUET")
+            .contains("LOCATION 'hdfs://hdfs-namenode:8020/data/generated'")
+            .contains("MSCK REPAIR TABLE hive_hdfs_parquet.cell_kpi_1min");
+    }
+
+    @Test
+    void createExternalTableAcceptsExplicitHdfsUriWithoutRewriting() {
+        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "ok", "", 1.25));
+
+        EngineRunResult result = new HiveClient(runner, tempDir, Duration.ofMinutes(1))
+            .createExternalTable(pathString("hdfs://hdfs-namenode:8020/data/generated"));
+
+        assertThat(result.success()).isTrue();
+        assertThat(runner.commands()).hasSize(1);
+        assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
             .contains("LOCATION 'hdfs://hdfs-namenode:8020/data/generated'");
+    }
+
+    @Test
+    void createExternalTableRejectsWindowsDrivePathWithoutRunningHive() {
+        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "ok", "", 1.25));
+
+        EngineRunResult result = new HiveClient(runner, tempDir, Duration.ofMinutes(1))
+            .createExternalTable(Path.of("D:/generated/kpi"));
+
+        assertThat(result.engine()).isEqualTo("hive");
+        assertThat(result.tableShape()).isEqualTo("hive_hdfs_parquet");
+        assertThat(result.stage()).isEqualTo("HIVE_HDFS_PARQUET_LOAD");
+        assertThat(result.success()).isFalse();
+        assertThat(result.error()).contains("D:/generated/kpi");
+        assertThat(runner.commands()).isEmpty();
+    }
+
+    @Test
+    void createExternalTableRejectsRelativePathWithoutRunningHive() {
+        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "ok", "", 1.25));
+
+        EngineRunResult result = new HiveClient(runner, tempDir, Duration.ofMinutes(1))
+            .createExternalTable(Path.of("data/generated"));
+
+        assertThat(result.engine()).isEqualTo("hive");
+        assertThat(result.tableShape()).isEqualTo("hive_hdfs_parquet");
+        assertThat(result.stage()).isEqualTo("HIVE_HDFS_PARQUET_LOAD");
+        assertThat(result.success()).isFalse();
+        assertThat(result.error()).contains("data/generated");
+        assertThat(runner.commands()).isEmpty();
     }
 
     @Test
@@ -70,5 +116,18 @@ class HiveClientTest {
         private List<List<String>> commands() {
             return commands;
         }
+    }
+
+    private static Path pathString(String value) {
+        return (Path) Proxy.newProxyInstance(
+            Path.class.getClassLoader(),
+            new Class<?>[] { Path.class },
+            (proxy, method, args) -> {
+                if (method.getName().equals("toString") && method.getParameterCount() == 0) {
+                    return value;
+                }
+                throw new UnsupportedOperationException(method.getName());
+            }
+        );
     }
 }

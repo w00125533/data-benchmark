@@ -234,7 +234,7 @@ public class StarRocksClient {
                 true,
                 ""
             );
-        } catch (SQLException e) {
+        } catch (SQLException | IllegalArgumentException e) {
             return failed(tableShape, EngineStage.QUERY.name(), queryName, phase, 0.0, e.getMessage());
         }
     }
