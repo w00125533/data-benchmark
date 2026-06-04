@@ -156,6 +156,48 @@ class WebBenchmarkReportMapperTest {
     }
 
     @Test
+    void matrixUsesTableShapeWhenEngineIsGeneric() {
+        BenchmarkReport report = new BenchmarkReport(
+            "matrix-run",
+            "smoke",
+            "kpi",
+            "smoke",
+            "2026-06-04T00:00:00Z",
+            "2026-06-04T00:00:03Z",
+            10000,
+            1,
+            60000,
+            8,
+            1024,
+            List.of(),
+            List.of(
+                new BenchmarkReport.QuerySummary("spark", "spark_iceberg", "topn_high_load_cells", 110, 120, 130, 10, 0, true, ""),
+                new BenchmarkReport.QuerySummary("starrocks", "starrocks_internal", "topn_high_load_cells", 40, 45, 50, 10, 0, true, ""),
+                new BenchmarkReport.QuerySummary(
+                    "starrocks",
+                    "starrocks_external_iceberg",
+                    "topn_high_load_cells",
+                    70,
+                    75,
+                    80,
+                    10,
+                    0,
+                    true,
+                    ""
+                )
+            ),
+            false
+        );
+
+        WebBenchmarkReport.PerformanceMatrixRow row = mapper.map(report).performanceMatrix().get(0);
+
+        assertThat(row.routes().get("spark_iceberg").status()).isEqualTo("SUCCESS");
+        assertThat(row.routes().get("starrocks_internal").p95Ms()).isEqualTo(45);
+        assertThat(row.routes().get("starrocks_external_iceberg").p95Ms()).isEqualTo(75);
+        assertThat(row.bestRoute()).isEqualTo("starrocks_internal");
+    }
+
+    @Test
     void usesDefaultDatasetNameWhenSuiteAndProfileAreMissing() {
         BenchmarkReport report = new BenchmarkReport(
             "matrix-run",

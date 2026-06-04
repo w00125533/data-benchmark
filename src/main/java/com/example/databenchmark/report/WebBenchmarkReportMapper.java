@@ -83,7 +83,7 @@ public class WebBenchmarkReportMapper {
         String datasetId = datasetId(report);
         String datasetName = datasetName(report);
         for (BenchmarkReport.QuerySummary query : report.querySummaries()) {
-            String route = normalizeRoute(query.engine());
+            String route = normalizeRoute(query.engine(), query.tableShape());
             if (!ROUTES.contains(route)) {
                 continue;
             }
@@ -143,10 +143,29 @@ public class WebBenchmarkReportMapper {
     }
 
     private String normalizeRoute(String engine) {
-        if (engine == null) {
+        String route = normalizeRouteValue(engine);
+        if (!route.isEmpty()) {
+            return route;
+        }
+        return engine == null ? "" : engine.toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeRoute(String engine, String tableShape) {
+        String route = normalizeRouteValue(tableShape);
+        if (!route.isEmpty()) {
+            return route;
+        }
+        return normalizeRouteValue(engine);
+    }
+
+    private String normalizeRouteValue(String value) {
+        if (value == null) {
             return "";
         }
-        String normalized = engine.toLowerCase(Locale.ROOT);
+        String normalized = value.toLowerCase(Locale.ROOT);
+        if (ROUTES.contains(normalized)) {
+            return normalized;
+        }
         if (normalized.contains("spark") && normalized.contains("iceberg")) {
             return "spark_iceberg";
         }
@@ -156,7 +175,7 @@ public class WebBenchmarkReportMapper {
         if (normalized.contains("starrocks") && normalized.contains("internal")) {
             return "starrocks_internal";
         }
-        return normalized;
+        return "";
     }
 
     private String datasetId(BenchmarkReport report) {
