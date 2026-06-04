@@ -139,7 +139,7 @@ export default function PerformanceMatrixTable({
       pagination={false}
       scroll={{ x: 1200 }}
       locale={{
-        emptyText: '本次运行没有三技术路线查询结果。请使用 compose 模式运行 Spark Iceberg、StarRocks Internal、StarRocks External Iceberg 后查看对比。',
+        emptyText: '本次运行没有四技术路线查询结果。请使用 compose 模式运行 Spark Iceberg、StarRocks Internal、StarRocks External Iceberg、Hive HDFS Parquet 后查看对比。',
       }}
     />
   );

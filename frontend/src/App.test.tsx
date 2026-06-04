@@ -133,7 +133,12 @@ test('explains when a local smoke run has no comparable route matrix', async () 
 
   render(<App />);
 
-  expect(await screen.findByText('本次运行没有三技术路线性能对比数据。')).toBeInTheDocument();
+  expect(await screen.findByText('本次运行没有四技术路线性能对比数据。')).toBeInTheDocument();
+  expect(screen.queryByText(/三技术路线/)).not.toBeInTheDocument();
+  expect(screen.getAllByText(/Spark Iceberg/).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/StarRocks Internal/).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/StarRocks External Iceberg/).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/Hive HDFS Parquet/).length).toBeGreaterThan(0);
   expect(screen.getAllByText(/local smoke 只生成本地数据/).length).toBeGreaterThan(0);
   expect(screen.queryByText('datasetId kpi')).not.toBeInTheDocument();
   expect(screen.getByText('catalog_render_check')).toBeInTheDocument();
