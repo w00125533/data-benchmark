@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -13,7 +12,6 @@ import org.junit.jupiter.api.Test;
 
 class ComposeTopologyTest {
     private final ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
-    private final ObjectMapper jsonMapper = new ObjectMapper();
 
     @SuppressWarnings("unchecked")
     @Test
@@ -26,7 +24,7 @@ class ComposeTopologyTest {
 
         assertThat(services.keySet()).containsExactlyInAnyOrder(
             "starrocks-fe", "starrocks-be", "spark", "hive-metastore", "hdfs-namenode",
-            "hdfs-datanode", "hdfs-init", "prometheus", "grafana", "benchmark-runner"
+            "hdfs-datanode", "hdfs-init", "benchmark-runner"
         );
         assertThat(stringList(service(services, "starrocks-fe"), "command"))
             .containsExactly("/opt/starrocks/fe_entrypoint.sh", "starrocks-fe");
@@ -35,7 +33,7 @@ class ComposeTopologyTest {
             .containsExactly("/opt/starrocks/be_entrypoint.sh", "starrocks-fe");
         assertThat(service(services, "starrocks-be").get("hostname")).isEqualTo("starrocks-be-0");
         assertThat(services).containsKeys("hdfs-namenode", "hdfs-datanode", "hdfs-init");
-        assertThat(services).doesNotContainKey("minio");
+        assertThat(services).doesNotContainKeys("minio", "prometheus", "grafana");
 
         Map<String, Object> runner = service(services, "benchmark-runner");
         assertThat(runner.get("image").toString()).isEqualTo("apache/spark:3.5.8-java17");
@@ -52,7 +50,8 @@ class ComposeTopologyTest {
         assertThat(stringList(runner, "command")).contains("--run-id");
         assertThat(stringList(runner, "command")).contains("--mode", "compose");
         assertThat(dependencyNames(runner))
-            .contains("hdfs-init", "hive-metastore", "spark", "starrocks-fe", "starrocks-be", "prometheus");
+            .contains("hdfs-init", "hive-metastore", "spark", "starrocks-fe", "starrocks-be")
+            .doesNotContain("prometheus", "grafana");
         assertThat(dependencyCondition(runner, "hdfs-init")).isEqualTo("service_completed_successfully");
         assertThat(stringList(runner, "ports")).doesNotContain("9108:9108");
 
@@ -86,131 +85,18 @@ class ComposeTopologyTest {
             .contains("hdfs dfs -fs hdfs://hdfs-namenode:8020 -chmod -R 777 /warehouse");
         assertThat(dependencyNames(hdfsInit)).contains("hdfs-namenode", "hdfs-datanode");
 
-        Map<String, Object> prometheus = service(services, "prometheus");
-        assertThat(stringList(prometheus, "volumes"))
-            .contains("./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro");
-        assertThat(stringList(prometheus, "ports")).contains("9090:9090");
-
-        Map<String, Object> grafana = service(services, "grafana");
-        assertThat(stringList(grafana, "ports")).contains("3000:3000");
-        assertThat(stringList(grafana, "volumes"))
-            .contains("./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro")
-            .contains("./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro");
-
         assertThat(map(map(compose.get("networks")).get("default"))).containsEntry("name", "databenchmark");
     }
 
-    @SuppressWarnings("unchecked")
     @Test
-    void prometheusScrapesBenchmarkStarRocksAndHdfsTargets() throws Exception {
-        Map<String, Object> prometheus = mapper.readValue(
-            Path.of("monitoring/prometheus.yml").toFile(),
-            new TypeReference<>() {}
-        );
-        List<Map<String, Object>> scrapeConfigs = (List<Map<String, Object>>) prometheus.get("scrape_configs");
-
-        assertThat(scrapeConfigs)
-            .extracting(config -> config.get("job_name"))
-            .contains("benchmark-runner", "starrocks-fe", "starrocks-be", "hdfs-namenode", "hdfs-datanode")
-            .doesNotContain("minio");
-
-        String prometheusText = prometheus.toString();
-        assertThat(prometheusText).contains("benchmark-runner:9108");
-        assertThat(prometheusText).contains("hdfs-namenode:9870");
-        assertThat(prometheusText).contains("hdfs-datanode:9864");
-        assertThat(prometheusText).doesNotContain("minio");
-
-        assertThat(targets(scrapeJob(scrapeConfigs, "benchmark-runner"))).containsExactly("benchmark-runner:9108");
-
-        assertThat(targets(scrapeJob(scrapeConfigs, "starrocks-fe"))).containsExactly("starrocks-fe:8030");
-        assertThat(targets(scrapeJob(scrapeConfigs, "starrocks-be"))).containsExactly("starrocks-be:8040");
-
-        Map<String, Object> hdfsNamenode = scrapeJob(scrapeConfigs, "hdfs-namenode");
-        assertThat(hdfsNamenode).containsEntry("metrics_path", "/jmx");
-        assertThat(targets(hdfsNamenode)).containsExactly("hdfs-namenode:9870");
-
-        Map<String, Object> hdfsDatanode = scrapeJob(scrapeConfigs, "hdfs-datanode");
-        assertThat(hdfsDatanode).containsEntry("metrics_path", "/jmx");
-        assertThat(targets(hdfsDatanode)).containsExactly("hdfs-datanode:9864");
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void grafanaDashboardProvisioningFilesExist() throws Exception {
-        Path datasourcePath = Path.of("monitoring/grafana/provisioning/datasources/prometheus.yml");
-        Path dashboardProviderPath = Path.of("monitoring/grafana/provisioning/dashboards/benchmark.yml");
-        Path dashboardPath = Path.of("monitoring/grafana/dashboards/benchmark.json");
-
-        assertThat(datasourcePath).exists();
-        assertThat(dashboardProviderPath).exists();
-        assertThat(dashboardPath).exists();
-
-        assertThat(Files.readString(datasourcePath))
-            .contains("uid: prometheus")
-            .contains("type: prometheus")
-            .contains("url: http://prometheus:9090");
-
-        assertThat(Files.readString(dashboardProviderPath))
-            .contains("name: data-benchmark")
-            .contains("path: /var/lib/grafana/dashboards");
-
-        String dashboardText = Files.readString(dashboardPath);
-        Map<String, Object> dashboard = jsonMapper.readValue(dashboardText, new TypeReference<>() {});
-        assertThat(dashboard)
-            .containsEntry("uid", "benchmark")
-            .containsEntry("title", "Data Benchmark");
-
-        Map<String, Object> templating = map(dashboard.get("templating"));
-        List<Map<String, Object>> variables = list(templating, "list").stream()
-            .map(this::map)
-            .toList();
-        assertThat(variables)
-            .extracting(variable -> variable.get("name"))
-            .contains("run_id", "suite", "query_set");
-        assertThat(variables)
-            .anySatisfy(variable -> assertThat(variable)
-                .containsEntry("name", "run_id")
-                .containsEntry("type", "textbox"))
-            .anySatisfy(variable -> assertThat(variable)
-                .containsEntry("name", "suite")
-                .containsEntry("query", "label_values(benchmark_query_duration_seconds, suite)"))
-            .anySatisfy(variable -> assertThat(variable)
-                .containsEntry("name", "query_set")
-                .containsEntry("query", "label_values(benchmark_query_duration_seconds{suite=\"$suite\"}, query_set)"));
-
-        assertThat(list(dashboard, "panels"))
-            .extracting(panel -> map(panel).get("title"))
-            .contains("Load Rows", "Load Duration Seconds", "Query Duration Seconds",
-                "Query Failures", "Query Rows", "Run Metadata");
-
-        assertThat(dashboardText).contains("\"uid\": \"prometheus\"");
-        assertThat(list(dashboard, "panels"))
-            .filteredOn(panel -> map(panel).containsKey("datasource"))
-            .allSatisfy(panel -> assertThat(map(map(panel).get("datasource"))).containsEntry("uid", "prometheus"));
-        assertThat(dashboardText)
-            .contains("label_values(benchmark_query_duration_seconds, suite)")
-            .contains("label_values(benchmark_query_duration_seconds{suite=\\\"$suite\\\"}, query_set)");
-        assertThat(dashboardText)
-            .contains("benchmark_query_duration_seconds{run_id=\\\"$run_id\\\", suite=\\\"$suite\\\", query_set=\\\"$query_set\\\"}");
+    void monitoringProvisioningIsRemoved() {
+        assertThat(Path.of("monitoring/prometheus.yml")).doesNotExist();
+        assertThat(Path.of("monitoring/grafana")).doesNotExist();
     }
 
     private Map<String, Object> service(Map<String, Object> services, String name) {
         assertThat(services).containsKey(name);
         return map(services.get(name));
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> scrapeJob(List<Map<String, Object>> scrapeConfigs, String jobName) {
-        return scrapeConfigs.stream()
-            .filter(config -> jobName.equals(config.get("job_name")))
-            .findFirst()
-            .map(config -> (Map<String, Object>) config)
-            .orElseThrow(() -> new AssertionError("Missing Prometheus scrape job: " + jobName));
-    }
-
-    private List<String> targets(Map<String, Object> scrapeJob) {
-        Map<String, Object> staticConfig = map(list(scrapeJob, "static_configs").get(0));
-        return stringList(staticConfig, "targets");
     }
 
     @SuppressWarnings("unchecked")

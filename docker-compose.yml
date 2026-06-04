@@ -94,21 +94,6 @@ services:
       - hdfs-namenode
       - hdfs-datanode
 
-  prometheus:
-    image: prom/prometheus:v2.52.0
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    ports:
-      - "9090:9090"
-
-  grafana:
-    image: grafana/grafana:11.0.0
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
-
   benchmark-runner:
     image: apache/spark:3.5.8-java17
     working_dir: /workspace
@@ -130,8 +115,6 @@ services:
       starrocks-fe:
         condition: service_started
       starrocks-be:
-        condition: service_started
-      prometheus:
         condition: service_started
 
 networks:
