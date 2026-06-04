@@ -89,7 +89,8 @@ class KpiSchemaTest {
         assertThat(KpiSchema.tableShapes().keySet()).containsExactly(
             "spark_iceberg",
             "starrocks_internal",
-            "starrocks_external_iceberg"
+            "starrocks_external_iceberg",
+            "hive_hdfs_parquet"
         );
     }
 
@@ -108,6 +109,7 @@ class KpiSchemaTest {
         tableShapes.put("spark_iceberg", "iceberg_catalog.iceberg_db.cell_kpi_1min");
         tableShapes.put("starrocks_internal", "sr_internal.cell_kpi_1min");
         tableShapes.put("starrocks_external_iceberg", "sr_external_iceberg.iceberg_db.cell_kpi_1min");
+        tableShapes.put("hive_hdfs_parquet", "hive_hdfs_parquet.cell_kpi_1min");
         return tableShapes;
     }
 }

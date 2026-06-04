@@ -2,6 +2,7 @@ package com.example.databenchmark.engine;
 
 import com.example.databenchmark.generator.DatasetResult;
 import com.example.databenchmark.query.QueryCatalog;
+import com.example.databenchmark.runner.RoutePhase;
 import com.example.databenchmark.schema.KpiSchema;
 import com.example.databenchmark.tpch.TpchDatasetResult;
 import com.example.databenchmark.tpch.TpchQueryCatalog;
@@ -95,6 +96,25 @@ public class SparkIcebergClient {
             }
         }
         return results;
+    }
+
+    public EngineRunResult runQuery(String queryName, RoutePhase phase) {
+        CommandResult command = runSparkSql(SqlRenderer.render(queryName, "spark_iceberg"));
+        if (command.exitCode() == 0) {
+            return new EngineRunResult(
+                "spark",
+                "spark_iceberg",
+                EngineStage.QUERY.name(),
+                queryName,
+                phase.name(),
+                0,
+                0,
+                command.durationSeconds(),
+                true,
+                ""
+            );
+        }
+        return failed("spark_iceberg", EngineStage.QUERY.name(), queryName, phase, command);
     }
 
     public EngineRunResult loadTpch(TpchDatasetResult dataset, String runId, String profile) {
@@ -203,6 +223,27 @@ public class SparkIcebergClient {
             tableShape,
             stage,
             queryName,
+            0,
+            0,
+            command.durationSeconds(),
+            false,
+            commandError(command)
+        );
+    }
+
+    private static EngineRunResult failed(
+        String tableShape,
+        String stage,
+        String queryName,
+        RoutePhase phase,
+        CommandResult command
+    ) {
+        return new EngineRunResult(
+            "spark",
+            tableShape,
+            stage,
+            queryName,
+            phase.name(),
             0,
             0,
             command.durationSeconds(),

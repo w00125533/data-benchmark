@@ -2,6 +2,7 @@ package com.example.databenchmark.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.databenchmark.runner.RoutePhase;
 import com.example.databenchmark.tpch.TestTpchFixtures;
 import com.example.databenchmark.tpch.TpchSchema;
 import com.example.databenchmark.tpch.TpchSqlTemplates;
@@ -229,6 +230,24 @@ class StarRocksClientTest {
         assertThat(results).hasSize(20).allSatisfy(result -> assertThat(result.success()).isTrue());
         assertThat(jdbc.sql()).anySatisfy(sql -> assertThat(sql).contains("sr_internal.cell_kpi_1min"));
         assertThat(jdbc.sql()).anySatisfy(sql -> assertThat(sql).contains("sr_external_iceberg.iceberg_db.cell_kpi_1min"));
+    }
+
+    @Test
+    void runQueryForRendersRequestedTableShapeAndPreservesPhase() {
+        FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
+
+        EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        )).runQueryFor("starrocks_external_iceberg", "topn_high_load_cells", RoutePhase.HOT);
+
+        assertThat(result.engine()).isEqualTo("starrocks");
+        assertThat(result.tableShape()).isEqualTo("starrocks_external_iceberg");
+        assertThat(result.stage()).isEqualTo(EngineStage.QUERY.name());
+        assertThat(result.queryName()).isEqualTo("topn_high_load_cells");
+        assertThat(result.phase()).isEqualTo(RoutePhase.HOT.name());
+        assertThat(result.success()).isTrue();
+        assertThat(jdbc.sql()).containsExactly(SqlRenderer.render("topn_high_load_cells", "starrocks_external_iceberg"));
+        assertThat(jdbc.sql().get(0)).contains("sr_external_iceberg.iceberg_db.cell_kpi_1min");
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.example.databenchmark.engine;
 
 import com.example.databenchmark.query.QueryCatalog;
+import com.example.databenchmark.runner.RoutePhase;
 import com.example.databenchmark.tpch.TpchDatasetResult;
 import com.example.databenchmark.tpch.TpchQueryCatalog;
 import com.example.databenchmark.tpch.TpchSchema;
@@ -213,24 +214,29 @@ public class StarRocksClient {
     private List<EngineRunResult> runQueriesFor(String tableShape) {
         List<EngineRunResult> results = new ArrayList<>();
         for (var query : QueryCatalog.queries()) {
-            try {
-                JdbcExecutionResult result = jdbcExecutor.query(SqlRenderer.render(query.name(), tableShape));
-                results.add(new EngineRunResult(
-                    "starrocks",
-                    tableShape,
-                    EngineStage.QUERY.name(),
-                    query.name(),
-                    result.rows(),
-                    0,
-                    result.durationSeconds(),
-                    true,
-                    ""
-                ));
-            } catch (SQLException e) {
-                results.add(failed(tableShape, EngineStage.QUERY.name(), query.name(), 0.0, e.getMessage()));
-            }
+            results.add(runQueryFor(tableShape, query.name(), RoutePhase.HOT));
         }
         return results;
+    }
+
+    public EngineRunResult runQueryFor(String tableShape, String queryName, RoutePhase phase) {
+        try {
+            JdbcExecutionResult result = jdbcExecutor.query(SqlRenderer.render(queryName, tableShape));
+            return new EngineRunResult(
+                "starrocks",
+                tableShape,
+                EngineStage.QUERY.name(),
+                queryName,
+                phase.name(),
+                result.rows(),
+                0,
+                result.durationSeconds(),
+                true,
+                ""
+            );
+        } catch (SQLException e) {
+            return failed(tableShape, EngineStage.QUERY.name(), queryName, phase, 0.0, e.getMessage());
+        }
     }
 
     private List<EngineRunResult> runTpchQueriesFor(String engineKey, String tableShape, String querySet) {
@@ -268,6 +274,28 @@ public class StarRocksClient {
             tableShape,
             stage,
             queryName,
+            0,
+            0,
+            durationSeconds,
+            false,
+            error
+        );
+    }
+
+    private static EngineRunResult failed(
+        String tableShape,
+        String stage,
+        String queryName,
+        RoutePhase phase,
+        double durationSeconds,
+        String error
+    ) {
+        return new EngineRunResult(
+            "starrocks",
+            tableShape,
+            stage,
+            queryName,
+            phase.name(),
             0,
             0,
             durationSeconds,

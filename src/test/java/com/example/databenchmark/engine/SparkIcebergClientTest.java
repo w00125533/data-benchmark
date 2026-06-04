@@ -3,6 +3,7 @@ package com.example.databenchmark.engine;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.databenchmark.generator.DatasetResult;
+import com.example.databenchmark.runner.RoutePhase;
 import com.example.databenchmark.tpch.TestTpchFixtures;
 import com.example.databenchmark.tpch.TpchSqlTemplates;
 import java.nio.file.Path;
@@ -115,6 +116,25 @@ class SparkIcebergClientTest {
         assertThat(runner.commands().get(0)).contains("org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1");
         assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
             .contains("SELECT COUNT(*) FROM iceberg_catalog.iceberg_db.cell_kpi_1min");
+    }
+
+    @Test
+    void runQueryRendersNamedQueryAndPreservesPhase() {
+        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "rows", "", 0.5));
+
+        EngineRunResult result = new SparkIcebergClient(runner)
+            .runQuery("topn_high_load_cells", RoutePhase.COLD);
+
+        assertThat(result.engine()).isEqualTo("spark");
+        assertThat(result.tableShape()).isEqualTo("spark_iceberg");
+        assertThat(result.stage()).isEqualTo(EngineStage.QUERY.name());
+        assertThat(result.queryName()).isEqualTo("topn_high_load_cells");
+        assertThat(result.phase()).isEqualTo(RoutePhase.COLD.name());
+        assertThat(result.success()).isTrue();
+        assertThat(runner.commands()).hasSize(1);
+        assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
+            .isEqualTo(SqlRenderer.render("topn_high_load_cells", "spark_iceberg"))
+            .doesNotContain("COUNT(*)");
     }
 
     @Test

@@ -65,6 +65,18 @@ public final class SqlTemplates {
         return "REFRESH EXTERNAL TABLE sr_external_iceberg.iceberg_db.cell_kpi_1min;";
     }
 
+    public static String hiveCreateExternalParquetTable(String parquetRoot) {
+        return """
+            CREATE DATABASE IF NOT EXISTS hive_hdfs_parquet;
+
+            CREATE EXTERNAL TABLE IF NOT EXISTS hive_hdfs_parquet.cell_kpi_1min (
+            %s
+            )
+            STORED AS PARQUET
+            LOCATION '%s';
+            """.formatted(hiveColumns(), escapeSqlLiteral(parquetRoot));
+    }
+
     private static String sparkColumns() {
         return KpiSchema.columns().stream()
             .map(column -> "    " + column.name() + " " + sparkType(column))
@@ -74,6 +86,12 @@ public final class SqlTemplates {
     private static String starRocksColumns() {
         return KpiSchema.columns().stream()
             .map(column -> "    " + column.name() + " " + starRocksType(column))
+            .collect(Collectors.joining(",\n"));
+    }
+
+    private static String hiveColumns() {
+        return KpiSchema.columns().stream()
+            .map(column -> "    " + column.name() + " " + hiveType(column))
             .collect(Collectors.joining(",\n"));
     }
 
@@ -91,6 +109,16 @@ public final class SqlTemplates {
         return switch (column.logicalType()) {
             case "timestamp_ms" -> "DATETIME";
             case "string" -> "VARCHAR(64)";
+            case "int" -> "INT";
+            case "double" -> "DOUBLE";
+            default -> throw new IllegalArgumentException("Unknown KPI type: " + column.logicalType());
+        };
+    }
+
+    private static String hiveType(KpiColumn column) {
+        return switch (column.logicalType()) {
+            case "timestamp_ms" -> "TIMESTAMP";
+            case "string" -> "STRING";
             case "int" -> "INT";
             case "double" -> "DOUBLE";
             default -> throw new IllegalArgumentException("Unknown KPI type: " + column.logicalType());
