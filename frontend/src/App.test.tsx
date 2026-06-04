@@ -43,6 +43,9 @@ test('renders run summary, chart sections, stage flow, and detail tables', async
   expect(screen.getByText('阶段状态流')).toBeInTheDocument();
   expect(screen.getByText('Load 明细')).toBeInTheDocument();
   expect(screen.getByText('Query 明细')).toBeInTheDocument();
+  expect(screen.getAllByText('表形态').length).toBeGreaterThan(0);
+  expect(screen.getAllByText('阶段').length).toBeGreaterThan(0);
+  expect(screen.getAllByText('耗时 秒').length).toBeGreaterThan(0);
   expect(screen.getAllByText('q01_pricing_summary_report').length).toBeGreaterThan(0);
   expect(
     screen.getByText('TPC-H smoke data is compatible test data, not an official TPC-H benchmark result.')

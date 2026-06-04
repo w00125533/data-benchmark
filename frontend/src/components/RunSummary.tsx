@@ -8,13 +8,13 @@ export default function RunSummary({ report }: { report: WebBenchmarkReport }) {
         <Card size="small" title="运行摘要">
           <Descriptions size="small" bordered column={{ xs: 1, md: 2 }}>
             <Descriptions.Item label="Run ID">{report.run.runId}</Descriptions.Item>
-            <Descriptions.Item label="状态">
+            <Descriptions.Item label="运行状态">
               <Tag color={report.run.status === 'SUCCESS' ? 'green' : 'orange'}>{report.run.status}</Tag>
             </Descriptions.Item>
             <Descriptions.Item label="Profile">{report.run.profile}</Descriptions.Item>
             <Descriptions.Item label="Suite">{report.run.suite}</Descriptions.Item>
             <Descriptions.Item label="Query Set">{report.run.querySet}</Descriptions.Item>
-            <Descriptions.Item label="耗时">{formatNumber(report.run.durationSeconds)}s</Descriptions.Item>
+            <Descriptions.Item label="耗时 秒">{formatNumber(report.run.durationSeconds)}</Descriptions.Item>
             <Descriptions.Item label="开始时间">{formatTime(report.run.startedAt)}</Descriptions.Item>
             <Descriptions.Item label="结束时间">{formatTime(report.run.endedAt)}</Descriptions.Item>
           </Descriptions>
