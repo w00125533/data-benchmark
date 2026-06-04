@@ -6,6 +6,7 @@ import com.example.databenchmark.config.BenchmarkConfig;
 import com.example.databenchmark.engine.EngineRunResult;
 import com.example.databenchmark.engine.EngineStage;
 import com.example.databenchmark.generator.DatasetResult;
+import com.example.databenchmark.query.QueryCatalog;
 import com.example.databenchmark.report.BenchmarkReport;
 import com.example.databenchmark.tpch.TestTpchFixtures;
 import com.example.databenchmark.tpch.TpchDatasetResult;
@@ -21,6 +22,118 @@ import org.junit.jupiter.api.io.TempDir;
 class ComposeBenchmarkRunnerTest {
     @TempDir
     Path tempDir;
+
+    @Test
+    void composeRunnerRunsColdWarmHotForFourRoutes() throws Exception {
+        List<String> calls = new ArrayList<>();
+        String queryName = QueryCatalog.queries().get(0).name();
+        DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
+        CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
+
+        ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
+            config -> dataset,
+            (generatedDataset, outputDir) -> outputDir.resolve("cell_kpi_1min.csv"),
+            failingTpchGenerator(),
+            failingTpchCsvExport(),
+            new FakeSparkClient(calls),
+            new FakeStarRocksClient(calls, true),
+            new FakeHiveClient(calls),
+            new FakeServiceController(calls),
+            reportWriter,
+            new CapturingMetricsRecorder(calls, "smoke", "kpi", "smoke")
+        );
+
+        ComposeBenchmarkRunner.ComposeRunResult result = runner.run(
+            BenchmarkConfig.defaultSmoke(),
+            tempDir.resolve("reports"),
+            "compose-test"
+        );
+
+        assertThat(result.success()).isTrue();
+        assertThat(calls).containsSubsequence(
+            "restart SPARK_ICEBERG",
+            "ready SPARK_ICEBERG",
+            "Spark query " + queryName + " COLD",
+            "Spark query " + queryName + " WARM",
+            "Spark query " + queryName + " HOT",
+            "restart STARROCKS_INTERNAL",
+            "ready STARROCKS_INTERNAL",
+            "StarRocks starrocks_internal " + queryName + " COLD",
+            "StarRocks starrocks_internal " + queryName + " WARM",
+            "StarRocks starrocks_internal " + queryName + " HOT",
+            "restart STARROCKS_EXTERNAL_ICEBERG",
+            "ready STARROCKS_EXTERNAL_ICEBERG",
+            "StarRocks starrocks_external_iceberg " + queryName + " COLD",
+            "StarRocks starrocks_external_iceberg " + queryName + " WARM",
+            "StarRocks starrocks_external_iceberg " + queryName + " HOT",
+            "restart HIVE_HDFS_PARQUET",
+            "ready HIVE_HDFS_PARQUET",
+            "Hive query " + queryName + " COLD",
+            "Hive query " + queryName + " WARM",
+            "Hive query " + queryName + " HOT"
+        );
+        assertThat(reportWriter.report.querySummaries())
+            .filteredOn(summary -> summary.queryName().equals(queryName))
+            .extracting(BenchmarkReport.QuerySummary::tableShape, BenchmarkReport.QuerySummary::phase)
+            .containsSequence(
+                org.assertj.core.groups.Tuple.tuple("spark_iceberg", RoutePhase.COLD.name()),
+                org.assertj.core.groups.Tuple.tuple("spark_iceberg", RoutePhase.WARM.name()),
+                org.assertj.core.groups.Tuple.tuple("spark_iceberg", RoutePhase.HOT.name()),
+                org.assertj.core.groups.Tuple.tuple("starrocks_internal", RoutePhase.COLD.name()),
+                org.assertj.core.groups.Tuple.tuple("starrocks_internal", RoutePhase.WARM.name()),
+                org.assertj.core.groups.Tuple.tuple("starrocks_internal", RoutePhase.HOT.name()),
+                org.assertj.core.groups.Tuple.tuple("starrocks_external_iceberg", RoutePhase.COLD.name()),
+                org.assertj.core.groups.Tuple.tuple("starrocks_external_iceberg", RoutePhase.WARM.name()),
+                org.assertj.core.groups.Tuple.tuple("starrocks_external_iceberg", RoutePhase.HOT.name()),
+                org.assertj.core.groups.Tuple.tuple("hive_hdfs_parquet", RoutePhase.COLD.name()),
+                org.assertj.core.groups.Tuple.tuple("hive_hdfs_parquet", RoutePhase.WARM.name()),
+                org.assertj.core.groups.Tuple.tuple("hive_hdfs_parquet", RoutePhase.HOT.name())
+            );
+    }
+
+    @Test
+    void composeRunnerRecordsRouteFailuresWhenServiceRestartFailsAndContinues() throws Exception {
+        List<String> calls = new ArrayList<>();
+        String queryName = QueryCatalog.queries().get(0).name();
+        DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
+        CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
+
+        ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
+            config -> dataset,
+            (generatedDataset, outputDir) -> outputDir.resolve("cell_kpi_1min.csv"),
+            failingTpchGenerator(),
+            failingTpchCsvExport(),
+            new FakeSparkClient(calls),
+            new FakeStarRocksClient(calls, true),
+            new FakeHiveClient(calls),
+            new FakeServiceController(calls, BenchmarkRoute.STARROCKS_INTERNAL),
+            reportWriter,
+            new CapturingMetricsRecorder(calls, "smoke", "kpi", "smoke")
+        );
+
+        ComposeBenchmarkRunner.ComposeRunResult result = runner.run(
+            BenchmarkConfig.defaultSmoke(),
+            tempDir.resolve("reports"),
+            "compose-test"
+        );
+
+        assertThat(result.success()).isFalse();
+        assertThat(reportWriter.report.status()).isEqualTo("DEGRADED");
+        assertThat(reportWriter.report.querySummaries())
+            .filteredOn(summary -> summary.queryName().equals(queryName))
+            .filteredOn(summary -> summary.tableShape().equals("starrocks_internal"))
+            .hasSize(3)
+            .allSatisfy(summary -> {
+                assertThat(summary.success()).isFalse();
+                assertThat(summary.error()).contains("restart failed for STARROCKS_INTERNAL");
+            });
+        assertThat(calls).containsSubsequence(
+            "restart STARROCKS_INTERNAL",
+            "restart STARROCKS_EXTERNAL_ICEBERG",
+            "ready STARROCKS_EXTERNAL_ICEBERG",
+            "StarRocks starrocks_external_iceberg " + queryName + " COLD"
+        );
+    }
 
     @Test
     void composeRunnerOrchestratesEnginesAndWritesReportInOrder() throws Exception {
@@ -43,6 +156,8 @@ class ComposeBenchmarkRunnerTest {
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
             new FakeStarRocksClient(calls, true),
+            new FakeHiveClient(calls),
+            new FakeServiceController(calls),
             reportWriter,
             metricsRecorder
         );
@@ -59,21 +174,20 @@ class ComposeBenchmarkRunnerTest {
         assertThat(result.bytesWritten()).isEqualTo(dataset.bytesWritten());
         assertThat(result.csvPath().getFileName().toString()).isEqualTo("cell_kpi_1min.csv");
         assertThat(result.reportPath()).isEqualTo(tempDir.resolve("reports/compose-test/index.html"));
-        assertThat(calls).containsExactly(
+        assertThat(calls).containsSubsequence(
             "start metrics",
             "generate dataset",
             "export CSV",
             "Spark load",
             "StarRocks internal load",
             "StarRocks external refresh",
-            "Spark queries",
-            "StarRocks queries",
+            "Hive external table /data/generated",
+            "restart SPARK_ICEBERG",
+            "ready SPARK_ICEBERG",
             "record load:GENERATE",
             "record load:SPARK_ICEBERG_LOAD",
             "record load:STARROCKS_INTERNAL_LOAD",
             "record load:STARROCKS_EXTERNAL_REFRESH",
-            "record query:spark_query",
-            "record query:starrocks_query",
             "write web report"
         );
         assertThat(metricsRecorder.closed).isTrue();
@@ -86,11 +200,11 @@ class ComposeBenchmarkRunnerTest {
                 EngineStage.GENERATE.name(),
                 EngineStage.SPARK_ICEBERG_LOAD.name(),
                 EngineStage.STARROCKS_INTERNAL_LOAD.name(),
-                EngineStage.STARROCKS_EXTERNAL_REFRESH.name()
+                EngineStage.STARROCKS_EXTERNAL_REFRESH.name(),
+                "HIVE_HDFS_PARQUET_LOAD"
             );
         assertThat(reportWriter.report.querySummaries())
-            .extracting(BenchmarkReport.QuerySummary::queryName)
-            .containsExactly("spark_query", "starrocks_query");
+            .hasSize(QueryCatalog.queries().size() * BenchmarkRoute.values().length * RoutePhase.values().length);
     }
 
     @Test
@@ -113,6 +227,8 @@ class ComposeBenchmarkRunnerTest {
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
             new FakeStarRocksClient(calls, false),
+            new FakeHiveClient(calls),
+            new FakeServiceController(calls),
             reportWriter,
             metricsRecorder
         );
@@ -127,21 +243,20 @@ class ComposeBenchmarkRunnerTest {
         assertThat(result.rows()).isEqualTo(dataset.rows());
         assertThat(result.bytesWritten()).isEqualTo(dataset.bytesWritten());
         assertThat(result.reportPath()).isEqualTo(tempDir.resolve("reports/compose-test/index.html"));
-        assertThat(calls).containsExactly(
+        assertThat(calls).containsSubsequence(
             "start metrics",
             "generate dataset",
             "export CSV",
             "Spark load",
             "StarRocks internal load",
             "StarRocks external refresh",
-            "Spark queries",
-            "StarRocks queries",
+            "Hive external table /data/generated",
+            "restart SPARK_ICEBERG",
+            "ready SPARK_ICEBERG",
             "record load:GENERATE",
             "record load:SPARK_ICEBERG_LOAD",
             "record load:STARROCKS_INTERNAL_LOAD",
             "record load:STARROCKS_EXTERNAL_REFRESH",
-            "record query:spark_query",
-            "record query:starrocks_query",
             "write web report"
         );
         assertThat(metricsRecorder.closed).isTrue();
@@ -404,6 +519,13 @@ class ComposeBenchmarkRunnerTest {
         }
 
         @Override
+        public EngineRunResult runQuery(String queryName, RoutePhase phase) {
+            calls.add("Spark query " + queryName + " " + phase.name());
+            return new EngineRunResult("spark", "spark_iceberg", EngineStage.QUERY.name(),
+                queryName, phase.name(), 3L, 0L, 0.2, true, "");
+        }
+
+        @Override
         public EngineRunResult loadTpch(TpchDatasetResult dataset, String runId, String profile) {
             calls.add("Spark TPC-H load");
             return new EngineRunResult("spark", "tpch_iceberg", EngineStage.SPARK_ICEBERG_LOAD.name(),
@@ -450,6 +572,13 @@ class ComposeBenchmarkRunnerTest {
         }
 
         @Override
+        public EngineRunResult runQueryFor(String tableShape, String queryName, RoutePhase phase) {
+            calls.add("StarRocks " + tableShape + " " + queryName + " " + phase.name());
+            return new EngineRunResult("starrocks", tableShape, EngineStage.QUERY.name(),
+                queryName, phase.name(), 4L, 0L, 0.3, true, "");
+        }
+
+        @Override
         public EngineRunResult loadTpchInternal(Map<String, Path> csvFiles, TpchDatasetResult dataset, String runId, String profile) {
             calls.add("StarRocks TPC-H internal load");
             return new EngineRunResult("starrocks", "tpch_internal",
@@ -473,6 +602,55 @@ class ComposeBenchmarkRunnerTest {
                 new EngineRunResult("starrocks", "tpch_external_iceberg", EngineStage.QUERY.name(),
                     "q01_pricing_summary_report", RoutePhase.HOT.name(), 4L, 0L, 0.3, true, "")
             );
+        }
+    }
+
+    private static final class FakeHiveClient implements ComposeBenchmarkRunner.HiveClientFacade {
+        private final List<String> calls;
+
+        private FakeHiveClient(List<String> calls) {
+            this.calls = calls;
+        }
+
+        @Override
+        public EngineRunResult createExternalTable(Path parquetRoot) {
+            calls.add("Hive external table " + parquetRoot.toString().replace('\\', '/'));
+            return new EngineRunResult("hive", "hive_hdfs_parquet", "HIVE_HDFS_PARQUET_LOAD",
+                null, 0L, 0L, 0.5, true, "");
+        }
+
+        @Override
+        public EngineRunResult runQuery(String queryName, RoutePhase phase) {
+            calls.add("Hive query " + queryName + " " + phase.name());
+            return new EngineRunResult("hive", "hive_hdfs_parquet", EngineStage.QUERY.name(),
+                queryName, phase.name(), 2L, 0L, 0.4, true, "");
+        }
+    }
+
+    private static final class FakeServiceController implements ComposeBenchmarkRunner.ServiceController {
+        private final List<String> calls;
+        private final BenchmarkRoute failingRoute;
+
+        private FakeServiceController(List<String> calls) {
+            this(calls, null);
+        }
+
+        private FakeServiceController(List<String> calls, BenchmarkRoute failingRoute) {
+            this.calls = calls;
+            this.failingRoute = failingRoute;
+        }
+
+        @Override
+        public void restart(BenchmarkRoute route) {
+            calls.add("restart " + route.name());
+            if (route == failingRoute) {
+                throw new IllegalStateException("restart failed for " + route.name());
+            }
+        }
+
+        @Override
+        public void waitUntilReady(BenchmarkRoute route) {
+            calls.add("ready " + route.name());
         }
     }
 
