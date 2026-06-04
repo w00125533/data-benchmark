@@ -77,6 +77,8 @@ The default Compose network uses subnet `172.20.0.0/24`; `starrocks-fe` is pinne
 
 Cold restarts preserve container filesystems for loaded benchmark data: StarRocks uses `stop starrocks-be`, `stop starrocks-fe`, `start starrocks-fe`, wait for FE MySQL, then `start starrocks-be`; Hive uses `stop hive-server` then `start hive-server`. These routes intentionally avoid removing or force-recreating containers.
 
+`hive-server` intentionally overrides the `apache/hive:4.0.0` default entrypoint and directly executes `/opt/hive/bin/hive --skiphadoopversion --skiphbasecp --service hiveserver2` with explicit `hive.metastore.uris=thrift://hive-metastore:9083` and `hive.server2.thrift.bind.host=0.0.0.0` settings. The image's `SERVICE_NAME=hiveserver2` entrypoint path can misread its own startup process as an already-running HiveServer2 after repeat cold restarts and exit with `HiveServer2 running as process ... Stop it first.` The explicit command keeps Compose stop/start cold restarts repeatable; schema and metastore lifecycle remain owned by the separate `hive-metastore` service.
+
 The FE startup command rewrites `JAVA_OPTS` with `-Xmx1536m`, matching the 2GB FE container limit instead of the StarRocks default `-Xmx8192m`.
 
 Compose mode writes a standalone web report package under `reports/runs/<run_id>/`.

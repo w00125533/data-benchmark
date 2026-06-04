@@ -100,7 +100,18 @@ class ComposeTopologyTest {
 
         Map<String, Object> hiveServer = service(services, "hive-server");
         assertThat(hiveServer.get("image")).isEqualTo("apache/hive:4.0.0");
-        assertThat(map(hiveServer.get("environment"))).containsEntry("SERVICE_NAME", "hiveserver2");
+        assertThat(map(hiveServer.get("environment"))).doesNotContainEntry("SERVICE_NAME", "hiveserver2");
+        assertThat(stringList(hiveServer, "entrypoint")).containsExactly("bash", "-lc");
+        assertThat(String.join("\n", stringList(hiveServer, "command")))
+            .contains("SKIP_SCHEMA_INIT=true")
+            .contains("HADOOP_CLIENT_OPTS=\"$$HADOOP_CLIENT_OPTS -Xmx1G $$SERVICE_OPTS\"")
+            .contains("exec /opt/hive/bin/hive --skiphadoopversion --skiphbasecp --service hiveserver2")
+            .contains("--hiveconf hive.metastore.uris=thrift://hive-metastore:9083")
+            .contains("--hiveconf hive.server2.thrift.bind.host=0.0.0.0")
+            .contains("--hiveconf hive.server2.thrift.port=10000");
+        assertThat(map(hiveServer.get("environment")))
+            .containsEntry("SERVICE_OPTS",
+                "-Dhive.metastore.uris=thrift://hive-metastore:9083 -Dhive.server2.thrift.bind.host=0.0.0.0 -Dhive.server2.thrift.port=10000");
         assertThat(dependencyCondition(hiveServer, "hdfs-init")).isEqualTo("service_completed_successfully");
         assertThat(dependencyCondition(hiveServer, "hive-metastore")).isEqualTo("service_started");
         assertThat(stringList(hiveServer, "ports")).contains("10000:10000");

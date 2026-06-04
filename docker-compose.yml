@@ -80,8 +80,22 @@ services:
   hive-server:
     image: apache/hive:4.0.0
     hostname: hive-server
+    entrypoint: ["bash", "-lc"]
+    command:
+      - |
+        export HIVE_CONF_DIR="$${HIVE_CONF_DIR:-$$HIVE_HOME/conf}"
+        export IS_RESUME=true
+        export SKIP_SCHEMA_INIT=true
+        export HADOOP_CLIENT_OPTS="$$HADOOP_CLIENT_OPTS -Xmx1G $$SERVICE_OPTS"
+        export HADOOP_CLASSPATH="$$TEZ_HOME/*:$$TEZ_HOME/lib/*:$$HADOOP_CLASSPATH"
+        exec /opt/hive/bin/hive --skiphadoopversion --skiphbasecp --service hiveserver2 \
+          --hiveconf hive.metastore.uris=thrift://hive-metastore:9083 \
+          --hiveconf hive.server2.thrift.bind.host=0.0.0.0 \
+          --hiveconf hive.server2.thrift.port=10000
     environment:
-      SERVICE_NAME: hiveserver2
+      IS_RESUME: "true"
+      SKIP_SCHEMA_INIT: "true"
+      SERVICE_OPTS: "-Dhive.metastore.uris=thrift://hive-metastore:9083 -Dhive.server2.thrift.bind.host=0.0.0.0 -Dhive.server2.thrift.port=10000"
     depends_on:
       hdfs-init:
         condition: service_completed_successfully

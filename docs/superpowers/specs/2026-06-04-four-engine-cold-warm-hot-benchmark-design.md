@@ -91,6 +91,7 @@ Required infrastructure:
 - Keep the existing Hive Metastore service.
 - Create a Hive external table over the generated Parquet path.
 - Execute KPI SQL through JDBC or Beeline.
+- Start HiveServer2 with an explicit command, for example `/opt/hive/bin/hive --skiphadoopversion --skiphbasecp --service hiveserver2`, instead of the `apache/hive:4.0.0` `SERVICE_NAME=hiveserver2` entrypoint path. The command must still set the Hive conf directory, restore the entrypoint's client JVM options, point `hive.metastore.uris` at `thrift://hive-metastore:9083`, and bind HiveServer2 to `0.0.0.0:10000`. This avoids the image entrypoint's process self-check misidentifying its own startup shell as an existing HiveServer2 during repeat Compose cold restarts.
 
 Cold restart:
 
