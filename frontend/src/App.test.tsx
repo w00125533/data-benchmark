@@ -51,8 +51,11 @@ test('renders performance matrix with route statuses and best route', async () =
   expect(screen.getAllByText('rows 60,000').length).toBeGreaterThan(0);
   expect(screen.getAllByText('cells 10,000 / days 1').length).toBeGreaterThan(0);
   expect(screen.getAllByText('StarRocks Internal').length).toBeGreaterThan(0);
-  expect(screen.getByText('p95 760 ms')).toBeInTheDocument();
-  expect(screen.getByText('best p95 760 ms')).toBeInTheDocument();
+  expect(screen.getAllByText('Hive HDFS Parquet').length).toBeGreaterThan(0);
+  expect(screen.getByText('cold 500 ms')).toBeInTheDocument();
+  expect(screen.getByText('warm 90 ms')).toBeInTheDocument();
+  expect(screen.getByText('hot 60 ms')).toBeInTheDocument();
+  expect(screen.getByText('best hot 60 ms')).toBeInTheDocument();
   expect(screen.getByText('catalog timeout')).toBeInTheDocument();
   expect(screen.getByText('SKIPPED')).toBeInTheDocument();
 });

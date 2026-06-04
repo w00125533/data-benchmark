@@ -1,9 +1,13 @@
 export type RunStatus = 'SUCCESS' | 'DEGRADED';
 export type RouteStatus = 'SUCCESS' | 'FAILED' | 'SKIPPED';
-export type RouteKey = 'spark_iceberg' | 'starrocks_internal' | 'starrocks_external_iceberg';
+export type RouteKey =
+  | 'spark_iceberg'
+  | 'starrocks_internal'
+  | 'starrocks_external_iceberg'
+  | 'hive_hdfs_parquet';
 
 export interface WebBenchmarkReport {
-  schemaVersion: 2;
+  schemaVersion: 3;
   run: RunInfo;
   dataset: DatasetInfo;
   loads: LoadSummary[];
@@ -65,14 +69,17 @@ export interface PerformanceMatrixRow {
   queryName: string;
   routes: Record<RouteKey, RouteResult>;
   bestRoute: RouteKey | '';
-  bestRouteP95Ms: number;
+  bestRouteHotMs: number;
 }
 
 export interface RouteResult {
   status: RouteStatus;
-  p50Ms: number;
-  p95Ms: number;
-  p99Ms: number;
+  coldMs: number;
+  warmMs: number;
+  hotMs: number;
+  coldStatus: RouteStatus;
+  warmStatus: RouteStatus;
+  hotStatus: RouteStatus;
   rows: number;
   error: string;
 }

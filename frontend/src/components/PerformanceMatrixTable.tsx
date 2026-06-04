@@ -6,6 +6,7 @@ const routeLabels: Record<RouteKey, string> = {
   spark_iceberg: 'Spark Iceberg',
   starrocks_internal: 'StarRocks Internal',
   starrocks_external_iceberg: 'StarRocks External Iceberg',
+  hive_hdfs_parquet: 'Hive HDFS Parquet',
 };
 
 const statusColor: Record<RouteResult['status'], string> = {
@@ -20,13 +21,23 @@ function formatMs(value: number) {
 
 function RouteCell({ result }: { result: RouteResult }) {
   if (result.status === 'SKIPPED') {
-    return <Tag color={statusColor.SKIPPED}>SKIPPED</Tag>;
+    return (
+      <div>
+        <Tag color={statusColor.SKIPPED}>SKIPPED</Tag>
+        <div>cold {formatMs(result.coldMs)}</div>
+        <div>warm {formatMs(result.warmMs)}</div>
+        <div>hot {formatMs(result.hotMs)}</div>
+      </div>
+    );
   }
 
   if (result.status === 'FAILED') {
     return (
       <div>
         <Tag color={statusColor.FAILED}>FAILED</Tag>
+        <div>cold {formatMs(result.coldMs)}</div>
+        <div>warm {formatMs(result.warmMs)}</div>
+        <div>hot {formatMs(result.hotMs)}</div>
         <Typography.Text type="danger">{result.error || '-'}</Typography.Text>
       </div>
     );
@@ -35,11 +46,10 @@ function RouteCell({ result }: { result: RouteResult }) {
   return (
     <div>
       <Tag color={statusColor.SUCCESS}>SUCCESS</Tag>
+      <div>cold {formatMs(result.coldMs)}</div>
+      <div>warm {formatMs(result.warmMs)}</div>
       <div>
-        <strong>p95 {formatMs(result.p95Ms)}</strong>
-      </div>
-      <div>
-        p50 {formatMs(result.p50Ms)} / p99 {formatMs(result.p99Ms)}
+        <strong>hot {formatMs(result.hotMs)}</strong>
       </div>
       <div>rows {result.rows.toLocaleString()}</div>
     </div>
@@ -54,7 +64,7 @@ function BestRouteCell({ row }: { row: PerformanceMatrixRow }) {
   return (
     <div>
       <strong>{routeLabels[row.bestRoute]}</strong>
-      <div>best p95 {formatMs(row.bestRouteP95Ms)}</div>
+      <div>best hot {formatMs(row.bestRouteHotMs)}</div>
     </div>
   );
 }
@@ -102,6 +112,11 @@ export default function PerformanceMatrixTable({
       title: routeLabels.starrocks_external_iceberg,
       key: 'starrocks_external_iceberg',
       render: (_, row) => <RouteCell result={row.routes.starrocks_external_iceberg} />,
+    },
+    {
+      title: routeLabels.hive_hdfs_parquet,
+      key: 'hive_hdfs_parquet',
+      render: (_, row) => <RouteCell result={row.routes.hive_hdfs_parquet} />,
     },
     {
       title: '最优路线',

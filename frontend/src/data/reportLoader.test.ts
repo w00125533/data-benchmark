@@ -40,4 +40,22 @@ describe('loadReport', () => {
       'Unsupported report schema version: 99'
     );
   });
+
+  test('rejects schema version 2 reports', async () => {
+    setEmbeddedReportPayload({ ...sampleReport, schemaVersion: 2 });
+
+    await expect(loadReport()).rejects.toThrow(
+      'Unsupported report schema version: 2'
+    );
+  });
+
+  test('accepts schema version 3 reports', async () => {
+    const schemaV3Report = { ...sampleReport, schemaVersion: 3 } as unknown;
+    setEmbeddedReportPayload(schemaV3Report);
+
+    const report = await loadReport();
+
+    expect(report.schemaVersion).toBe(3);
+    expect(report.run.runId).toBe(sampleReport.run.runId);
+  });
 });

@@ -5,7 +5,7 @@ export async function loadReport(): Promise<WebBenchmarkReport> {
   if (!embedded) {
     throw new Error('Missing embedded report data: window.__BENCHMARK_REPORT__');
   }
-  if (embedded.schemaVersion !== 2) {
+  if (embedded.schemaVersion !== 3) {
     throw new Error(`Unsupported report schema version: ${embedded.schemaVersion}`);
   }
   return embedded;
