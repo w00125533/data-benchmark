@@ -74,3 +74,20 @@ Promote a previous commit SHA:
 ```
 
 The push uses `--force-with-lease`, so it refuses unsafe remote overwrites.
+
+## Verify Generated Web Report
+
+After packaging the runner, generate a local smoke report:
+
+```powershell
+java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode local --config configs/benchmark-smoke.yml --run-id staging-web-report-smoke
+```
+
+Verify the standalone report package:
+
+```powershell
+Test-Path reports/runs/staging-web-report-smoke/index.html
+Test-Path reports/runs/staging-web-report-smoke/report.json
+```
+
+Open `reports/runs/staging-web-report-smoke/index.html` directly in a browser. Grafana and Prometheus are not part of the report viewing path.

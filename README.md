@@ -44,15 +44,21 @@ The generator writes deterministic, partitioned Parquet files under `event_date=
 
 ## HDFS Compose Benchmark
 
-HDFS and Grafana infrastructure is provisioned now. The HDFS Iceberg warehouse path is `hdfs://hdfs-namenode:8020/warehouse/iceberg`.
+HDFS infrastructure is provisioned by Docker Compose. The HDFS Iceberg warehouse path is `hdfs://hdfs-namenode:8020/warehouse/iceberg`.
 
 ```powershell
-docker compose -f docker-compose.yml up -d hdfs-namenode hdfs-datanode hdfs-init hive-metastore spark starrocks-fe starrocks-be prometheus grafana
+mvn package
+docker compose -f docker-compose.yml up -d hdfs-namenode hdfs-datanode hdfs-init hive-metastore spark starrocks-fe starrocks-be
 java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --run-id compose-smoke
 ```
 
-Grafana is available at `http://localhost:3000/d/benchmark?var-run_id=compose-smoke&var-suite=kpi&var-query_set=smoke`.
-For TPC-H smoke runs, use `http://localhost:3000/d/benchmark?var-run_id=compose-tpch&var-suite=tpch&var-query_set=smoke`.
-Prometheus is available at `http://localhost:9090`.
+Compose mode writes a standalone web report package under `reports/runs/<run_id>/`.
+Open the report directly:
 
-Compose mode writes `reports/runs/<run_id>/index.html`. If a Spark, StarRocks, or external Iceberg stage fails, the CLI exits nonzero after writing a DEGRADED report with the failing stage and error detail.
+```text
+reports/runs/compose-smoke/index.html
+```
+
+Each report directory contains `index.html`, `report.json`, and React assets. The HTML embeds the report data, so it can be opened directly from the filesystem.
+
+If a Spark, StarRocks, or external Iceberg stage fails, the CLI exits nonzero after writing a DEGRADED report with the failing stage and error detail.
