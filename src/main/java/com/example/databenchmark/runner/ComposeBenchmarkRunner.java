@@ -17,6 +17,7 @@ import com.example.databenchmark.report.WebReportWriter;
 import com.example.databenchmark.tpch.TpchCsvExporter;
 import com.example.databenchmark.tpch.TpchDataGenerator;
 import com.example.databenchmark.tpch.TpchDatasetResult;
+import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -25,6 +26,8 @@ import java.util.List;
 import java.util.Map;
 
 public class ComposeBenchmarkRunner {
+    private static final String DEFAULT_HIVE_HDFS_ROOT = "/data/generated";
+
     private final DatasetGenerator generator;
     private final CsvExporter csvExporter;
     private final TpchGenerator tpchGenerator;
@@ -162,17 +165,19 @@ public class ComposeBenchmarkRunner {
 
             if (dataset != null) {
                 try {
-                    csvPath = csvExporter.export(dataset, Path.of(config.dataset().output()).resolve("starrocks-csv"));
+                    csvPath = csvExporter.export(dataset, starRocksCsvOutput(config, dataset));
                 } catch (Exception exception) {
                     loadResults.add(failed("compose", "starrocks_csv", "compose_prepare", exception));
                 }
                 loadResults.add(loadSpark(dataset, actualRunId, config.profile()));
                 loadResults.add(loadStarRocksInternal(csvPath, actualRunId, config.profile()));
                 loadResults.add(refreshStarRocksExternal(actualRunId, config.profile()));
-                Path hiveRoot = hiveParquetRoot(config, dataset);
-                loadResults.add(publishHiveDataset(dataset, hiveRoot));
-                loadResults.add(createHiveExternalTable(hiveRoot));
-                queryResults.addAll(runKpiRouteQueries());
+                String hiveRoot = hiveParquetRoot(config);
+                EngineRunResult hivePublish = publishHiveDataset(dataset, hiveRoot);
+                loadResults.add(hivePublish);
+                EngineRunResult hiveLoad = createHiveExternalTable(hiveRoot);
+                loadResults.add(hiveLoad);
+                queryResults.addAll(runKpiRouteQueries(hiveRouteFailure(hivePublish, hiveLoad)));
             }
 
             recordMetrics(
@@ -393,7 +398,7 @@ public class ComposeBenchmarkRunner {
         }
     }
 
-    private EngineRunResult publishHiveDataset(DatasetResult dataset, Path hdfsRoot) {
+    private EngineRunResult publishHiveDataset(DatasetResult dataset, String hdfsRoot) {
         try {
             return hdfsDatasetPublisher.publish(dataset, hdfsRoot);
         } catch (Exception exception) {
@@ -401,7 +406,7 @@ public class ComposeBenchmarkRunner {
         }
     }
 
-    private EngineRunResult createHiveExternalTable(Path hdfsRoot) {
+    private EngineRunResult createHiveExternalTable(String hdfsRoot) {
         try {
             return hiveClient.createExternalTable(hdfsRoot);
         } catch (Exception exception) {
@@ -409,11 +414,15 @@ public class ComposeBenchmarkRunner {
         }
     }
 
-    private List<EngineRunResult> runKpiRouteQueries() {
+    private List<EngineRunResult> runKpiRouteQueries(String hiveRouteFailure) {
         List<EngineRunResult> results = new ArrayList<>();
         for (var query : QueryCatalog.queries()) {
             String queryName = query.name();
             for (BenchmarkRoute route : BenchmarkRoute.values()) {
+                if (route == BenchmarkRoute.HIVE_HDFS_PARQUET && hiveRouteFailure != null) {
+                    results.addAll(failedRoutePhases(route, queryName, hiveRouteFailure));
+                    continue;
+                }
                 results.addAll(runKpiRoutePhases(queryName, route));
             }
         }
@@ -426,9 +435,7 @@ public class ComposeBenchmarkRunner {
             serviceController.restart(route);
             serviceController.waitUntilReady(route);
         } catch (Exception exception) {
-            for (RoutePhase phase : RoutePhase.values()) {
-                results.add(failedQuery(route, queryName, phase, exception));
-            }
+            results.addAll(failedRoutePhases(route, queryName, exception.getMessage()));
             return results;
         }
 
@@ -442,6 +449,14 @@ public class ComposeBenchmarkRunner {
         return results;
     }
 
+    private List<EngineRunResult> failedRoutePhases(BenchmarkRoute route, String queryName, String error) {
+        List<EngineRunResult> results = new ArrayList<>();
+        for (RoutePhase phase : RoutePhase.values()) {
+            results.add(failedQuery(route, queryName, phase, error));
+        }
+        return results;
+    }
+
     private EngineRunResult runKpiRouteQuery(BenchmarkRoute route, String queryName, RoutePhase phase) {
         return switch (route) {
             case SPARK_ICEBERG -> sparkClient.runQuery(queryName, phase);
@@ -449,6 +464,21 @@ public class ComposeBenchmarkRunner {
             case STARROCKS_EXTERNAL_ICEBERG -> starRocksClient.runQueryFor("starrocks_external_iceberg", queryName, phase);
             case HIVE_HDFS_PARQUET -> hiveClient.runQuery(queryName, phase);
         };
+    }
+
+    private EngineRunResult failedQuery(BenchmarkRoute route, String queryName, RoutePhase phase, String error) {
+        return new EngineRunResult(
+            routeEngine(route),
+            routeTableShape(route),
+            EngineStage.QUERY.name(),
+            queryName,
+            phase.name(),
+            0L,
+            0L,
+            0.0,
+            false,
+            error
+        );
     }
 
     private String routeEngine(BenchmarkRoute route) {
@@ -468,18 +498,49 @@ public class ComposeBenchmarkRunner {
         };
     }
 
-    private Path hiveParquetRoot(BenchmarkConfig config, DatasetResult dataset) {
+    private String hiveParquetRoot(BenchmarkConfig config) {
         String configuredOutput = config.dataset().output().replace('\\', '/');
         if (configuredOutput.startsWith("hdfs://")) {
-            return Path.of(configuredOutput);
+            return hdfsUriPath(configuredOutput);
         }
         if (configuredOutput.startsWith("/")) {
-            return Path.of(configuredOutput);
+            return normalizeHdfsPath(configuredOutput);
         }
         if (configuredOutput.matches("^[A-Za-z]:/.*")) {
-            return dataset.outputPath();
+            return DEFAULT_HIVE_HDFS_ROOT;
         }
-        return Path.of("/").resolve(configuredOutput).normalize();
+        return normalizeHdfsPath("/" + configuredOutput);
+    }
+
+    private Path starRocksCsvOutput(BenchmarkConfig config, DatasetResult dataset) {
+        String configuredOutput = config.dataset().output().replace('\\', '/');
+        if (configuredOutput.startsWith("hdfs://")) {
+            return dataset.outputPath().resolve("starrocks-csv");
+        }
+        return Path.of(config.dataset().output()).resolve("starrocks-csv");
+    }
+
+    private String hiveRouteFailure(EngineRunResult hivePublish, EngineRunResult hiveLoad) {
+        if (!hivePublish.success()) {
+            return hivePublish.error();
+        }
+        if (!hiveLoad.success()) {
+            return hiveLoad.error();
+        }
+        return null;
+    }
+
+    private static String hdfsUriPath(String value) {
+        String path = URI.create(value).getPath();
+        if (path == null || path.isBlank() || "/".equals(path)) {
+            return DEFAULT_HIVE_HDFS_ROOT;
+        }
+        return normalizeHdfsPath(path);
+    }
+
+    private static String normalizeHdfsPath(String value) {
+        String normalized = Path.of(value).normalize().toString().replace('\\', '/');
+        return normalized.startsWith("/") ? normalized : "/" + normalized;
     }
 
     private void recordMetrics(
@@ -570,11 +631,11 @@ public class ComposeBenchmarkRunner {
     }
 
     interface HdfsDatasetPublisher {
-        EngineRunResult publish(DatasetResult dataset, Path hdfsRoot);
+        EngineRunResult publish(DatasetResult dataset, String hdfsRoot);
     }
 
     interface HiveClientFacade {
-        EngineRunResult createExternalTable(Path parquetRoot);
+        EngineRunResult createExternalTable(String parquetRoot);
 
         EngineRunResult runQuery(String queryName, RoutePhase phase);
     }
@@ -688,6 +749,8 @@ public class ComposeBenchmarkRunner {
     private static final class DefaultHdfsDatasetPublisher implements HdfsDatasetPublisher {
         private static final String IN_CONTAINER_ENV = "BENCHMARK_COMPOSE_IN_CONTAINER";
         private static final String HDFS_URI = "hdfs://hdfs-namenode:8020";
+        private static final String HADOOP_IMAGE = "apache/hadoop:3.3.6";
+        private static final String DOCKER_NETWORK = "databenchmark";
         private static final String STAGE = "HIVE_HDFS_PARQUET_PUBLISH";
         private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(10);
 
@@ -713,8 +776,13 @@ public class ComposeBenchmarkRunner {
         }
 
         @Override
-        public EngineRunResult publish(DatasetResult dataset, Path hdfsRoot) {
+        public EngineRunResult publish(DatasetResult dataset, String hdfsRoot) {
             long started = System.nanoTime();
+            if (inContainer) {
+                return failedPublish(0.0,
+                    "HDFS publish requires Hadoop CLI. Run compose mode from the host, or update the benchmark-runner image to include hdfs.");
+            }
+
             String workspacePath;
             try {
                 workspacePath = toWorkspacePath(dataset.outputPath());
@@ -723,8 +791,7 @@ public class ComposeBenchmarkRunner {
             }
 
             String hdfsRootPath = hdfsPath(hdfsRoot);
-            Path parent = hdfsRoot.getParent();
-            String hdfsParentPath = parent == null ? "/" : hdfsPath(parent);
+            String hdfsParentPath = hdfsParent(hdfsRootPath);
             for (List<String> command : List.of(
                 hdfsCommand("-rm", "-r", "-f", hdfsRootPath),
                 hdfsCommand("-mkdir", "-p", hdfsParentPath),
@@ -756,9 +823,13 @@ public class ComposeBenchmarkRunner {
 
         private List<String> hdfsCommand(String... hdfsArgs) {
             List<String> command = new ArrayList<>();
-            if (!inContainer) {
-                command.addAll(List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "spark"));
-            }
+            String workspaceMount = workingDirectory.toAbsolutePath().normalize() + ":/workspace";
+            command.addAll(List.of(
+                "docker", "run", "--rm", "--network", DOCKER_NETWORK,
+                "-v", workspaceMount,
+                "-w", "/workspace",
+                HADOOP_IMAGE
+            ));
             command.addAll(List.of("hdfs", "dfs", "-fs", HDFS_URI));
             command.addAll(List.of(hdfsArgs));
             return command;
@@ -788,8 +859,17 @@ public class ComposeBenchmarkRunner {
             );
         }
 
-        private static String hdfsPath(Path path) {
-            return path.toString().replace('\\', '/');
+        private static String hdfsPath(String path) {
+            String normalized = path.replace('\\', '/');
+            return normalized.startsWith("/") ? normalized : "/" + normalized;
+        }
+
+        private static String hdfsParent(String path) {
+            int lastSlash = path.lastIndexOf('/');
+            if (lastSlash <= 0) {
+                return "/";
+            }
+            return path.substring(0, lastSlash);
         }
 
         private static String commandError(CommandResult command) {
@@ -803,7 +883,7 @@ public class ComposeBenchmarkRunner {
 
     private record HiveClientAdapter(HiveClient delegate) implements HiveClientFacade {
         @Override
-        public EngineRunResult createExternalTable(Path parquetRoot) {
+        public EngineRunResult createExternalTable(String parquetRoot) {
             return delegate.createExternalTable(parquetRoot);
         }
 

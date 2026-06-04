@@ -3,6 +3,8 @@ package com.example.databenchmark.runner;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.databenchmark.config.BenchmarkConfig;
+import com.example.databenchmark.engine.CommandResult;
+import com.example.databenchmark.engine.CommandRunner;
 import com.example.databenchmark.engine.EngineRunResult;
 import com.example.databenchmark.engine.EngineStage;
 import com.example.databenchmark.generator.DatasetResult;
@@ -11,7 +13,9 @@ import com.example.databenchmark.report.BenchmarkReport;
 import com.example.databenchmark.tpch.TestTpchFixtures;
 import com.example.databenchmark.tpch.TpchDatasetResult;
 import java.math.BigDecimal;
+import java.lang.reflect.Constructor;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -277,7 +281,40 @@ class ComposeBenchmarkRunnerTest {
     }
 
     @Test
-    void composeRunnerRecordsHiveHdfsPublishFailureAndStillRunsQueries() throws Exception {
+    void composeRunnerUsesStableHiveHdfsLocationWhenDatasetOutputIsHdfsUri() throws Exception {
+        List<String> calls = new ArrayList<>();
+        DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
+        CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
+
+        ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
+            config -> dataset,
+            (generatedDataset, outputDir) -> outputDir.resolve("cell_kpi_1min.csv"),
+            failingTpchGenerator(),
+            failingTpchCsvExport(),
+            new FakeSparkClient(calls),
+            new FakeStarRocksClient(calls, true),
+            new FakeHdfsDatasetPublisher(calls, true),
+            new FakeHiveClient(calls),
+            new FakeServiceController(calls),
+            reportWriter,
+            new CapturingMetricsRecorder(calls, "smoke", "kpi", "smoke")
+        );
+
+        ComposeBenchmarkRunner.ComposeRunResult result = runner.run(
+            BenchmarkConfig.defaultSmoke().withOverrides(null, null, null, "hdfs://hdfs-namenode:8020/data/generated", null),
+            tempDir.resolve("reports"),
+            "compose-test"
+        );
+
+        assertThat(result.success()).isTrue();
+        assertThat(calls).containsSubsequence(
+            "Hive HDFS publish /data/generated",
+            "Hive external table /data/generated"
+        );
+    }
+
+    @Test
+    void composeRunnerRecordsHiveHdfsPublishFailureAndSkipsHiveRouteQueries() throws Exception {
         List<String> calls = new ArrayList<>();
         String queryName = QueryCatalog.queries().get(0).name();
         DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
@@ -307,10 +344,19 @@ class ComposeBenchmarkRunnerTest {
         assertThat(reportWriter.report.status()).isEqualTo("DEGRADED");
         assertThat(calls).containsSubsequence(
             "Hive HDFS publish /data/generated",
-            "Hive external table /data/generated",
+            "Hive external table /data/generated"
+        );
+        assertThat(calls).contains(
+            "restart SPARK_ICEBERG",
+            "ready SPARK_ICEBERG",
+            "Spark query " + queryName + " COLD"
+        );
+        assertThat(calls).doesNotContain(
             "restart HIVE_HDFS_PARQUET",
             "ready HIVE_HDFS_PARQUET",
-            "Hive query " + queryName + " COLD"
+            "Hive query " + queryName + " COLD",
+            "Hive query " + queryName + " WARM",
+            "Hive query " + queryName + " HOT"
         );
         assertThat(reportWriter.report.loadSummaries())
             .anySatisfy(summary -> {
@@ -324,7 +370,91 @@ class ComposeBenchmarkRunnerTest {
             .filteredOn(summary -> summary.tableShape().equals("hive_hdfs_parquet"))
             .filteredOn(summary -> summary.queryName().equals(queryName))
             .hasSize(3)
-            .allSatisfy(summary -> assertThat(summary.success()).isTrue());
+            .allSatisfy(summary -> {
+                assertThat(summary.success()).isFalse();
+                assertThat(summary.error()).contains("hdfs publish failed");
+            });
+    }
+
+    @Test
+    void composeRunnerRecordsHiveCreateFailureAndSkipsHiveRouteQueries() throws Exception {
+        List<String> calls = new ArrayList<>();
+        String queryName = QueryCatalog.queries().get(0).name();
+        DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
+        CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
+
+        ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
+            config -> dataset,
+            (generatedDataset, outputDir) -> outputDir.resolve("cell_kpi_1min.csv"),
+            failingTpchGenerator(),
+            failingTpchCsvExport(),
+            new FakeSparkClient(calls),
+            new FakeStarRocksClient(calls, true),
+            new FakeHdfsDatasetPublisher(calls, true),
+            new FakeHiveClient(calls, false),
+            new FakeServiceController(calls),
+            reportWriter,
+            new CapturingMetricsRecorder(calls, "smoke", "kpi", "smoke")
+        );
+
+        ComposeBenchmarkRunner.ComposeRunResult result = runner.run(
+            BenchmarkConfig.defaultSmoke(),
+            tempDir.resolve("reports"),
+            "compose-test"
+        );
+
+        assertThat(result.success()).isFalse();
+        assertThat(calls).doesNotContain(
+            "restart HIVE_HDFS_PARQUET",
+            "ready HIVE_HDFS_PARQUET",
+            "Hive query " + queryName + " COLD",
+            "Hive query " + queryName + " WARM",
+            "Hive query " + queryName + " HOT"
+        );
+        assertThat(reportWriter.report.querySummaries())
+            .filteredOn(summary -> summary.tableShape().equals("hive_hdfs_parquet"))
+            .filteredOn(summary -> summary.queryName().equals(queryName))
+            .hasSize(3)
+            .allSatisfy(summary -> {
+                assertThat(summary.success()).isFalse();
+                assertThat(summary.error()).contains("hive create failed");
+            });
+    }
+
+    @Test
+    void defaultHdfsPublisherUsesHadoopDockerCliFromHost() throws Exception {
+        CapturingCommandRunner commandRunner = new CapturingCommandRunner();
+        ComposeBenchmarkRunner.HdfsDatasetPublisher publisher = defaultHdfsPublisher(commandRunner, tempDir, false);
+        DatasetResult dataset = new DatasetResult(tempDir.resolve("data/generated"), List.of(tempDir.resolve("data/generated/part.parquet")), 5L, 123L);
+
+        EngineRunResult result = publisher.publish(dataset, "/data/generated");
+
+        assertThat(result.success()).isTrue();
+        assertThat(commandRunner.commands()).hasSize(3);
+        assertThat(commandRunner.commands().get(0)).containsExactly(
+            "docker", "run", "--rm", "--network", "databenchmark",
+            "-v", tempDir.toAbsolutePath().normalize() + ":/workspace",
+            "-w", "/workspace",
+            "apache/hadoop:3.3.6",
+            "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
+            "-rm", "-r", "-f", "/data/generated"
+        );
+        assertThat(commandRunner.commands().get(1)).containsExactly(
+            "docker", "run", "--rm", "--network", "databenchmark",
+            "-v", tempDir.toAbsolutePath().normalize() + ":/workspace",
+            "-w", "/workspace",
+            "apache/hadoop:3.3.6",
+            "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
+            "-mkdir", "-p", "/data"
+        );
+        assertThat(commandRunner.commands().get(2)).containsExactly(
+            "docker", "run", "--rm", "--network", "databenchmark",
+            "-v", tempDir.toAbsolutePath().normalize() + ":/workspace",
+            "-w", "/workspace",
+            "apache/hadoop:3.3.6",
+            "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
+            "-put", "-f", "/workspace/data/generated", "/data/generated"
+        );
     }
 
     @Test
@@ -559,6 +689,22 @@ class ComposeBenchmarkRunnerTest {
         };
     }
 
+    private static ComposeBenchmarkRunner.HdfsDatasetPublisher defaultHdfsPublisher(
+        CommandRunner commandRunner,
+        Path workingDirectory,
+        boolean inContainer
+    ) throws Exception {
+        Class<?> type = Class.forName("com.example.databenchmark.runner.ComposeBenchmarkRunner$DefaultHdfsDatasetPublisher");
+        Constructor<?> constructor = type.getDeclaredConstructor(CommandRunner.class, Path.class, Duration.class, boolean.class);
+        constructor.setAccessible(true);
+        return (ComposeBenchmarkRunner.HdfsDatasetPublisher) constructor.newInstance(
+            commandRunner,
+            workingDirectory,
+            Duration.ofMinutes(1),
+            inContainer
+        );
+    }
+
     private static final class FakeSparkClient implements ComposeBenchmarkRunner.SparkClient {
         private final List<String> calls;
 
@@ -677,25 +823,45 @@ class ComposeBenchmarkRunnerTest {
         }
 
         @Override
-        public EngineRunResult publish(DatasetResult dataset, Path hdfsRoot) {
-            calls.add("Hive HDFS publish " + hdfsRoot.toString().replace('\\', '/'));
+        public EngineRunResult publish(DatasetResult dataset, String hdfsRoot) {
+            calls.add("Hive HDFS publish " + hdfsRoot.replace('\\', '/'));
             return new EngineRunResult("hive", "hive_hdfs_parquet", "HIVE_HDFS_PARQUET_PUBLISH",
                 null, dataset.rows(), dataset.bytesWritten(), 0.6, succeeds, succeeds ? "" : "hdfs publish failed");
         }
     }
 
+    private static final class CapturingCommandRunner extends CommandRunner {
+        private final List<List<String>> commands = new ArrayList<>();
+
+        @Override
+        public CommandResult run(List<String> command, Path workingDirectory, Duration timeout) {
+            commands.add(command);
+            return new CommandResult(command, 0, "ok", "", 0.1);
+        }
+
+        private List<List<String>> commands() {
+            return commands;
+        }
+    }
+
     private static final class FakeHiveClient implements ComposeBenchmarkRunner.HiveClientFacade {
         private final List<String> calls;
+        private final boolean createSucceeds;
 
         private FakeHiveClient(List<String> calls) {
+            this(calls, true);
+        }
+
+        private FakeHiveClient(List<String> calls, boolean createSucceeds) {
             this.calls = calls;
+            this.createSucceeds = createSucceeds;
         }
 
         @Override
-        public EngineRunResult createExternalTable(Path parquetRoot) {
-            calls.add("Hive external table " + parquetRoot.toString().replace('\\', '/'));
+        public EngineRunResult createExternalTable(String parquetRoot) {
+            calls.add("Hive external table " + parquetRoot.replace('\\', '/'));
             return new EngineRunResult("hive", "hive_hdfs_parquet", "HIVE_HDFS_PARQUET_LOAD",
-                null, 0L, 0L, 0.5, true, "");
+                null, 0L, 0L, 0.5, createSucceeds, createSucceeds ? "" : "hive create failed");
         }
 
         @Override

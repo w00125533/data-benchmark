@@ -40,6 +40,10 @@ public class HiveClient {
     }
 
     public EngineRunResult createExternalTable(Path parquetRoot) {
+        return createExternalTable(normalizedPath(parquetRoot));
+    }
+
+    public EngineRunResult createExternalTable(String parquetRoot) {
         String location = hdfsLocation(parquetRoot);
         if (location == null) {
             return failed(LOAD_STAGE, null, RoutePhase.HOT, 0.0,
@@ -144,7 +148,7 @@ public class HiveClient {
         return command.stderr().isBlank() ? command.stdout() : command.stderr();
     }
 
-    private static String hdfsLocation(Path path) {
+    private static String hdfsLocation(String path) {
         String normalized = normalizedPath(path);
         if (normalized.startsWith("hdfs://")) {
             return normalized;
@@ -157,6 +161,10 @@ public class HiveClient {
 
     private static String normalizedPath(Path path) {
         return path.toString().replace('\\', '/');
+    }
+
+    private static String normalizedPath(String path) {
+        return path.replace('\\', '/');
     }
 
     private static boolean defaultInContainer() {
