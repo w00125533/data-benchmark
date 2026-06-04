@@ -18,6 +18,3 @@ query:
 report:
   format: html
   output: "reports/runs"
-monitoring:
-  prometheus: true
-  grafana: true

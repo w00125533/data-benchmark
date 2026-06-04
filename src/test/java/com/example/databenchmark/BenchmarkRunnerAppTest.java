@@ -73,9 +73,6 @@ class BenchmarkRunnerAppTest {
             report:
               format: html
               output: "%s"
-            monitoring:
-              prometheus: true
-              grafana: true
             """.formatted(escapeYamlPath(dataDir), escapeYamlPath(reportDir)));
 
         CommandResult result = execute("run", "--config", config.toString(), "--run-id", "run-cli-test");
@@ -201,9 +198,6 @@ class BenchmarkRunnerAppTest {
             report:
               format: html
               output: "%s"
-            monitoring:
-              prometheus: true
-              grafana: true
             """.formatted(escapeYamlPath(dataDir), escapeYamlPath(reportDir)));
         return config;
     }

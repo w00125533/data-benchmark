@@ -47,8 +47,6 @@ class BenchmarkConfigLoaderTest {
         assertThat(config.query().concurrency()).isEqualTo(1);
         assertThat(config.report().format()).isEqualTo("html");
         assertThat(config.report().output()).isEqualTo("reports/runs");
-        assertThat(config.monitoring().prometheus()).isTrue();
-        assertThat(config.monitoring().grafana()).isTrue();
     }
 
     @Test
@@ -72,9 +70,6 @@ class BenchmarkConfigLoaderTest {
             report:
               format: html
               output: "reports/runs"
-            monitoring:
-              prometheus: true
-              grafana: true
             """);
 
         BenchmarkConfig config = new BenchmarkConfigLoader().load(configPath);
@@ -104,9 +99,6 @@ class BenchmarkConfigLoaderTest {
             report:
               format: html
               output: "reports/runs"
-            monitoring:
-              prometheus: true
-              grafana: true
             """);
 
         assertThatThrownBy(() -> new BenchmarkConfigLoader().load(configPath))
@@ -136,9 +128,6 @@ class BenchmarkConfigLoaderTest {
             report:
               format: html
               output: "reports/runs"
-            monitoring:
-              prometheus: true
-              grafana: true
             """);
 
         assertThatThrownBy(() -> new BenchmarkConfigLoader().load(configPath))
@@ -168,9 +157,6 @@ class BenchmarkConfigLoaderTest {
             report:
               format: html
               output: "reports/runs"
-            monitoring:
-              prometheus: true
-              grafana: true
             """);
 
         assertThatThrownBy(() -> new BenchmarkConfigLoader().load(configPath))
@@ -196,8 +182,6 @@ class BenchmarkConfigLoaderTest {
         assertThat(config.query().concurrency()).isEqualTo(1);
         assertThat(config.report().format()).isEqualTo("html");
         assertThat(config.report().output()).isEqualTo("reports/runs");
-        assertThat(config.monitoring().prometheus()).isTrue();
-        assertThat(config.monitoring().grafana()).isTrue();
     }
 
     @Test
@@ -272,9 +256,6 @@ class BenchmarkConfigLoaderTest {
             report:
               format: html
               output: "reports/runs"
-            monitoring:
-              prometheus: true
-              grafana: true
             """);
 
         BenchmarkConfig config = new BenchmarkConfigLoader().load(configPath);
@@ -294,9 +275,6 @@ class BenchmarkConfigLoaderTest {
             report:
               format: html
               output: "reports/runs"
-            monitoring:
-              prometheus: true
-              grafana: true
             """);
 
         assertThatThrownBy(() -> new BenchmarkConfigLoader().load(configPath))
@@ -323,9 +301,6 @@ class BenchmarkConfigLoaderTest {
             report:
               format: html
               output: "reports/runs"
-            monitoring:
-              prometheus: true
-              grafana: true
             """);
 
         assertThatThrownBy(() -> new BenchmarkConfigLoader().load(configPath))

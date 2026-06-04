@@ -23,8 +23,7 @@ public class BenchmarkConfigLoader {
                 BenchmarkConfig.SuiteConfig.defaultSuite(),
                 config.dataset(),
                 config.query(),
-                config.report(),
-                config.monitoring()
+                config.report()
             );
         }
 
@@ -40,8 +39,7 @@ public class BenchmarkConfigLoader {
             new BenchmarkConfig.SuiteConfig(normalizedName, normalizedScaleFactor, normalizedQuerySet),
             config.dataset(),
             config.query(),
-            config.report(),
-            config.monitoring()
+            config.report()
         );
     }
 
@@ -59,9 +57,6 @@ public class BenchmarkConfigLoader {
         validateDataset(config.dataset());
         validateQuery(config.query());
         validateReport(config.report());
-        if (config.monitoring() == null) {
-            throw new IllegalArgumentException("monitoring must not be null");
-        }
     }
 
     private static void validateSuite(BenchmarkConfig.SuiteConfig suite) {

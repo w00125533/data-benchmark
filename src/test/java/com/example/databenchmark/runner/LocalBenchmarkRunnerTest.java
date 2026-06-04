@@ -69,8 +69,7 @@ class LocalBenchmarkRunnerTest {
             new BenchmarkConfig.SuiteConfig("tpch", new BigDecimal("0.01"), "smoke"),
             new BenchmarkConfig.DatasetConfig(2, 1, 50, "2026-01-01T00:00:00", dataDir.toString(), 8L),
             new BenchmarkConfig.QueryConfig(1, 1, 1),
-            new BenchmarkConfig.ReportConfig("html", reportDir.toString()),
-            new BenchmarkConfig.MonitoringConfig(true, true)
+            new BenchmarkConfig.ReportConfig("html", reportDir.toString())
         );
 
         assertThatThrownBy(() -> new LocalBenchmarkRunner().run(config, reportDir, "run-tpch-local"))

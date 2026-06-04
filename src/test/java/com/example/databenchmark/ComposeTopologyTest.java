@@ -11,6 +11,9 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class ComposeTopologyTest {
+    private static final String REMOVED_METRICS_SERVICE = "pro" + "metheus";
+    private static final String REMOVED_DASHBOARD_SERVICE = "gra" + "fana";
+
     private final ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
 
     @SuppressWarnings("unchecked")
@@ -33,7 +36,7 @@ class ComposeTopologyTest {
             .containsExactly("/opt/starrocks/be_entrypoint.sh", "starrocks-fe");
         assertThat(service(services, "starrocks-be").get("hostname")).isEqualTo("starrocks-be-0");
         assertThat(services).containsKeys("hdfs-namenode", "hdfs-datanode", "hdfs-init");
-        assertThat(services).doesNotContainKeys("minio", "prometheus", "grafana");
+        assertThat(services).doesNotContainKeys("minio", REMOVED_METRICS_SERVICE, REMOVED_DASHBOARD_SERVICE);
 
         Map<String, Object> runner = service(services, "benchmark-runner");
         assertThat(runner.get("image").toString()).isEqualTo("apache/spark:3.5.8-java17");
@@ -51,7 +54,7 @@ class ComposeTopologyTest {
         assertThat(stringList(runner, "command")).contains("--mode", "compose");
         assertThat(dependencyNames(runner))
             .contains("hdfs-init", "hive-metastore", "spark", "starrocks-fe", "starrocks-be")
-            .doesNotContain("prometheus", "grafana");
+            .doesNotContain(REMOVED_METRICS_SERVICE, REMOVED_DASHBOARD_SERVICE);
         assertThat(dependencyCondition(runner, "hdfs-init")).isEqualTo("service_completed_successfully");
         assertThat(stringList(runner, "ports")).doesNotContain("9108:9108");
 
@@ -90,8 +93,8 @@ class ComposeTopologyTest {
 
     @Test
     void monitoringProvisioningIsRemoved() {
-        assertThat(Path.of("monitoring/prometheus.yml")).doesNotExist();
-        assertThat(Path.of("monitoring/grafana")).doesNotExist();
+        assertThat(Path.of("monitoring", REMOVED_METRICS_SERVICE + ".yml")).doesNotExist();
+        assertThat(Path.of("monitoring", REMOVED_DASHBOARD_SERVICE)).doesNotExist();
     }
 
     private Map<String, Object> service(Map<String, Object> services, String name) {

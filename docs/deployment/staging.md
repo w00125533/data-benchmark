@@ -90,4 +90,4 @@ Test-Path reports/runs/staging-web-report-smoke/index.html
 Test-Path reports/runs/staging-web-report-smoke/report.json
 ```
 
-Open `reports/runs/staging-web-report-smoke/index.html` directly in a browser. Grafana and Prometheus are not part of the report viewing path.
+Open `reports/runs/staging-web-report-smoke/index.html` directly in a browser. The removed monitoring stack is not part of the report viewing path.

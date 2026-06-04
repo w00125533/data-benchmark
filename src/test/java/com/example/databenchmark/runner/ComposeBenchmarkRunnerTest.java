@@ -163,8 +163,7 @@ class ComposeBenchmarkRunnerTest {
             new BenchmarkConfig.SuiteConfig("tpch", new BigDecimal("0.01"), "smoke"),
             BenchmarkConfig.defaultSmoke().dataset(),
             BenchmarkConfig.defaultSmoke().query(),
-            BenchmarkConfig.defaultSmoke().report(),
-            BenchmarkConfig.defaultSmoke().monitoring()
+            BenchmarkConfig.defaultSmoke().report()
         );
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
@@ -245,8 +244,7 @@ class ComposeBenchmarkRunnerTest {
             new BenchmarkConfig.SuiteConfig("tpch", new BigDecimal("0.01"), "smoke"),
             BenchmarkConfig.defaultSmoke().dataset(),
             BenchmarkConfig.defaultSmoke().query(),
-            BenchmarkConfig.defaultSmoke().report(),
-            BenchmarkConfig.defaultSmoke().monitoring()
+            BenchmarkConfig.defaultSmoke().report()
         );
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
@@ -304,8 +302,7 @@ class ComposeBenchmarkRunnerTest {
             new BenchmarkConfig.SuiteConfig("tpch", new BigDecimal("0.01"), "smoke"),
             BenchmarkConfig.defaultSmoke().dataset(),
             BenchmarkConfig.defaultSmoke().query(),
-            BenchmarkConfig.defaultSmoke().report(),
-            BenchmarkConfig.defaultSmoke().monitoring()
+            BenchmarkConfig.defaultSmoke().report()
         );
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(

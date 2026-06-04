@@ -6,8 +6,7 @@ public record BenchmarkConfig(
     SuiteConfig suite,
     DatasetConfig dataset,
     QueryConfig query,
-    ReportConfig report,
-    MonitoringConfig monitoring
+    ReportConfig report
 ) {
     public static BenchmarkConfig defaultSmoke() {
         return new BenchmarkConfig(
@@ -16,8 +15,7 @@ public record BenchmarkConfig(
             SuiteConfig.defaultSuite(),
             new DatasetConfig(10_000, 1, 50, "2026-01-01T00:00:00", "data/generated", 10_000L),
             new QueryConfig(1, 3, 1),
-            new ReportConfig("html", "reports/runs"),
-            new MonitoringConfig(true, true)
+            new ReportConfig("html", "reports/runs")
         );
     }
 
@@ -44,8 +42,7 @@ public record BenchmarkConfig(
             suite,
             updatedDataset,
             query,
-            report,
-            monitoring
+            report
         );
     }
 
@@ -61,7 +58,7 @@ public record BenchmarkConfig(
     }
 
     private BenchmarkConfig withDataset(DatasetConfig dataset) {
-        return new BenchmarkConfig(profile, seed, suite, dataset, query, report, monitoring);
+        return new BenchmarkConfig(profile, seed, suite, dataset, query, report);
     }
 
     public record SuiteConfig(String name, java.math.BigDecimal scaleFactor, String querySet) {
@@ -98,6 +95,4 @@ public record BenchmarkConfig(
     public record QueryConfig(int coldRuns, int warmRuns, int concurrency) {}
 
     public record ReportConfig(String format, String output) {}
-
-    public record MonitoringConfig(boolean prometheus, boolean grafana) {}
 }
