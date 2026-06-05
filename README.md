@@ -51,9 +51,13 @@ Generate data only:
 java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar generate --cells 10 --days 1 --row-cap 100
 ```
 
+KPI data generation uses Spark in both local and compose modes. Local commands use Spark `local[*]`; compose runs execute the same generation path inside the `spark` service before downstream route loading begins.
+
 The default verification config is [configs/benchmark-smoke.yml](configs/benchmark-smoke.yml). It preserves the spec values for `10,000` cells and `1` day, and uses `rowCap: 10000` for a 10k-row smoke dataset.
 
 The formal KPI benchmark config is [configs/benchmark-kpi-10m.yml](configs/benchmark-kpi-10m.yml). It uses the same KPI shape with `rowCap: 10000000` for a 10m-row benchmark dataset.
+
+The large KPI generation config is [configs/benchmark-kpi-1b.yml](configs/benchmark-kpi-1b.yml). It uses `rowCap: 1000000000` with 1024 Spark partitions for a 1b-row dataset.
 
 Docker Compose uses the packaged runner jar from `target/`, so run `mvn package` before starting Compose. Build the benchmark-runner image after packaging so the container has Java 17, Spark, the Hadoop `hdfs` CLI, and `docker compose` available for Hive HDFS Parquet publish and route cold restarts. The runner service executes the real compose path:
 
@@ -65,7 +69,7 @@ docker compose -f docker-compose.yml up benchmark-runner
 
 The `benchmark-runner` service mounts `/var/run/docker.sock:/var/run/docker.sock` so the Java controller inside the container can run `docker compose exec`, `stop`, and `start` for cold restart/readiness orchestration. On Windows Docker Desktop this Linux socket path is normally exposed to Linux containers. If you do not want to mount the Docker socket, start the dependent services with Compose and run the packaged jar directly from the host instead of using the runner container.
 
-The generator writes deterministic, partitioned Parquet files under `event_date=YYYY-MM-DD/part-00000.parquet`. Local mode remains a fast Java-only smoke path; compose mode runs the Spark/Iceberg and StarRocks engine path.
+The generator writes deterministic, partitioned Parquet files under `event_date=YYYY-MM-DD/*.parquet`. Local mode uses Spark local execution for small smoke data; compose mode runs generation inside the Spark service and then executes the Spark/Iceberg, StarRocks, and Hive query routes.
 
 ## HDFS Compose Benchmark
 
@@ -87,6 +91,15 @@ mvn package
 docker compose -f docker-compose.yml down --remove-orphans
 docker compose -f docker-compose.yml up -d hdfs-namenode hdfs-datanode hdfs-init hive-metastore hive-server spark starrocks-fe starrocks-be
 java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --config configs/benchmark-kpi-10m.yml --run-id compose-kpi-10m
+```
+
+Run the 1b-row KPI generation and benchmark profile:
+
+```sh
+mvn package
+docker compose -f docker-compose.yml down --remove-orphans
+docker compose -f docker-compose.yml up -d hdfs-namenode hdfs-datanode hdfs-init hive-metastore hive-server spark starrocks-fe starrocks-be
+java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --config configs/benchmark-kpi-1b.yml --run-id compose-kpi-1b
 ```
 
 Use a unique `--run-id` for every real run, for example `kpi-10m-20260605-001`, so each report is written to its own directory under `reports/runs/`.

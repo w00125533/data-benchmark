@@ -7,6 +7,11 @@ dataset:
   startTime: "2026-01-01T00:00:00"
   output: "data/generated"
   rowCap: 10000000
+  spark:
+    master: "local[*]"
+    partitions: 64
+    rowsPerPartition: 1000000
+    outputMode: "overwrite"
 query:
   coldRuns: 1
   warmRuns: 3

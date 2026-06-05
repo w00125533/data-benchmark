@@ -149,9 +149,10 @@ class ComposeTopologyTest {
     }
 
     @Test
-    void benchmarkConfigsDeclareSmokeAndKpiRowCaps() throws Exception {
+    void benchmarkConfigsDeclareSmokeKpiAndOneBillionRowCaps() throws Exception {
         assertThat(rowCap(Path.of("configs", "benchmark-smoke.yml"))).isEqualTo(10000);
         assertThat(rowCap(Path.of("configs", "benchmark-kpi-10m.yml"))).isEqualTo(10000000);
+        assertThat(rowCap(Path.of("configs", "benchmark-kpi-1b.yml"))).isEqualTo(1000000000);
     }
 
     @Test

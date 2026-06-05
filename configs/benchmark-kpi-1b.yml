@@ -1,16 +1,16 @@
-profile: smoke
+profile: kpi-1b
 seed: 20260602
 dataset:
   cells: 10000
-  days: 1
+  days: 70
   columns: 50
   startTime: "2026-01-01T00:00:00"
   output: "data/generated"
-  rowCap: 10000
+  rowCap: 1000000000
   spark:
     master: "local[*]"
-    partitions: 4
-    rowsPerPartition: 2500
+    partitions: 1024
+    rowsPerPartition: 1000000
     outputMode: "overwrite"
 query:
   coldRuns: 1
