@@ -8,7 +8,6 @@ import java.util.List;
 
 public class HiveClient {
     private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(10);
-    private static final String IN_CONTAINER_ENV = "BENCHMARK_COMPOSE_IN_CONTAINER";
     private static final String BEELINE = "beeline";
     private static final String JDBC_URL = "jdbc:hive2://hive-server:10000/default";
     private static final String HDFS_DEFAULT_FS = "hdfs://hdfs-namenode:8020";
@@ -29,7 +28,7 @@ public class HiveClient {
     }
 
     public HiveClient(CommandRunner commandRunner, Path workingDirectory, Duration timeout) {
-        this(commandRunner, workingDirectory, timeout, defaultInContainer());
+        this(commandRunner, workingDirectory, timeout, false);
     }
 
     public HiveClient(CommandRunner commandRunner, Path workingDirectory, Duration timeout, boolean inContainer) {
@@ -165,7 +164,4 @@ public class HiveClient {
         return path.replace('\\', '/');
     }
 
-    private static boolean defaultInContainer() {
-        return Boolean.parseBoolean(System.getenv().getOrDefault(IN_CONTAINER_ENV, "false"));
-    }
 }

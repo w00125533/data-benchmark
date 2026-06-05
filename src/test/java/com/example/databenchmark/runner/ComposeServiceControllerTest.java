@@ -94,15 +94,15 @@ class ComposeServiceControllerTest {
 
         assertThat(target.project()).isEqualTo("shared-data-infra");
         assertThat(target.files()).containsExactly(
-            "/shared-data-infra/compose.yaml",
-            "/shared-data-infra/compose.lakehouse.yaml",
-            "/shared-data-infra/compose.starrocks.yaml"
+            "../shared-data-infra/compose.yaml",
+            "../shared-data-infra/compose.lakehouse.yaml",
+            "../shared-data-infra/compose.starrocks.yaml"
         );
         assertThat(target.composeCommand("exec", "-T", "spark", "echo", "ok")).containsExactly(
             "docker", "compose", "-p", "shared-data-infra",
-            "-f", "/shared-data-infra/compose.yaml",
-            "-f", "/shared-data-infra/compose.lakehouse.yaml",
-            "-f", "/shared-data-infra/compose.starrocks.yaml",
+            "-f", "../shared-data-infra/compose.yaml",
+            "-f", "../shared-data-infra/compose.lakehouse.yaml",
+            "-f", "../shared-data-infra/compose.starrocks.yaml",
             "exec", "-T", "spark", "echo", "ok"
         );
     }
@@ -398,9 +398,9 @@ class ComposeServiceControllerTest {
         return configuredComposeCommand(
             "shared-data-infra",
             List.of(
-                "/shared-data-infra/compose.yaml",
-                "/shared-data-infra/compose.lakehouse.yaml",
-                "/shared-data-infra/compose.starrocks.yaml"
+                "../shared-data-infra/compose.yaml",
+                "../shared-data-infra/compose.lakehouse.yaml",
+                "../shared-data-infra/compose.starrocks.yaml"
             ),
             args
         );

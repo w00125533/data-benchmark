@@ -17,7 +17,6 @@ import java.util.List;
 
 public class SparkIcebergClient {
     private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(10);
-    private static final String IN_CONTAINER_ENV = "BENCHMARK_COMPOSE_IN_CONTAINER";
     private static final String SPARK_SQL = "/opt/spark/bin/spark-sql";
     private static final String ICEBERG_RUNTIME = "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1";
     private static final String IVY_CACHE_CONF = "spark.jars.ivy=/tmp/.ivy2";
@@ -37,7 +36,7 @@ public class SparkIcebergClient {
     }
 
     public SparkIcebergClient(CommandRunner commandRunner, Path workingDirectory, Duration timeout) {
-        this(commandRunner, workingDirectory, timeout, defaultInContainer());
+        this(commandRunner, workingDirectory, timeout, false);
     }
 
     public SparkIcebergClient(CommandRunner commandRunner, Path workingDirectory, Duration timeout, boolean inContainer) {
@@ -302,7 +301,4 @@ public class SparkIcebergClient {
         return relative.isEmpty() ? "/workspace" : "/workspace/" + relative;
     }
 
-    private static boolean defaultInContainer() {
-        return Boolean.parseBoolean(System.getenv().getOrDefault(IN_CONTAINER_ENV, "false"));
-    }
 }

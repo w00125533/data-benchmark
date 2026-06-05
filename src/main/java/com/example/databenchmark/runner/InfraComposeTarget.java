@@ -7,9 +7,9 @@ import java.util.Map;
 public record InfraComposeTarget(String project, List<String> files) {
     private static final String DEFAULT_PROJECT = "shared-data-infra";
     private static final List<String> DEFAULT_FILES = List.of(
-        "/shared-data-infra/compose.yaml",
-        "/shared-data-infra/compose.lakehouse.yaml",
-        "/shared-data-infra/compose.starrocks.yaml"
+        "../shared-data-infra/compose.yaml",
+        "../shared-data-infra/compose.lakehouse.yaml",
+        "../shared-data-infra/compose.starrocks.yaml"
     );
 
     public InfraComposeTarget {

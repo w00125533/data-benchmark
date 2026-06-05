@@ -31,9 +31,9 @@ class HiveClientTest {
         assertThat(runner.commands().get(0))
             .containsSequence(
                 "docker", "compose", "-p", "shared-data-infra",
-                "-f", "/shared-data-infra/compose.yaml",
-                "-f", "/shared-data-infra/compose.lakehouse.yaml",
-                "-f", "/shared-data-infra/compose.starrocks.yaml",
+                "-f", "../shared-data-infra/compose.yaml",
+                "-f", "../shared-data-infra/compose.lakehouse.yaml",
+                "-f", "../shared-data-infra/compose.starrocks.yaml",
                 "exec", "-T", "hive-server", "beeline"
             );
         assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
@@ -103,6 +103,22 @@ class HiveClientTest {
         assertThat(runner.commands()).hasSize(1);
         assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
             .isEqualTo(SqlRenderer.render("topn_high_load_cells", "hive_hdfs_parquet"));
+    }
+
+    @Test
+    void inContainerModeRunsBeelineDirectlyWithoutDockerCompose() {
+        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "ok", "", 1.25));
+
+        EngineRunResult result = new HiveClient(runner, tempDir, Duration.ofMinutes(1), true)
+            .createExternalTable(Path.of("/data/generated"));
+
+        assertThat(result.success()).isTrue();
+        assertThat(runner.commands()).hasSize(1);
+        assertThat(runner.commands().get(0))
+            .startsWith("beeline")
+            .doesNotContain("docker", "compose", "exec");
+        assertThat(runner.commands().get(0))
+            .contains("-u", "jdbc:hive2://hive-server:10000/default", "-e");
     }
 
     private static final class FakeCommandRunner extends CommandRunner {
