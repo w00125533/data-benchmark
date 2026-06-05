@@ -8,6 +8,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -27,6 +28,7 @@ public class ComposeServiceController {
     private final int readinessAttempts;
     private final Duration readinessDelay;
     private final Sleeper sleeper;
+    private final InfraComposeTarget infraComposeTarget;
 
     public ComposeServiceController() {
         this(new CommandRunner());
@@ -55,12 +57,33 @@ public class ComposeServiceController {
         Duration readinessDelay,
         Sleeper sleeper
     ) {
+        this(
+            commandRunner,
+            workingDirectory,
+            timeout,
+            readinessAttempts,
+            readinessDelay,
+            sleeper,
+            InfraComposeTarget.fromEnvironment(System.getenv())
+        );
+    }
+
+    ComposeServiceController(
+        CommandRunner commandRunner,
+        Path workingDirectory,
+        Duration timeout,
+        int readinessAttempts,
+        Duration readinessDelay,
+        Sleeper sleeper,
+        InfraComposeTarget infraComposeTarget
+    ) {
         this.commandRunner = commandRunner;
         this.workingDirectory = workingDirectory;
         this.timeout = timeout;
         this.readinessAttempts = Math.max(1, readinessAttempts);
         this.readinessDelay = readinessDelay;
         this.sleeper = sleeper;
+        this.infraComposeTarget = infraComposeTarget;
     }
 
     public void restart(BenchmarkRoute route) {
@@ -118,63 +141,51 @@ public class ComposeServiceController {
     List<List<String>> restartCommands(BenchmarkRoute route) {
         return switch (route) {
             case SPARK_ICEBERG -> List.of(
-                List.of("docker", "compose", "-f", "docker-compose.yml", "restart", "spark")
+                composeCommand("restart", "spark")
             );
             case STARROCKS_INTERNAL, STARROCKS_EXTERNAL_ICEBERG -> List.of(
-                List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "starrocks-be"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "starrocks-fe"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "start", "starrocks-fe"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "start", "starrocks-be")
+                composeCommand("stop", "starrocks-be"),
+                composeCommand("stop", "starrocks-fe"),
+                composeCommand("start", "starrocks-fe"),
+                composeCommand("start", "starrocks-be")
             );
             case HIVE_HDFS_PARQUET -> List.of(
-                List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "hive-server"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "start", "hive-server")
+                composeCommand("stop", "hive-server"),
+                composeCommand("start", "hive-server")
             );
         };
     }
 
     private List<List<String>> readinessCommands(BenchmarkRoute route) {
         return switch (route) {
-            case SPARK_ICEBERG -> List.of(List.of(
-                    "docker",
-                    "compose",
-                    "-f",
-                    "docker-compose.yml",
-                    "exec",
-                    "-T",
-                    "spark",
-                    "/opt/spark/bin/spark-sql",
-                    "-e",
-                    "SELECT 1"
-                ));
+            case SPARK_ICEBERG -> List.of(composeCommand(
+                "exec",
+                "-T",
+                "spark",
+                "/opt/spark/bin/spark-sql",
+                "-e",
+                "SELECT 1"
+            ));
             case STARROCKS_INTERNAL, STARROCKS_EXTERNAL_ICEBERG -> List.of(
                 starRocksMysqlCommand("SELECT 1"),
                 starRocksMysqlCommand("SHOW PROC '/backends'"),
                 starRocksMysqlCommand("SHOW BACKEND BLACKLIST")
             );
-            case HIVE_HDFS_PARQUET -> List.of(List.of(
-                    "docker",
-                    "compose",
-                    "-f",
-                    "docker-compose.yml",
-                    "exec",
-                    "-T",
-                    "hive-server",
-                    "beeline",
-                    "-u",
-                    "jdbc:hive2://hive-server:10000/default",
-                    "-e",
-                    "SELECT 1"
-                ));
+            case HIVE_HDFS_PARQUET -> List.of(composeCommand(
+                "exec",
+                "-T",
+                "hive-server",
+                "beeline",
+                "-u",
+                "jdbc:hive2://hive-server:10000/default",
+                "-e",
+                "SELECT 1"
+            ));
         };
     }
 
     private List<String> starRocksMysqlCommand(String sql) {
-        return List.of(
-            "docker",
-            "compose",
-            "-f",
-            "docker-compose.yml",
+        return composeCommand(
             "exec",
             "-T",
             "starrocks-fe",
@@ -187,6 +198,16 @@ public class ComposeServiceController {
             "-e",
             sql
         );
+    }
+
+    private List<String> composeCommand(String... args) {
+        List<String> command = new ArrayList<>(List.of("docker", "compose", "-p", infraComposeTarget.project()));
+        for (String file : infraComposeTarget.files()) {
+            command.add("-f");
+            command.add(file);
+        }
+        command.addAll(List.of(args));
+        return command;
     }
 
     private void waitForStarRocksFeMysql(BenchmarkRoute route) {
@@ -413,6 +434,48 @@ public class ComposeServiceController {
         boolean hasStatusJson,
         boolean hasTabletReportTime
     ) {}
+
+    record InfraComposeTarget(String project, List<String> files) {
+        private static final String DEFAULT_PROJECT = "shared-data-infra";
+        private static final List<String> DEFAULT_FILES = List.of(
+            "/shared-data-infra/compose.yaml",
+            "/shared-data-infra/compose.lakehouse.yaml",
+            "/shared-data-infra/compose.starrocks.yaml"
+        );
+
+        InfraComposeTarget {
+            project = defaultIfBlank(project, DEFAULT_PROJECT);
+            files = List.copyOf(files == null || files.isEmpty() ? DEFAULT_FILES : files);
+        }
+
+        static InfraComposeTarget fromEnvironment(Map<String, String> environment) {
+            String project = environment.get("BENCHMARK_INFRA_PROJECT");
+            String filesValue = environment.get("BENCHMARK_INFRA_COMPOSE_FILES");
+            if (isBlank(filesValue)) {
+                return new InfraComposeTarget(project, DEFAULT_FILES);
+            }
+
+            List<String> files = new ArrayList<>();
+            for (String file : filesValue.split("[;,]")) {
+                String trimmed = file.trim();
+                if (!trimmed.isEmpty()) {
+                    files.add(trimmed);
+                }
+            }
+            return new InfraComposeTarget(project, files);
+        }
+
+        private static String defaultIfBlank(String value, String defaultValue) {
+            if (isBlank(value)) {
+                return defaultValue;
+            }
+            return value.trim();
+        }
+
+        private static boolean isBlank(String value) {
+            return value == null || value.trim().isEmpty();
+        }
+    }
 
     private void runChecked(BenchmarkRoute route, List<String> command, String action) {
         CommandResult result;

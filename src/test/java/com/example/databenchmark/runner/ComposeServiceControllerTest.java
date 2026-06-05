@@ -11,6 +11,7 @@ import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 import org.junit.jupiter.api.Test;
 
@@ -21,25 +22,25 @@ class ComposeServiceControllerTest {
         ComposeServiceController controller = new ComposeServiceController(commandRunner);
 
         assertThat(controller.restartCommands(BenchmarkRoute.SPARK_ICEBERG))
-            .containsExactly(List.of("docker", "compose", "-f", "docker-compose.yml", "restart", "spark"));
+            .containsExactly(composeCommand("restart", "spark"));
         assertThat(controller.restartCommands(BenchmarkRoute.STARROCKS_INTERNAL))
             .containsExactly(
-                List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "starrocks-be"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "starrocks-fe"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "start", "starrocks-fe"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "start", "starrocks-be")
+                composeCommand("stop", "starrocks-be"),
+                composeCommand("stop", "starrocks-fe"),
+                composeCommand("start", "starrocks-fe"),
+                composeCommand("start", "starrocks-be")
             );
         assertThat(controller.restartCommands(BenchmarkRoute.STARROCKS_EXTERNAL_ICEBERG))
             .containsExactly(
-                List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "starrocks-be"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "starrocks-fe"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "start", "starrocks-fe"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "start", "starrocks-be")
+                composeCommand("stop", "starrocks-be"),
+                composeCommand("stop", "starrocks-fe"),
+                composeCommand("start", "starrocks-fe"),
+                composeCommand("start", "starrocks-be")
             );
         assertThat(controller.restartCommands(BenchmarkRoute.HIVE_HDFS_PARQUET))
             .containsExactly(
-                List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "hive-server"),
-                List.of("docker", "compose", "-f", "docker-compose.yml", "start", "hive-server")
+                composeCommand("stop", "hive-server"),
+                composeCommand("start", "hive-server")
             );
         assertThat(controller.restartCommands(BenchmarkRoute.STARROCKS_INTERNAL).stream().flatMap(List::stream))
             .doesNotContain("restart", "rm", "--force-recreate");
@@ -58,7 +59,62 @@ class ComposeServiceControllerTest {
         controller.restart(BenchmarkRoute.SPARK_ICEBERG);
 
         assertThat(commandRunner.commands)
-            .containsExactly(List.of("docker", "compose", "-f", "docker-compose.yml", "restart", "spark"));
+            .containsExactly(composeCommand("restart", "spark"));
+    }
+
+    @Test
+    void restartCommandsUseConfiguredSharedInfraComposeTarget() {
+        FakeCommandRunner commandRunner = new FakeCommandRunner();
+        ComposeServiceController.InfraComposeTarget target = new ComposeServiceController.InfraComposeTarget(
+            "infra-project",
+            List.of("../shared-data-infra/compose.yaml", "../shared-data-infra/compose.starrocks.yaml")
+        );
+        ComposeServiceController controller = new ComposeServiceController(
+            commandRunner,
+            Path.of("."),
+            Duration.ofSeconds(30),
+            90,
+            Duration.ZERO,
+            ignored -> { },
+            target
+        );
+
+        assertThat(controller.restartCommands(BenchmarkRoute.STARROCKS_INTERNAL))
+            .containsExactly(
+                configuredComposeCommand("infra-project", target.files(), "stop", "starrocks-be"),
+                configuredComposeCommand("infra-project", target.files(), "stop", "starrocks-fe"),
+                configuredComposeCommand("infra-project", target.files(), "start", "starrocks-fe"),
+                configuredComposeCommand("infra-project", target.files(), "start", "starrocks-be")
+            );
+    }
+
+    @Test
+    void infraComposeTargetDefaultsToSharedInfraFiles() {
+        ComposeServiceController.InfraComposeTarget target =
+            ComposeServiceController.InfraComposeTarget.fromEnvironment(Map.of());
+
+        assertThat(target.project()).isEqualTo("shared-data-infra");
+        assertThat(target.files()).containsExactly(
+            "/shared-data-infra/compose.yaml",
+            "/shared-data-infra/compose.lakehouse.yaml",
+            "/shared-data-infra/compose.starrocks.yaml"
+        );
+    }
+
+    @Test
+    void infraComposeTargetParsesSemicolonAndCommaSeparatedFiles() {
+        ComposeServiceController.InfraComposeTarget target =
+            ComposeServiceController.InfraComposeTarget.fromEnvironment(Map.of(
+                "BENCHMARK_INFRA_PROJECT", " infra-project ",
+                "BENCHMARK_INFRA_COMPOSE_FILES", " compose.yaml ; compose.lakehouse.yaml, compose.starrocks.yaml "
+            ));
+
+        assertThat(target.project()).isEqualTo("infra-project");
+        assertThat(target.files()).containsExactly(
+            "compose.yaml",
+            "compose.lakehouse.yaml",
+            "compose.starrocks.yaml"
+        );
     }
 
     @Test
@@ -82,14 +138,14 @@ class ComposeServiceControllerTest {
         controller.restart(BenchmarkRoute.STARROCKS_INTERNAL);
 
         assertThat(commandRunner.commands).containsExactly(
-            List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "starrocks-be"),
-            List.of("docker", "compose", "-f", "docker-compose.yml", "stop", "starrocks-fe"),
-            List.of("docker", "compose", "-f", "docker-compose.yml", "start", "starrocks-fe"),
-            List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
+            composeCommand("stop", "starrocks-be"),
+            composeCommand("stop", "starrocks-fe"),
+            composeCommand("start", "starrocks-fe"),
+            composeCommand("exec", "-T", "starrocks-fe",
                 "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SELECT 1"),
-            List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
+            composeCommand("exec", "-T", "starrocks-fe",
                 "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SELECT 1"),
-            List.of("docker", "compose", "-f", "docker-compose.yml", "start", "starrocks-be")
+            composeCommand("start", "starrocks-be")
         );
     }
 
@@ -102,7 +158,7 @@ class ComposeServiceControllerTest {
         assertThatThrownBy(() -> controller.restart(BenchmarkRoute.SPARK_ICEBERG))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("SPARK_ICEBERG")
-            .hasMessageContaining("docker compose -f docker-compose.yml restart spark")
+            .hasMessageContaining(String.join(" ", composeCommand("restart", "spark")))
             .hasMessageContaining("spark restart failed");
     }
 
@@ -132,21 +188,21 @@ class ComposeServiceControllerTest {
         controller.waitUntilReady(BenchmarkRoute.HIVE_HDFS_PARQUET);
 
         assertThat(commandRunner.commands).containsExactly(
-            List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "spark",
+            composeCommand("exec", "-T", "spark",
                 "/opt/spark/bin/spark-sql", "-e", "SELECT 1"),
-            List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
+            composeCommand("exec", "-T", "starrocks-fe",
                 "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SELECT 1"),
-            List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
+            composeCommand("exec", "-T", "starrocks-fe",
                 "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SHOW PROC '/backends'"),
-            List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
+            composeCommand("exec", "-T", "starrocks-fe",
                 "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SHOW BACKEND BLACKLIST"),
-            List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
+            composeCommand("exec", "-T", "starrocks-fe",
                 "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SELECT 1"),
-            List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
+            composeCommand("exec", "-T", "starrocks-fe",
                 "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SHOW PROC '/backends'"),
-            List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "starrocks-fe",
+            composeCommand("exec", "-T", "starrocks-fe",
                 "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SHOW BACKEND BLACKLIST"),
-            List.of("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "hive-server",
+            composeCommand("exec", "-T", "hive-server",
                 "beeline", "-u", "jdbc:hive2://hive-server:10000/default", "-e", "SELECT 1")
         );
     }
@@ -325,10 +381,33 @@ class ComposeServiceControllerTest {
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("HIVE_HDFS_PARQUET")
             .hasMessageContaining("readiness check")
-            .hasMessageContaining("docker compose -f docker-compose.yml exec -T hive-server beeline -u jdbc:hive2://hive-server:10000/default -e SELECT 1")
+            .hasMessageContaining(String.join(" ", composeCommand("exec", "-T", "hive-server",
+                "beeline", "-u", "jdbc:hive2://hive-server:10000/default", "-e", "SELECT 1")))
             .hasMessageContaining("hive-server is missing");
 
         assertThat(commandRunner.commands).hasSize(2);
+    }
+
+    private static List<String> composeCommand(String... args) {
+        return configuredComposeCommand(
+            "shared-data-infra",
+            List.of(
+                "/shared-data-infra/compose.yaml",
+                "/shared-data-infra/compose.lakehouse.yaml",
+                "/shared-data-infra/compose.starrocks.yaml"
+            ),
+            args
+        );
+    }
+
+    private static List<String> configuredComposeCommand(String project, List<String> files, String... args) {
+        List<String> command = new ArrayList<>(List.of("docker", "compose", "-p", project));
+        for (String file : files) {
+            command.add("-f");
+            command.add(file);
+        }
+        command.addAll(List.of(args));
+        return command;
     }
 
     private static final class FakeCommandRunner extends CommandRunner {
