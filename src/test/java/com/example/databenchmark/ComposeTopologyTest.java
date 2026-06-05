@@ -102,6 +102,28 @@ class ComposeTopologyTest {
             .contains("docker compose -f docker-compose.yml build benchmark-runner")
             .contains("mvn package")
             .contains("/var/run/docker.sock");
+        assertThat(readme)
+            .contains("Shared Infra Compose Benchmark")
+            .contains("shared-data-infra")
+            .contains("docker compose -f compose.yaml -f compose.lakehouse.yaml -f compose.starrocks.yaml --profile lakehouse --profile lakehouse-tools --profile spark-tools --profile starrocks up -d")
+            .contains("BENCHMARK_INFRA_PROJECT")
+            .contains("BENCHMARK_INFRA_COMPOSE_FILES")
+            .contains("BENCHMARK_INFRA_NETWORK")
+            .contains("BENCHMARK_WORKSPACE")
+            .contains("../shared-data-infra/compose.yaml")
+            .contains("/shared-data-infra/compose.yaml")
+            .contains("hdfs://hdfs-namenode:8020")
+            .contains("thrift://hive-metastore:9083")
+            .contains("jdbc:hive2://hive-server:10000/default")
+            .contains("starrocks-fe:9030")
+            .contains("http://starrocks-be:8040");
+        assertThat(readme)
+            .doesNotContain("HDFS Compose Benchmark")
+            .doesNotContain("docker compose -f docker-compose.yml up -d hdfs-init hive-server spark starrocks-fe starrocks-be")
+            .doesNotContain("172.20.0.0/24")
+            .doesNotContain("172.20.0.10")
+            .doesNotContain("172.20.0.11")
+            .doesNotContain("JAVA_OPTS");
     }
 
     private Map<String, Object> service(Map<String, Object> services, String name) {

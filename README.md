@@ -73,24 +73,54 @@ The `benchmark-runner` service mounts `/var/run/docker.sock:/var/run/docker.sock
 
 The generator writes deterministic, partitioned Parquet files under `event_date=YYYY-MM-DD/*.parquet`. Local mode uses Spark local execution for small smoke data; compose mode runs generation inside the Spark service and then executes the Spark/Iceberg, StarRocks, and Hive query routes.
 
-## HDFS Compose Benchmark
+## Shared Infra Compose Benchmark
 
-HDFS and the Hive Metastore are provided by the shared lakehouse infrastructure. Start that prerequisite from `D:\agent-code\shared-data-infra` before starting this benchmark runtime:
+Compose benchmark mode uses `../shared-data-infra` for HDFS, Hive Metastore, HDFS warehouse initialization, HiveServer2, Spark, and split StarRocks FE/BE services. The local `docker-compose.yml` keeps only `benchmark-runner`; it joins the external `shared-data-infra` network and controls shared service lifecycle through the Docker socket.
+
+Start the benchmark-compatible shared infrastructure from `../shared-data-infra`:
 
 ```sh
-sh scripts/infra-up.sh lakehouse
+docker compose -f compose.yaml -f compose.lakehouse.yaml -f compose.starrocks.yaml --profile lakehouse --profile lakehouse-tools --profile spark-tools --profile starrocks up -d
 ```
 
-The HDFS Iceberg warehouse path remains `hdfs://hdfs-namenode:8020/warehouse/iceberg`, and HiveServer2 uses the shared metastore at `thrift://hive-metastore:9083`.
+Shared service endpoints on the `shared-data-infra` network:
 
-This project still keeps `spark`, `hive-server`, and split `starrocks-fe`/`starrocks-be` services local. The Java runner shells into `spark` and `hive-server` with `docker compose exec`, and the benchmark needs direct FE/BE lifecycle control for StarRocks cold restart semantics.
+| Service | Endpoint |
+| --- | --- |
+| HDFS | `hdfs://hdfs-namenode:8020` |
+| Hive Metastore | `thrift://hive-metastore:9083` |
+| HiveServer2 | `jdbc:hive2://hive-server:10000/default` |
+| Spark exec service | `docker compose ... exec spark /opt/spark/bin/spark-sql ...` |
+| StarRocks FE MySQL | `starrocks-fe:9030` |
+| StarRocks BE HTTP | `http://starrocks-be:8040` |
+
+Compose benchmark environment variables:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `BENCHMARK_INFRA_PROJECT` | `shared-data-infra` | Docker Compose project name used when the Java runner controls shared services. |
+| `BENCHMARK_INFRA_COMPOSE_FILES` | `../shared-data-infra/compose.yaml;../shared-data-infra/compose.lakehouse.yaml;../shared-data-infra/compose.starrocks.yaml` | Semicolon- or comma-separated shared infra compose files for host Java runs. |
+| `BENCHMARK_INFRA_NETWORK` | `shared-data-infra` | Docker network used by ad hoc publisher containers and benchmark services. |
+| `BENCHMARK_WORKSPACE` | `../data-benchmark` in shared infra | Host path mounted into the shared Spark service at `/workspace`; override it when the repositories are not checked out as siblings. |
+
+Host Java runs use the `../shared-data-infra/...` compose file defaults. The `benchmark-runner` container cannot use those host-relative paths, so `docker-compose.yml` mounts `../shared-data-infra` read-only at `/shared-data-infra` and injects `/shared-data-infra/compose.yaml;/shared-data-infra/compose.lakehouse.yaml;/shared-data-infra/compose.starrocks.yaml` through `BENCHMARK_INFRA_COMPOSE_FILES`.
+
+Resource ownership:
+
+| Resource | Owner |
+| --- | --- |
+| `benchmark-runner` | local `data-benchmark/docker-compose.yml` |
+| `hdfs-init` | `../shared-data-infra/compose.lakehouse.yaml` |
+| `hive-server` | `../shared-data-infra/compose.lakehouse.yaml` |
+| `spark` | `../shared-data-infra/compose.lakehouse.yaml` |
+| `starrocks-fe` | `../shared-data-infra/compose.starrocks.yaml` |
+| `starrocks-be` | `../shared-data-infra/compose.starrocks.yaml` |
 
 Run the fast 10k Compose smoke validation:
 
 ```sh
 mvn package
 docker compose -f docker-compose.yml build benchmark-runner
-docker compose -f docker-compose.yml up -d hdfs-init hive-server spark starrocks-fe starrocks-be
 java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --config configs/benchmark-compose-smoke.yml --run-id compose-smoke
 ```
 
@@ -98,7 +128,6 @@ Run the full 10k smoke validation with all KPI SQL:
 
 ```sh
 mvn package
-docker compose -f docker-compose.yml up -d hdfs-init hive-server spark starrocks-fe starrocks-be
 java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --config configs/benchmark-smoke.yml --run-id compose-smoke-full
 ```
 
@@ -106,8 +135,6 @@ Run the formal 10m-row KPI benchmark:
 
 ```sh
 mvn package
-docker compose -f docker-compose.yml down --remove-orphans
-docker compose -f docker-compose.yml up -d hdfs-init hive-server spark starrocks-fe starrocks-be
 java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --config configs/benchmark-kpi-10m.yml --run-id compose-kpi-10m
 ```
 
@@ -115,30 +142,18 @@ Run the 1b-row KPI generation and benchmark profile:
 
 ```sh
 mvn package
-docker compose -f docker-compose.yml down --remove-orphans
-docker compose -f docker-compose.yml up -d hdfs-init hive-server spark starrocks-fe starrocks-be
 java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --config configs/benchmark-kpi-1b.yml --run-id compose-kpi-1b
 ```
 
 Use a unique `--run-id` for every real run, for example `kpi-10m-20260605-001`, so each report is written to its own directory under `reports/runs/`.
 
-Current Docker Compose resource limits:
+Current local Docker Compose resource limits:
 
 | Service | CPU | Memory |
 | --- | ---: | ---: |
-| starrocks-fe | 2 | 2GB |
-| starrocks-be | 6 | 5GB |
-| spark | 6 | 3GB |
-| hive-server | 2 | 2GB |
 | benchmark-runner | 2 | 1GB |
 
-The default Compose network uses subnet `172.20.0.0/24`; `starrocks-fe` is pinned to `172.20.0.10` and `starrocks-be` to `172.20.0.11` so StarRocks metadata does not drift across container starts. After adopting or changing the fixed subnet, run `docker compose down --remove-orphans` once from this directory, or `docker compose -f docker-compose.yml down --remove-orphans`, so Docker recreates the old `databenchmark` network with the current IPAM settings. If `172.20.0.0/24` conflicts with a host route, VPN, or corporate network, change the subnet in `docker-compose.yml` and update both pinned FE/BE IP addresses consistently.
-
-Cold restarts preserve container filesystems for loaded benchmark data: StarRocks uses `stop starrocks-be`, `stop starrocks-fe`, `start starrocks-fe`, wait for FE MySQL, then `start starrocks-be`; Hive uses `stop hive-server` then `start hive-server`. These routes intentionally avoid removing or force-recreating containers.
-
-`hive-server` intentionally overrides the `apache/hive:4.0.0` default entrypoint and directly executes `/opt/hive/bin/hive --skiphadoopversion --skiphbasecp --service hiveserver2` with explicit `hive.metastore.uris=thrift://hive-metastore:9083` and `hive.server2.thrift.bind.host=0.0.0.0` settings. The image's `SERVICE_NAME=hiveserver2` entrypoint path can misread its own startup process as an already-running HiveServer2 after repeat cold restarts and exit with `HiveServer2 running as process ... Stop it first.` The explicit command keeps Compose stop/start cold restarts repeatable; schema and metastore lifecycle remain owned by the shared `hive-metastore` service.
-
-The FE startup command rewrites `JAVA_OPTS` with `-Xmx1536m`, matching the 2GB FE container limit instead of the StarRocks default `-Xmx8192m`.
+Cold restarts preserve shared service container filesystems for loaded benchmark data. The Java runner targets the shared infra compose project, using `stop` and `start` for `starrocks-be`, `starrocks-fe`, and `hive-server`, and `restart` for `spark`.
 
 Compose mode writes a standalone web report package under `reports/runs/<run_id>/`.
 Open the report directly:
