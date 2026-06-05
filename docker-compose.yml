@@ -55,27 +55,14 @@ services:
     depends_on:
       hdfs-init:
         condition: service_completed_successfully
-      hive-metastore:
-        condition: service_started
+    networks:
+      - default
+      - shared-data-infra
     deploy:
       resources:
         limits:
           cpus: "6"
           memory: 3GB
-
-  hive-metastore:
-    image: apache/hive:4.0.0
-    hostname: hive-metastore
-    environment:
-      SERVICE_NAME: metastore
-    depends_on:
-      hdfs-init:
-        condition: service_completed_successfully
-    deploy:
-      resources:
-        limits:
-          cpus: "1"
-          memory: 1GB
 
   hive-server:
     image: apache/hive:4.0.0
@@ -99,8 +86,9 @@ services:
     depends_on:
       hdfs-init:
         condition: service_completed_successfully
-      hive-metastore:
-        condition: service_started
+    networks:
+      - default
+      - shared-data-infra
     ports:
       - "10000:10000"
     deploy:
@@ -108,45 +96,6 @@ services:
         limits:
           cpus: "2"
           memory: 2GB
-
-  hdfs-namenode:
-    image: apache/hadoop:3.3.6
-    hostname: hdfs-namenode
-    command: ["hdfs", "namenode"]
-    environment:
-      ENSURE_NAMENODE_DIR: "/tmp/hadoop-root/dfs/name"
-      HADOOP_HOME: "/opt/hadoop"
-      HADOOP_CONF_DIR: "/opt/hadoop/etc/hadoop"
-      CORE-SITE.XML_fs.defaultFS: "hdfs://hdfs-namenode:8020"
-      HDFS-SITE.XML_dfs.replication: "1"
-      HDFS-SITE.XML_dfs.namenode.rpc-address: "hdfs-namenode:8020"
-    ports:
-      - "9870:9870"
-      - "8020:8020"
-    deploy:
-      resources:
-        limits:
-          cpus: "1"
-          memory: 768MB
-
-  hdfs-datanode:
-    image: apache/hadoop:3.3.6
-    hostname: hdfs-datanode
-    command: ["hdfs", "datanode"]
-    environment:
-      HADOOP_HOME: "/opt/hadoop"
-      HADOOP_CONF_DIR: "/opt/hadoop/etc/hadoop"
-      CORE-SITE.XML_fs.defaultFS: "hdfs://hdfs-namenode:8020"
-      HDFS-SITE.XML_dfs.replication: "1"
-    depends_on:
-      - hdfs-namenode
-    ports:
-      - "9864:9864"
-    deploy:
-      resources:
-        limits:
-          cpus: "2"
-          memory: 1.5GB
 
   hdfs-init:
     image: apache/hadoop:3.3.6
@@ -164,9 +113,8 @@ services:
       HADOOP_HOME: "/opt/hadoop"
       HADOOP_CONF_DIR: "/opt/hadoop/etc/hadoop"
       CORE-SITE.XML_fs.defaultFS: "hdfs://hdfs-namenode:8020"
-    depends_on:
-      - hdfs-namenode
-      - hdfs-datanode
+    networks:
+      - shared-data-infra
 
   benchmark-runner:
     build:
@@ -185,8 +133,6 @@ services:
     depends_on:
       hdfs-init:
         condition: service_completed_successfully
-      hive-metastore:
-        condition: service_started
       hive-server:
         condition: service_started
       spark:
@@ -195,6 +141,9 @@ services:
         condition: service_started
       starrocks-be:
         condition: service_started
+    networks:
+      - default
+      - shared-data-infra
     deploy:
       resources:
         limits:
@@ -207,3 +156,6 @@ networks:
     ipam:
       config:
         - subnet: 172.20.0.0/24
+  shared-data-infra:
+    external: true
+    name: shared-data-infra

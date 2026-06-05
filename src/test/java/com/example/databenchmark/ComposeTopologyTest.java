@@ -18,10 +18,7 @@ class ComposeTopologyTest {
         "starrocks-fe", new ResourceLimit("2", "2GB"),
         "starrocks-be", new ResourceLimit("6", "5GB"),
         "spark", new ResourceLimit("6", "3GB"),
-        "hive-metastore", new ResourceLimit("1", "1GB"),
         "hive-server", new ResourceLimit("2", "2GB"),
-        "hdfs-namenode", new ResourceLimit("1", "768MB"),
-        "hdfs-datanode", new ResourceLimit("2", "1.5GB"),
         "benchmark-runner", new ResourceLimit("2", "1GB")
     );
 
@@ -37,8 +34,7 @@ class ComposeTopologyTest {
         Map<String, Object> services = (Map<String, Object>) compose.get("services");
 
         assertThat(services.keySet()).containsExactlyInAnyOrder(
-            "starrocks-fe", "starrocks-be", "spark", "hive-metastore", "hdfs-namenode",
-            "hdfs-datanode", "hdfs-init", "hive-server", "benchmark-runner"
+            "starrocks-fe", "starrocks-be", "spark", "hdfs-init", "hive-server", "benchmark-runner"
         );
         EXPECTED_RESOURCE_LIMITS.forEach((serviceName, expected) ->
             assertResourceLimit(service(services, serviceName), expected.cpus(), expected.memory()));
@@ -56,8 +52,10 @@ class ComposeTopologyTest {
         assertThat(service(services, "starrocks-be").get("hostname")).isEqualTo("starrocks-be-0");
         assertThat(map(map(service(services, "starrocks-be").get("networks")).get("default")))
             .containsEntry("ipv4_address", "172.20.0.11");
-        assertThat(services).containsKeys("hdfs-namenode", "hdfs-datanode", "hdfs-init");
-        assertThat(services).doesNotContainKeys("minio", REMOVED_METRICS_SERVICE, REMOVED_DASHBOARD_SERVICE);
+        assertThat(services).containsKeys("hdfs-init");
+        assertThat(services).doesNotContainKeys(
+            "minio", REMOVED_METRICS_SERVICE, REMOVED_DASHBOARD_SERVICE,
+            "hive-metastore", "hdfs-namenode", "hdfs-datanode");
 
         Map<String, Object> runner = service(services, "benchmark-runner");
         assertThat(runner).doesNotContainKey("image");
@@ -78,10 +76,12 @@ class ComposeTopologyTest {
         assertThat(stringList(runner, "command")).contains("--run-id");
         assertThat(stringList(runner, "command")).contains("--mode", "compose");
         assertThat(dependencyNames(runner))
-            .contains("hdfs-init", "hive-metastore", "hive-server", "spark", "starrocks-fe", "starrocks-be")
+            .contains("hdfs-init", "hive-server", "spark", "starrocks-fe", "starrocks-be")
+            .doesNotContain("hive-metastore")
             .doesNotContain(REMOVED_METRICS_SERVICE, REMOVED_DASHBOARD_SERVICE);
         assertThat(dependencyCondition(runner, "hdfs-init")).isEqualTo("service_completed_successfully");
         assertThat(dependencyCondition(runner, "hive-server")).isEqualTo("service_started");
+        assertThat(networkNames(runner)).contains("default", "shared-data-infra");
         assertThat(stringList(runner, "ports")).doesNotContain("9108:9108");
         String runnerDockerfile = Files.readString(Path.of("docker", "benchmark-runner", "Dockerfile"));
         assertThat(runnerDockerfile)
@@ -90,16 +90,16 @@ class ComposeTopologyTest {
 
         assertThat(dependencyCondition(service(services, "spark"), "hdfs-init"))
             .isEqualTo("service_completed_successfully");
+        assertThat(dependencyNames(service(services, "spark"))).doesNotContain("hive-metastore");
+        assertThat(networkNames(service(services, "spark"))).contains("default", "shared-data-infra");
         assertThat(service(services, "spark").get("image")).isEqualTo("apache/spark:3.5.8-java17");
         assertThat(service(services, "spark").get("working_dir")).isEqualTo("/workspace");
         assertThat(stringList(service(services, "spark"), "volumes")).contains(".:/workspace");
         assertThat(stringList(service(services, "spark"), "command")).containsExactly("sleep", "infinity");
-        assertThat(dependencyCondition(service(services, "hive-metastore"), "hdfs-init"))
-            .isEqualTo("service_completed_successfully");
-        assertThat(service(services, "hive-metastore").get("hostname")).isEqualTo("hive-metastore");
 
         Map<String, Object> hiveServer = service(services, "hive-server");
         assertThat(hiveServer.get("image")).isEqualTo("apache/hive:4.0.0");
+        assertThat(networkNames(hiveServer)).contains("default", "shared-data-infra");
         assertThat(map(hiveServer.get("environment"))).doesNotContainEntry("SERVICE_NAME", "hiveserver2");
         assertThat(stringList(hiveServer, "entrypoint")).containsExactly("bash", "-lc");
         assertThat(String.join("\n", stringList(hiveServer, "command")))
@@ -113,33 +113,25 @@ class ComposeTopologyTest {
             .containsEntry("SERVICE_OPTS",
                 "-Dhive.metastore.uris=thrift://hive-metastore:9083 -Dhive.server2.thrift.bind.host=0.0.0.0 -Dhive.server2.thrift.port=10000");
         assertThat(dependencyCondition(hiveServer, "hdfs-init")).isEqualTo("service_completed_successfully");
-        assertThat(dependencyCondition(hiveServer, "hive-metastore")).isEqualTo("service_started");
+        assertThat(dependencyNames(hiveServer)).doesNotContain("hive-metastore");
         assertThat(stringList(hiveServer, "ports")).contains("10000:10000");
 
-        Map<String, Object> hdfsNamenode = service(services, "hdfs-namenode");
-        assertThat(stringList(hdfsNamenode, "ports")).contains("9870:9870", "8020:8020");
-        assertThat(map(hdfsNamenode.get("environment")))
-            .containsEntry("CORE-SITE.XML_fs.defaultFS", "hdfs://hdfs-namenode:8020")
-            .containsEntry("HDFS-SITE.XML_dfs.replication", "1")
-            .containsEntry("HDFS-SITE.XML_dfs.namenode.rpc-address", "hdfs-namenode:8020");
-
-        Map<String, Object> hdfsDatanode = service(services, "hdfs-datanode");
-        assertThat(stringList(hdfsDatanode, "ports")).contains("9864:9864");
-        assertThat(map(hdfsDatanode.get("environment")))
-            .containsEntry("CORE-SITE.XML_fs.defaultFS", "hdfs://hdfs-namenode:8020")
-            .containsEntry("HDFS-SITE.XML_dfs.replication", "1");
-
         Map<String, Object> hdfsInit = service(services, "hdfs-init");
+        assertThat(networkNames(hdfsInit)).contains("shared-data-infra");
         String hdfsInitCommand = String.join(" ", stringList(hdfsInit, "command"));
         assertThat(hdfsInitCommand)
             .contains("hdfs dfs -fs hdfs://hdfs-namenode:8020 -mkdir -p /warehouse/iceberg")
             .contains("hdfs dfs -fs hdfs://hdfs-namenode:8020 -chmod -R 777 /warehouse");
-        assertThat(dependencyNames(hdfsInit)).contains("hdfs-namenode", "hdfs-datanode");
+        assertThat(hdfsInit).doesNotContainKey("depends_on");
 
-        Map<String, Object> defaultNetwork = map(map(compose.get("networks")).get("default"));
+        Map<String, Object> networks = map(compose.get("networks"));
+        Map<String, Object> defaultNetwork = map(networks.get("default"));
         assertThat(defaultNetwork).containsEntry("name", "databenchmark");
         assertThat(map(list(map(defaultNetwork.get("ipam")), "config").get(0)))
             .containsEntry("subnet", "172.20.0.0/24");
+        assertThat(map(networks.get("shared-data-infra")))
+            .containsEntry("external", true)
+            .containsEntry("name", "shared-data-infra");
     }
 
     @Test
@@ -228,6 +220,21 @@ class ComposeTopologyTest {
         Map<String, Object> dependencies = map(dependsOn);
         assertThat(dependencies).containsKey(dependency);
         return map(dependencies.get(dependency)).get("condition").toString();
+    }
+
+    private List<String> networkNames(Map<String, Object> service) {
+        Object networks = service.get("networks");
+        if (networks == null) {
+            return List.of();
+        }
+        if (networks instanceof Map<?, ?> networksMap) {
+            return networksMap.keySet().stream()
+                .map(Object::toString)
+                .toList();
+        }
+        return list(networks).stream()
+            .map(Object::toString)
+            .toList();
     }
 
     private void assertResourceLimit(Map<String, Object> service, String cpus, String memory) {
