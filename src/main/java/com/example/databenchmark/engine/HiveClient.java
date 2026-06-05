@@ -1,9 +1,9 @@
 package com.example.databenchmark.engine;
 
+import com.example.databenchmark.runner.InfraComposeTarget;
 import com.example.databenchmark.runner.RoutePhase;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 
 public class HiveClient {
@@ -100,12 +100,10 @@ public class HiveClient {
         if (inContainer) {
             return beeline;
         }
-        List<String> command = new ArrayList<>();
-        command.addAll(List.of(
-            "docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "hive-server",
+        return InfraComposeTarget.fromEnvironment(System.getenv()).composeCommand(
+            "exec", "-T", "hive-server",
             BEELINE, "-u", JDBC_URL, "-e", sql
-        ));
-        return command;
+        );
     }
 
     private static EngineRunResult failed(String stage, String queryName, RoutePhase phase, CommandResult command) {

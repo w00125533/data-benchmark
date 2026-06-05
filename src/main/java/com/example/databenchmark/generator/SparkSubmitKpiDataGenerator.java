@@ -3,6 +3,7 @@ package com.example.databenchmark.generator;
 import com.example.databenchmark.config.BenchmarkConfig;
 import com.example.databenchmark.engine.CommandResult;
 import com.example.databenchmark.engine.CommandRunner;
+import com.example.databenchmark.runner.InfraComposeTarget;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -32,8 +33,8 @@ public class SparkSubmitKpiDataGenerator implements KpiDatasetGenerator {
         KpiGenerationConfig generation = KpiGenerationConfig.from(config);
         Path configPath = writeEffectiveConfig(config);
         String configArgument = workingDirectory.relativize(configPath).toString().replace('\\', '/');
-        List<String> command = List.of(
-            "docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "spark",
+        List<String> command = InfraComposeTarget.fromEnvironment(System.getenv()).composeCommand(
+            "exec", "-T", "spark",
             "java", "-jar", RUNNER_JAR,
             "generate", "--config", configArgument
         );

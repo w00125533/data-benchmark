@@ -35,7 +35,11 @@ class SparkIcebergClientTest {
         assertThat(result.rows()).isEqualTo(42);
         List<String> command = runner.commands().get(0);
         assertThat(command).containsExactly(
-            "docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "spark", "/opt/spark/bin/spark-sql",
+            "docker", "compose", "-p", "shared-data-infra",
+            "-f", "/shared-data-infra/compose.yaml",
+            "-f", "/shared-data-infra/compose.lakehouse.yaml",
+            "-f", "/shared-data-infra/compose.starrocks.yaml",
+            "exec", "-T", "spark", "/opt/spark/bin/spark-sql",
             "--conf", "spark.jars.ivy=/tmp/.ivy2",
             "--packages", "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1",
             "--conf", "spark.sql.catalog.iceberg_catalog=org.apache.iceberg.spark.SparkCatalog",

@@ -29,7 +29,13 @@ class HiveClientTest {
         assertThat(result.success()).isTrue();
         assertThat(runner.commands()).hasSize(1);
         assertThat(runner.commands().get(0))
-            .contains("docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "hive-server", "beeline");
+            .containsSequence(
+                "docker", "compose", "-p", "shared-data-infra",
+                "-f", "/shared-data-infra/compose.yaml",
+                "-f", "/shared-data-infra/compose.lakehouse.yaml",
+                "-f", "/shared-data-infra/compose.starrocks.yaml",
+                "exec", "-T", "hive-server", "beeline"
+            );
         assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
             .contains("CREATE EXTERNAL TABLE IF NOT EXISTS hive_hdfs_parquet.cell_kpi_1min")
             .contains("PARTITIONED BY (event_date STRING)")

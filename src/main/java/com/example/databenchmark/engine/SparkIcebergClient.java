@@ -2,6 +2,7 @@ package com.example.databenchmark.engine;
 
 import com.example.databenchmark.generator.DatasetResult;
 import com.example.databenchmark.query.QueryCatalog;
+import com.example.databenchmark.runner.InfraComposeTarget;
 import com.example.databenchmark.runner.RoutePhase;
 import com.example.databenchmark.schema.KpiSchema;
 import com.example.databenchmark.tpch.TpchDatasetResult;
@@ -205,9 +206,8 @@ public class SparkIcebergClient {
         if (inContainer) {
             return sparkSql;
         }
-        List<String> command = new ArrayList<>();
-        command.addAll(List.of(
-            "docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "spark", SPARK_SQL,
+        return InfraComposeTarget.fromEnvironment(System.getenv()).composeCommand(
+            "exec", "-T", "spark", SPARK_SQL,
             "--conf", IVY_CACHE_CONF,
             "--packages", ICEBERG_RUNTIME,
             "--conf", "spark.sql.catalog.iceberg_catalog=org.apache.iceberg.spark.SparkCatalog",
@@ -216,8 +216,7 @@ public class SparkIcebergClient {
             "--conf", "spark.sql.catalog.iceberg_catalog.warehouse=hdfs://hdfs-namenode:8020/warehouse/iceberg",
             "--conf", ICEBERG_VECTORIZATION_CONF,
             "-e", sql
-        ));
-        return command;
+        );
     }
 
     private static EngineRunResult failed(String tableShape, String stage, String queryName, CommandResult command) {

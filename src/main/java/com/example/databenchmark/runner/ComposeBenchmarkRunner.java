@@ -772,9 +772,10 @@ public class ComposeBenchmarkRunner {
 
     private static final class DefaultHdfsDatasetPublisher implements HdfsDatasetPublisher {
         private static final String IN_CONTAINER_ENV = "BENCHMARK_COMPOSE_IN_CONTAINER";
+        private static final String INFRA_NETWORK_ENV = "BENCHMARK_INFRA_NETWORK";
         private static final String HDFS_URI = "hdfs://hdfs-namenode:8020";
         private static final String HADOOP_IMAGE = "apache/hadoop:3.3.6";
-        private static final String DOCKER_NETWORK = "databenchmark";
+        private static final String DEFAULT_DOCKER_NETWORK = "shared-data-infra";
         private static final String STAGE = "HIVE_HDFS_PARQUET_PUBLISH";
         private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(10);
 
@@ -782,6 +783,7 @@ public class ComposeBenchmarkRunner {
         private final Path workingDirectory;
         private final Duration timeout;
         private final boolean inContainer;
+        private final String dockerNetwork;
 
         private DefaultHdfsDatasetPublisher(CommandRunner commandRunner) {
             this(commandRunner, Path.of("."), DEFAULT_TIMEOUT, defaultInContainer());
@@ -793,10 +795,21 @@ public class ComposeBenchmarkRunner {
             Duration timeout,
             boolean inContainer
         ) {
+            this(commandRunner, workingDirectory, timeout, inContainer, dockerNetworkFromEnvironment(System.getenv()));
+        }
+
+        private DefaultHdfsDatasetPublisher(
+            CommandRunner commandRunner,
+            Path workingDirectory,
+            Duration timeout,
+            boolean inContainer,
+            String dockerNetwork
+        ) {
             this.commandRunner = commandRunner;
             this.workingDirectory = workingDirectory;
             this.timeout = timeout;
             this.inContainer = inContainer;
+            this.dockerNetwork = dockerNetwork;
         }
 
         @Override
@@ -850,7 +863,7 @@ public class ComposeBenchmarkRunner {
             if (!inContainer) {
                 String workspaceMount = workingDirectory.toAbsolutePath().normalize() + ":/workspace";
                 command.addAll(List.of(
-                    "docker", "run", "--rm", "--network", DOCKER_NETWORK,
+                    "docker", "run", "--rm", "--network", dockerNetwork,
                     "-v", workspaceMount,
                     "-w", "/workspace",
                     HADOOP_IMAGE
@@ -909,6 +922,14 @@ public class ComposeBenchmarkRunner {
 
         private static boolean defaultInContainer() {
             return Boolean.parseBoolean(System.getenv().getOrDefault(IN_CONTAINER_ENV, "false"));
+        }
+
+        private static String dockerNetworkFromEnvironment(Map<String, String> environment) {
+            String network = environment.get(INFRA_NETWORK_ENV);
+            if (network == null || network.trim().isEmpty()) {
+                return DEFAULT_DOCKER_NETWORK;
+            }
+            return network.trim();
         }
     }
 

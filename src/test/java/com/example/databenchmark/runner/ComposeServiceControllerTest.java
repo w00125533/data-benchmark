@@ -65,7 +65,7 @@ class ComposeServiceControllerTest {
     @Test
     void restartCommandsUseConfiguredSharedInfraComposeTarget() {
         FakeCommandRunner commandRunner = new FakeCommandRunner();
-        ComposeServiceController.InfraComposeTarget target = new ComposeServiceController.InfraComposeTarget(
+        InfraComposeTarget target = new InfraComposeTarget(
             "infra-project",
             List.of("../shared-data-infra/compose.yaml", "../shared-data-infra/compose.starrocks.yaml")
         );
@@ -90,8 +90,7 @@ class ComposeServiceControllerTest {
 
     @Test
     void infraComposeTargetDefaultsToSharedInfraFiles() {
-        ComposeServiceController.InfraComposeTarget target =
-            ComposeServiceController.InfraComposeTarget.fromEnvironment(Map.of());
+        InfraComposeTarget target = InfraComposeTarget.fromEnvironment(Map.of());
 
         assertThat(target.project()).isEqualTo("shared-data-infra");
         assertThat(target.files()).containsExactly(
@@ -99,12 +98,19 @@ class ComposeServiceControllerTest {
             "/shared-data-infra/compose.lakehouse.yaml",
             "/shared-data-infra/compose.starrocks.yaml"
         );
+        assertThat(target.composeCommand("exec", "-T", "spark", "echo", "ok")).containsExactly(
+            "docker", "compose", "-p", "shared-data-infra",
+            "-f", "/shared-data-infra/compose.yaml",
+            "-f", "/shared-data-infra/compose.lakehouse.yaml",
+            "-f", "/shared-data-infra/compose.starrocks.yaml",
+            "exec", "-T", "spark", "echo", "ok"
+        );
     }
 
     @Test
     void infraComposeTargetParsesSemicolonAndCommaSeparatedFiles() {
-        ComposeServiceController.InfraComposeTarget target =
-            ComposeServiceController.InfraComposeTarget.fromEnvironment(Map.of(
+        InfraComposeTarget target =
+            InfraComposeTarget.fromEnvironment(Map.of(
                 "BENCHMARK_INFRA_PROJECT", " infra-project ",
                 "BENCHMARK_INFRA_COMPOSE_FILES", " compose.yaml ; compose.lakehouse.yaml, compose.starrocks.yaml "
             ));

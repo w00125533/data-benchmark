@@ -529,7 +529,7 @@ class ComposeBenchmarkRunnerTest {
         assertThat(result.success()).isTrue();
         assertThat(commandRunner.commands()).hasSize(6);
         assertThat(commandRunner.commands().get(0)).containsExactly(
-            "docker", "run", "--rm", "--network", "databenchmark",
+            "docker", "run", "--rm", "--network", "shared-data-infra",
             "-v", tempDir.toAbsolutePath().normalize() + ":/workspace",
             "-w", "/workspace",
             "apache/hadoop:3.3.6",
@@ -537,7 +537,7 @@ class ComposeBenchmarkRunnerTest {
             "-rm", "-r", "-f", "/data/generated"
         );
         assertThat(commandRunner.commands().get(1)).containsExactly(
-            "docker", "run", "--rm", "--network", "databenchmark",
+            "docker", "run", "--rm", "--network", "shared-data-infra",
             "-v", tempDir.toAbsolutePath().normalize() + ":/workspace",
             "-w", "/workspace",
             "apache/hadoop:3.3.6",
@@ -545,7 +545,7 @@ class ComposeBenchmarkRunnerTest {
             "-mkdir", "-p", "/data/generated"
         );
         assertThat(commandRunner.commands().get(2)).containsExactly(
-            "docker", "run", "--rm", "--network", "databenchmark",
+            "docker", "run", "--rm", "--network", "shared-data-infra",
             "-v", tempDir.toAbsolutePath().normalize() + ":/workspace",
             "-w", "/workspace",
             "apache/hadoop:3.3.6",
@@ -553,7 +553,7 @@ class ComposeBenchmarkRunnerTest {
             "-mkdir", "-p", "/data/generated/event_date=2026-01-01"
         );
         assertThat(commandRunner.commands().get(3)).containsExactly(
-            "docker", "run", "--rm", "--network", "databenchmark",
+            "docker", "run", "--rm", "--network", "shared-data-infra",
             "-v", tempDir.toAbsolutePath().normalize() + ":/workspace",
             "-w", "/workspace",
             "apache/hadoop:3.3.6",
@@ -561,7 +561,7 @@ class ComposeBenchmarkRunnerTest {
             "-put", "-f", "/workspace/data/generated/event_date=2026-01-01/part-00000.parquet", "/data/generated/event_date=2026-01-01"
         );
         assertThat(commandRunner.commands().get(4)).containsExactly(
-            "docker", "run", "--rm", "--network", "databenchmark",
+            "docker", "run", "--rm", "--network", "shared-data-infra",
             "-v", tempDir.toAbsolutePath().normalize() + ":/workspace",
             "-w", "/workspace",
             "apache/hadoop:3.3.6",
@@ -569,7 +569,7 @@ class ComposeBenchmarkRunnerTest {
             "-mkdir", "-p", "/data/generated/event_date=2026-01-02"
         );
         assertThat(commandRunner.commands().get(5)).containsExactly(
-            "docker", "run", "--rm", "--network", "databenchmark",
+            "docker", "run", "--rm", "--network", "shared-data-infra",
             "-v", tempDir.toAbsolutePath().normalize() + ":/workspace",
             "-w", "/workspace",
             "apache/hadoop:3.3.6",
@@ -578,6 +578,13 @@ class ComposeBenchmarkRunnerTest {
         );
         assertThat(commandRunner.commands()).noneSatisfy(command ->
             assertThat(command).containsSequence("-put", "-f", "/workspace/data/generated", "/data/generated"));
+    }
+
+    @Test
+    void defaultHdfsPublisherNetworkCanBeConfiguredFromEnvironment() throws Exception {
+        String network = hdfsPublisherNetwork(Map.of("BENCHMARK_INFRA_NETWORK", " benchmark-shared "));
+
+        assertThat(network).isEqualTo("benchmark-shared");
     }
 
     @Test
@@ -861,6 +868,13 @@ class ComposeBenchmarkRunnerTest {
             Duration.ofMinutes(1),
             inContainer
         );
+    }
+
+    private static String hdfsPublisherNetwork(Map<String, String> environment) throws Exception {
+        Class<?> type = Class.forName("com.example.databenchmark.runner.ComposeBenchmarkRunner$DefaultHdfsDatasetPublisher");
+        var method = type.getDeclaredMethod("dockerNetworkFromEnvironment", Map.class);
+        method.setAccessible(true);
+        return (String) method.invoke(null, environment);
     }
 
     private static final class FakeSparkClient implements ComposeBenchmarkRunner.SparkClient {

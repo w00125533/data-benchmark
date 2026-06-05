@@ -29,7 +29,11 @@ class SparkSubmitKpiDataGeneratorTest {
         assertThat(result.rows()).isEqualTo(100L);
         assertThat(result.files()).hasSize(1);
         assertThat(commandRunner.command).containsExactly(
-            "docker", "compose", "-f", "docker-compose.yml", "exec", "-T", "spark",
+            "docker", "compose", "-p", "shared-data-infra",
+            "-f", "/shared-data-infra/compose.yaml",
+            "-f", "/shared-data-infra/compose.lakehouse.yaml",
+            "-f", "/shared-data-infra/compose.starrocks.yaml",
+            "exec", "-T", "spark",
             "java", "-jar", "target/data-benchmark-0.1.0-SNAPSHOT.jar",
             "generate", "--config", "target/generated-configs/smoke-spark-generate.yml"
         );
