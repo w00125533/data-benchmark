@@ -34,7 +34,7 @@ java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar generate --cells 10 --days 1 
 
 The default verification config is [configs/benchmark-smoke.yml](configs/benchmark-smoke.yml). It preserves the spec values for `10,000` cells and `1` day, and uses `rowCap: 10000` for a 10k-row smoke dataset.
 
-The formal KPI benchmark config is [configs/benchmark-kpi-10m.yml](configs/benchmark-kpi-10m.yml). It uses the same KPI shape with `rowCap: 10000000` for a 10m-row / 1000 万行 benchmark dataset.
+The formal KPI benchmark config is [configs/benchmark-kpi-10m.yml](configs/benchmark-kpi-10m.yml). It uses the same KPI shape with `rowCap: 10000000` for a 10m-row benchmark dataset.
 
 Docker Compose uses the packaged runner jar from `target/`, so run `mvn package` before starting Compose. Build the benchmark-runner image after packaging so the container has Java 17, Spark, the Hadoop `hdfs` CLI, and `docker compose` available for Hive HDFS Parquet publish and route cold restarts. The runner service executes the real compose path:
 
@@ -52,13 +52,25 @@ The generator writes deterministic, partitioned Parquet files under `event_date=
 
 HDFS infrastructure is provisioned by Docker Compose. The HDFS Iceberg warehouse path is `hdfs://hdfs-namenode:8020/warehouse/iceberg`.
 
+Run the default 10k smoke validation:
+
 ```powershell
 mvn package
 docker compose -f docker-compose.yml build benchmark-runner
 docker compose -f docker-compose.yml up -d hdfs-namenode hdfs-datanode hdfs-init hive-metastore hive-server spark starrocks-fe starrocks-be
 java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --config configs/benchmark-smoke.yml --run-id compose-smoke
+```
+
+Run the formal 10m-row KPI benchmark:
+
+```powershell
+mvn package
+docker compose -f docker-compose.yml down --remove-orphans
+docker compose -f docker-compose.yml up -d hdfs-namenode hdfs-datanode hdfs-init hive-metastore hive-server spark starrocks-fe starrocks-be
 java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --config configs/benchmark-kpi-10m.yml --run-id compose-kpi-10m
 ```
+
+Use a unique `--run-id` for every real run, for example `kpi-10m-20260605-001`, so each report is written to its own directory under `reports/runs/`.
 
 Current Docker Compose resource limits:
 
@@ -91,3 +103,16 @@ reports/runs/compose-smoke/index.html
 Each report directory contains `index.html` and React assets. The HTML embeds the report data, so it can be opened directly from the filesystem without an external JSON file.
 
 If a Spark, StarRocks, or external Iceberg stage fails, the CLI exits nonzero after writing a DEGRADED report with the failing stage and error detail.
+
+After a successful run, verify the report data from PowerShell:
+
+```powershell
+$runId = "compose-kpi-10m"
+$html = Get-Content "reports/runs/$runId/index.html" -Raw
+$json = [regex]::Match($html, 'window\.__BENCHMARK_REPORT__\s*=\s*(\{[\s\S]*?\});\s*</script>').Groups[1].Value | ConvertFrom-Json
+$json.run.status
+$json.dataset.rows
+$json.performanceMatrix.Count
+```
+
+Expected values for the formal config are `SUCCESS`, `10000000`, and `10`.
