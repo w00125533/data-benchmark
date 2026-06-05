@@ -97,7 +97,7 @@ class TpchCsvExporterTest {
             "tpch-smoke",
             20260602L,
             new BenchmarkConfig.SuiteConfig("tpch", new BigDecimal("0.01"), "smoke"),
-            new BenchmarkConfig.DatasetConfig(10000, 1, 50, "2026-01-01T00:00:00", tempDir.toString(), 10000L),
+            new BenchmarkConfig.DatasetConfig(10000, 1, 50, "2026-01-01T00:00:00", tempDir.toString(), 10000L, null),
             new BenchmarkConfig.QueryConfig(1, 1, 1),
             new BenchmarkConfig.ReportConfig("html", tempDir.resolve("reports").toString())
         );

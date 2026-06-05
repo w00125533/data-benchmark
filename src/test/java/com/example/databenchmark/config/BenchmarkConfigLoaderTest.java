@@ -50,6 +50,46 @@ class BenchmarkConfigLoaderTest {
     }
 
     @Test
+    void loadsDatasetSparkConfigWhenPresent() throws Exception {
+        Path configFile = tempDir.resolve("spark-generation.yml");
+        Files.writeString(configFile, """
+            profile: spark-test
+            seed: 20260602
+            suite:
+              name: kpi
+              scaleFactor: 0.01
+              querySet: smoke
+            dataset:
+              cells: 100
+              days: 1
+              columns: 50
+              startTime: "2026-01-01T00:00:00"
+              output: "data/generated"
+              rowCap: 10000
+              spark:
+                master: "local[2]"
+                partitions: 8
+                rowsPerPartition: 1250
+                outputMode: "overwrite"
+            query:
+              coldRuns: 1
+              warmRuns: 1
+              concurrency: 1
+            report:
+              format: html
+              output: reports/runs
+            """);
+
+        BenchmarkConfig config = new BenchmarkConfigLoader().load(configFile);
+
+        assertThat(config.dataset().spark()).isNotNull();
+        assertThat(config.dataset().spark().master()).isEqualTo("local[2]");
+        assertThat(config.dataset().spark().partitions()).isEqualTo(8);
+        assertThat(config.dataset().spark().rowsPerPartition()).isEqualTo(1250L);
+        assertThat(config.dataset().spark().outputMode()).isEqualTo("overwrite");
+    }
+
+    @Test
     void suiteBlockMissingNameDefaultsToKpi() throws Exception {
         Path configPath = writeConfig("""
             profile: smoke

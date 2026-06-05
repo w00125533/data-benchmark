@@ -13,7 +13,7 @@ public record BenchmarkConfig(
             "smoke",
             20260602L,
             SuiteConfig.defaultSuite(),
-            new DatasetConfig(10_000, 1, 50, "2026-01-01T00:00:00", "data/generated", 10_000L),
+            new DatasetConfig(10_000, 1, 50, "2026-01-01T00:00:00", "data/generated", 10_000L, null),
             new QueryConfig(1, 3, 1),
             new ReportConfig("html", "reports/runs")
         );
@@ -33,7 +33,8 @@ public record BenchmarkConfig(
             current.columns(),
             current.startTime(),
             output == null ? current.output() : output,
-            rowCap == null ? current.rowCap() : rowCap
+            rowCap == null ? current.rowCap() : rowCap,
+            current.spark()
         );
 
         return new BenchmarkConfig(
@@ -85,12 +86,20 @@ public record BenchmarkConfig(
         int columns,
         String startTime,
         String output,
-        Long rowCap
+        Long rowCap,
+        DatasetSparkConfig spark
     ) {
         private DatasetConfig withRowCap(Long rowCap) {
-            return new DatasetConfig(cells, days, columns, startTime, output, rowCap);
+            return new DatasetConfig(cells, days, columns, startTime, output, rowCap, spark);
         }
     }
+
+    public record DatasetSparkConfig(
+        String master,
+        Integer partitions,
+        Long rowsPerPartition,
+        String outputMode
+    ) {}
 
     public record QueryConfig(int coldRuns, int warmRuns, int concurrency) {}
 
