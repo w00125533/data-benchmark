@@ -1,11 +1,15 @@
 package com.example.databenchmark.hadoop;
 
 import java.io.IOException;
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Locale;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.RawLocalFileSystem;
 import org.apache.hadoop.fs.permission.FsPermission;
 
@@ -40,6 +44,45 @@ public final class HadoopLocalConfiguration {
         @Override
         public void setPermission(org.apache.hadoop.fs.Path path, FsPermission permission) {
             // Hadoop's Windows local FS shells out to winutils for chmod; benchmark output does not need it.
+        }
+
+        @Override
+        public FileStatus[] listStatus(org.apache.hadoop.fs.Path path) throws IOException {
+            File file = pathToFile(path);
+            if (!file.exists()) {
+                throw new FileNotFoundException(path.toString());
+            }
+            if (file.isFile()) {
+                return new FileStatus[] { toFileStatus(file) };
+            }
+            File[] children = file.listFiles();
+            if (children == null) {
+                return new FileStatus[0];
+            }
+            return Arrays.stream(children)
+                .map(this::toFileStatus)
+                .toArray(FileStatus[]::new);
+        }
+
+        @Override
+        public FileStatus getFileStatus(org.apache.hadoop.fs.Path path) throws IOException {
+            File file = pathToFile(path);
+            if (!file.exists()) {
+                throw new FileNotFoundException(path.toString());
+            }
+            return toFileStatus(file);
+        }
+
+        private FileStatus toFileStatus(File file) {
+            org.apache.hadoop.fs.Path path = new org.apache.hadoop.fs.Path(file.getAbsolutePath());
+            return new FileStatus(
+                file.length(),
+                file.isDirectory(),
+                1,
+                getDefaultBlockSize(path),
+                file.lastModified(),
+                path
+            );
         }
     }
 }
