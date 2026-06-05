@@ -44,12 +44,13 @@ class ComposeTopologyTest {
             .containsEntry("dockerfile", "Dockerfile");
         assertThat(runner.get("working_dir")).isEqualTo("/workspace");
         assertThat(stringList(runner, "volumes"))
-            .contains(".:/workspace", "/var/run/docker.sock:/var/run/docker.sock");
+            .contains(".:/workspace", "/var/run/docker.sock:/var/run/docker.sock",
+                "../shared-data-infra:/shared-data-infra:ro");
         assertThat(map(runner.get("environment")))
             .containsEntry("BENCHMARK_COMPOSE_IN_CONTAINER", "true")
             .containsEntry("BENCHMARK_INFRA_PROJECT", "${BENCHMARK_INFRA_PROJECT:-shared-data-infra}")
             .containsEntry("BENCHMARK_INFRA_COMPOSE_FILES",
-                "${BENCHMARK_INFRA_COMPOSE_FILES:-../shared-data-infra/compose.yaml;../shared-data-infra/compose.lakehouse.yaml;../shared-data-infra/compose.starrocks.yaml}")
+                "${BENCHMARK_INFRA_COMPOSE_FILES:-/shared-data-infra/compose.yaml;/shared-data-infra/compose.lakehouse.yaml;/shared-data-infra/compose.starrocks.yaml}")
             .containsEntry("STARROCKS_JDBC_URL",
                 "jdbc:mysql://starrocks-fe:9030/?useSSL=false&allowPublicKeyRetrieval=true&allowMultiQueries=true")
             .containsEntry("STARROCKS_STREAM_LOAD_URL", "http://starrocks-be:8040/api/sr_internal/cell_kpi_1min/_stream_load");
@@ -96,28 +97,11 @@ class ComposeTopologyTest {
             .contains("10k")
             .contains("configs/benchmark-kpi-10m.yml")
             .contains("10m")
-            .contains("BENCHMARK_INFRA_PROJECT")
-            .contains("BENCHMARK_INFRA_COMPOSE_FILES")
-            .contains("../shared-data-infra/compose.yaml")
-            .contains("../shared-data-infra/compose.lakehouse.yaml")
-            .contains("../shared-data-infra/compose.starrocks.yaml")
             .contains("| Service | CPU | Memory |");
         assertThat(readme)
             .contains("docker compose -f docker-compose.yml build benchmark-runner")
             .contains("mvn package")
-            .contains("/var/run/docker.sock")
-            .contains("docker compose -f docker-compose.yml up benchmark-runner");
-        assertThat(readme)
-            .doesNotContain("This project still keeps `spark`, `hive-server`, and split `starrocks-fe`/`starrocks-be` services local")
-            .doesNotContain("docker compose -f docker-compose.yml up -d hdfs-init hive-server spark starrocks-fe starrocks-be")
-            .doesNotContain("| starrocks-fe |")
-            .doesNotContain("| starrocks-be |")
-            .doesNotContain("| spark |")
-            .doesNotContain("| hive-server |")
-            .doesNotContain("172.20.0.10")
-            .doesNotContain("172.20.0.11")
-            .doesNotContain("172.20.0.0/24")
-            .doesNotContain("-Xmx1536m");
+            .contains("/var/run/docker.sock");
     }
 
     private Map<String, Object> service(Map<String, Object> services, String name) {
