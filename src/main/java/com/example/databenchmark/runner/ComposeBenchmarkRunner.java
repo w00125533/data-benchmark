@@ -10,7 +10,7 @@ import com.example.databenchmark.engine.SparkIcebergClient;
 import com.example.databenchmark.engine.StarRocksClient;
 import com.example.databenchmark.engine.StarRocksCsvExporter;
 import com.example.databenchmark.generator.DatasetResult;
-import com.example.databenchmark.generator.KpiDataGenerator;
+import com.example.databenchmark.generator.SparkSubmitKpiDataGenerator;
 import com.example.databenchmark.query.QueryCatalog;
 import com.example.databenchmark.report.BenchmarkReport;
 import com.example.databenchmark.report.WebReportWriter;
@@ -42,7 +42,7 @@ public class ComposeBenchmarkRunner {
 
     public ComposeBenchmarkRunner() {
         this(
-            new KpiDataGenerator()::generate,
+            new SparkSubmitKpiDataGenerator(new CommandRunner())::generate,
             new StarRocksCsvExporter()::export,
             new TpchDataGenerator()::generate,
             new TpchCsvExporter()::export,
