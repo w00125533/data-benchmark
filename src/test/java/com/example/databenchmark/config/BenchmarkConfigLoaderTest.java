@@ -45,8 +45,39 @@ class BenchmarkConfigLoaderTest {
         assertThat(config.query().coldRuns()).isEqualTo(1);
         assertThat(config.query().warmRuns()).isEqualTo(3);
         assertThat(config.query().concurrency()).isEqualTo(1);
+        assertThat(config.query().names()).isNull();
         assertThat(config.report().format()).isEqualTo("html");
         assertThat(config.report().output()).isEqualTo("reports/runs");
+    }
+
+    @Test
+    void loadsOptionalQueryNames() throws Exception {
+        Path configPath = writeConfig("""
+            profile: smoke-fast
+            seed: 20260602
+            dataset:
+              cells: 10000
+              days: 1
+              columns: 50
+              startTime: "2026-01-01T00:00:00"
+              output: "data/generated"
+              rowCap: 10000
+            query:
+              coldRuns: 1
+              warmRuns: 3
+              concurrency: 1
+              names:
+                - single_cell_day_trend
+                - date_partition_pruning
+            report:
+              format: html
+              output: "reports/runs"
+            """);
+
+        BenchmarkConfig config = new BenchmarkConfigLoader().load(configPath);
+
+        assertThat(config.query().names())
+            .containsExactly("single_cell_day_trend", "date_partition_pruning");
     }
 
     @Test

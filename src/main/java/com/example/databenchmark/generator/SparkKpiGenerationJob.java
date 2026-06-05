@@ -23,6 +23,7 @@ public class SparkKpiGenerationJob {
             .master(generation.master())
             .config("spark.sql.session.timeZone", "UTC")
             .config("spark.sql.parquet.compression.codec", "snappy")
+            .config("spark.sql.parquet.outputTimestampType", "TIMESTAMP_MILLIS")
             .config("spark.hadoop.fs.file.impl", HadoopLocalConfiguration.NoPermissionRawLocalFileSystem.class.getName())
             .config("spark.hadoop.fs.file.impl.disable.cache", "true")
             .config("spark.hadoop.mapreduce.fileoutputcommitter.algorithm.version", "2")
@@ -99,16 +100,17 @@ public class SparkKpiGenerationJob {
             doubleMetric(seed, 14, 0.0, 1.0, 6).as("prb_ul_util"),
             col("rrc_users"),
             col("active_users"),
-            expr("round(active_users * (0.5 + " + fractionSql(seed, 15) + " * 20.0), 3)").as("dl_traffic_mb"),
-            expr("round(active_users * (0.2 + " + fractionSql(seed, 16) + " * 8.0), 3)").as("ul_traffic_mb"),
+            expr("CAST(round(active_users * (0.5 + " + fractionSql(seed, 15) + " * 20.0), 3) AS DOUBLE)").as("dl_traffic_mb"),
+            expr("CAST(round(active_users * (0.2 + " + fractionSql(seed, 16) + " * 8.0), 3) AS DOUBLE)").as("ul_traffic_mb"),
             doubleMetric(seed, 17, 5.0, 400.0).as("dl_throughput_mbps"),
             doubleMetric(seed, 18, 1.0, 120.0).as("ul_throughput_mbps"),
             doubleMetric(seed, 19, 0.0, 0.02, 6).as("drop_rate"),
-            expr("round(CAST(least(handover_attempts, CAST(round(handover_attempts * (0.94 + " + fractionSql(seed, 20)
-                + " * 0.055)) AS INT)) AS DOUBLE) / handover_attempts, 6)").as("handover_success_rate"),
-            expr("round((least(rrc_setup_attempts, CAST(round(rrc_setup_attempts * (0.97 + " + fractionSql(seed, 21)
+            expr("CAST(round(CAST(least(handover_attempts, CAST(round(handover_attempts * (0.94 + " + fractionSql(seed, 20)
+                + " * 0.055)) AS INT)) AS DOUBLE) / handover_attempts, 6) AS DOUBLE)").as("handover_success_rate"),
+            expr("CAST(round((least(rrc_setup_attempts, CAST(round(rrc_setup_attempts * (0.97 + " + fractionSql(seed, 21)
                 + " * 0.029)) AS INT)) + least(erab_setup_attempts, CAST(round(erab_setup_attempts * (0.965 + "
-                + fractionSql(seed, 22) + " * 0.03)) AS INT))) / CAST(rrc_setup_attempts + erab_setup_attempts AS DOUBLE), 6)")
+                + fractionSql(seed, 22)
+                + " * 0.03)) AS INT))) / CAST(rrc_setup_attempts + erab_setup_attempts AS DOUBLE), 6) AS DOUBLE)")
                 .as("access_success_rate"),
             doubleMetric(seed, 23, 0.0, 0.01, 6).as("volte_drop_rate"),
             doubleMetric(seed, 24, 8.0, 80.0).as("latency_ms"),
@@ -155,7 +157,7 @@ public class SparkKpiGenerationJob {
     }
 
     private static org.apache.spark.sql.Column doubleMetric(long seed, int offset, double min, double scale, int places) {
-        return expr("round(" + min + " + " + fractionSql(seed, offset) + " * " + scale + ", " + places + ")");
+        return expr("CAST(round(" + min + " + " + fractionSql(seed, offset) + " * " + scale + ", " + places + ") AS DOUBLE)");
     }
 
     private static String fractionSql(long seed, int offset) {

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.example.databenchmark.config.BenchmarkConfig;
 import com.example.databenchmark.generator.DatasetResult;
 import com.example.databenchmark.generator.KpiDataGenerator;
+import com.example.databenchmark.generator.SparkKpiDataGenerator;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -46,6 +47,21 @@ class StarRocksCsvExporterTest {
         List<String> lines = Files.readAllLines(csv);
         assertThat(lines).hasSize(12);
         assertThat(lines).noneMatch(line -> line.contains("old"));
+    }
+
+    @Test
+    void exportsSparkGeneratedParquetForStarRocksStreamLoad() throws Exception {
+        BenchmarkConfig config = BenchmarkConfig.defaultSmoke()
+            .withOverrides(3, 1, 123L, tempDir.resolve("spark-parquet").toString(), 12L);
+        DatasetResult dataset = new SparkKpiDataGenerator().generate(config);
+
+        Path csv = new StarRocksCsvExporter().export(dataset, tempDir.resolve("spark-csv"));
+
+        List<String> lines = Files.readAllLines(csv);
+        assertThat(lines).hasSize(12);
+        assertThat(lines.get(0))
+            .startsWith("2026-01-01 00:00:00,CELL-000000,province-00,city-000");
+        assertThat(lines.get(0).split(",", -1)).hasSize(50);
     }
 
     @Test

@@ -55,6 +55,8 @@ KPI data generation uses Spark in both local and compose modes. Local commands u
 
 The default verification config is [configs/benchmark-smoke.yml](configs/benchmark-smoke.yml). It preserves the spec values for `10,000` cells and `1` day, and uses `rowCap: 10000` for a 10k-row smoke dataset.
 
+The fast Compose smoke config is [configs/benchmark-compose-smoke.yml](configs/benchmark-compose-smoke.yml). It uses the same 10k-row dataset but sets `query.names` to run only `date_partition_pruning`, which is intended for quick four-route validation. Omit `query.names` to run every KPI SQL in `QueryCatalog`.
+
 The formal KPI benchmark config is [configs/benchmark-kpi-10m.yml](configs/benchmark-kpi-10m.yml). It uses the same KPI shape with `rowCap: 10000000` for a 10m-row benchmark dataset.
 
 The large KPI generation config is [configs/benchmark-kpi-1b.yml](configs/benchmark-kpi-1b.yml). It uses `rowCap: 1000000000` with 1024 Spark partitions for a 1b-row dataset.
@@ -75,13 +77,21 @@ The generator writes deterministic, partitioned Parquet files under `event_date=
 
 HDFS infrastructure is provisioned by Docker Compose. The HDFS Iceberg warehouse path is `hdfs://hdfs-namenode:8020/warehouse/iceberg`.
 
-Run the default 10k smoke validation:
+Run the fast 10k Compose smoke validation:
 
 ```sh
 mvn package
 docker compose -f docker-compose.yml build benchmark-runner
 docker compose -f docker-compose.yml up -d hdfs-namenode hdfs-datanode hdfs-init hive-metastore hive-server spark starrocks-fe starrocks-be
-java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --config configs/benchmark-smoke.yml --run-id compose-smoke
+java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --config configs/benchmark-compose-smoke.yml --run-id compose-smoke
+```
+
+Run the full 10k smoke validation with all KPI SQL:
+
+```sh
+mvn package
+docker compose -f docker-compose.yml up -d hdfs-namenode hdfs-datanode hdfs-init hive-metastore hive-server spark starrocks-fe starrocks-be
+java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar run --mode compose --config configs/benchmark-smoke.yml --run-id compose-smoke-full
 ```
 
 Run the formal 10m-row KPI benchmark:

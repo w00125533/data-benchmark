@@ -177,7 +177,7 @@ public class ComposeBenchmarkRunner {
                 loadResults.add(hivePublish);
                 EngineRunResult hiveLoad = createHiveExternalTable(hiveRoot);
                 loadResults.add(hiveLoad);
-                queryResults.addAll(runKpiRouteQueries(hiveRouteFailure(hivePublish, hiveLoad)));
+                queryResults.addAll(runKpiRouteQueries(config, hiveRouteFailure(hivePublish, hiveLoad)));
             }
 
             recordMetrics(
@@ -417,9 +417,9 @@ public class ComposeBenchmarkRunner {
         }
     }
 
-    private List<EngineRunResult> runKpiRouteQueries(String hiveRouteFailure) {
+    private List<EngineRunResult> runKpiRouteQueries(BenchmarkConfig config, String hiveRouteFailure) {
         List<EngineRunResult> results = new ArrayList<>();
-        for (var query : QueryCatalog.queries()) {
+        for (var query : selectedKpiQueries(config)) {
             String queryName = query.name();
             for (BenchmarkRoute route : BenchmarkRoute.values()) {
                 if (route == BenchmarkRoute.HIVE_HDFS_PARQUET && hiveRouteFailure != null) {
@@ -430,6 +430,27 @@ public class ComposeBenchmarkRunner {
             }
         }
         return results;
+    }
+
+    private List<com.example.databenchmark.query.QueryDefinition> selectedKpiQueries(BenchmarkConfig config) {
+        List<String> configuredNames = config.query().names();
+        if (configuredNames == null || configuredNames.isEmpty()) {
+            return QueryCatalog.queries();
+        }
+
+        List<String> knownNames = QueryCatalog.queries().stream()
+            .map(com.example.databenchmark.query.QueryDefinition::name)
+            .toList();
+        List<String> unknownNames = configuredNames.stream()
+            .filter(name -> !knownNames.contains(name))
+            .toList();
+        if (!unknownNames.isEmpty()) {
+            throw new IllegalArgumentException("Unknown KPI query names: " + String.join(", ", unknownNames));
+        }
+
+        return QueryCatalog.queries().stream()
+            .filter(query -> configuredNames.contains(query.name()))
+            .toList();
     }
 
     private List<EngineRunResult> runKpiRoutePhases(String queryName, BenchmarkRoute route) {

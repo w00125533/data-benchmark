@@ -1,5 +1,7 @@
 package com.example.databenchmark.config;
 
+import java.util.List;
+
 public record BenchmarkConfig(
     String profile,
     long seed,
@@ -14,7 +16,7 @@ public record BenchmarkConfig(
             20260602L,
             SuiteConfig.defaultSuite(),
             new DatasetConfig(10_000, 1, 50, "2026-01-01T00:00:00", "data/generated", 10_000L, null),
-            new QueryConfig(1, 3, 1),
+            new QueryConfig(1, 3, 1, null),
             new ReportConfig("html", "reports/runs")
         );
     }
@@ -101,7 +103,7 @@ public record BenchmarkConfig(
         String outputMode
     ) {}
 
-    public record QueryConfig(int coldRuns, int warmRuns, int concurrency) {}
+    public record QueryConfig(int coldRuns, int warmRuns, int concurrency, List<String> names) {}
 
     public record ReportConfig(String format, String output) {}
 }

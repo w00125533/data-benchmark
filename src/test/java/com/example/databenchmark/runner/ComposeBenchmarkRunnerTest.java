@@ -101,6 +101,47 @@ class ComposeBenchmarkRunnerTest {
     }
 
     @Test
+    void composeRunnerCanLimitKpiQueriesFromConfig() throws Exception {
+        List<String> calls = new ArrayList<>();
+        String selectedQuery = QueryCatalog.queries().get(0).name();
+        String skippedQuery = QueryCatalog.queries().get(1).name();
+        DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
+        CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
+        BenchmarkConfig base = BenchmarkConfig.defaultSmoke();
+        BenchmarkConfig config = new BenchmarkConfig(
+            base.profile(),
+            base.seed(),
+            base.suite(),
+            base.dataset(),
+            new BenchmarkConfig.QueryConfig(1, 3, 1, List.of(selectedQuery)),
+            base.report()
+        );
+
+        ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
+            generatedConfig -> dataset,
+            (generatedDataset, outputDir) -> outputDir.resolve("cell_kpi_1min.csv"),
+            failingTpchGenerator(),
+            failingTpchCsvExport(),
+            new FakeSparkClient(calls),
+            new FakeStarRocksClient(calls, true),
+            new FakeHdfsDatasetPublisher(calls, true),
+            new FakeHiveClient(calls),
+            new FakeServiceController(calls),
+            reportWriter,
+            new CapturingMetricsRecorder(calls, "smoke", "kpi", "smoke")
+        );
+
+        runner.run(config, tempDir.resolve("reports"), "compose-test");
+
+        assertThat(reportWriter.report.querySummaries())
+            .extracting(BenchmarkReport.QuerySummary::queryName)
+            .containsOnly(selectedQuery);
+        assertThat(calls)
+            .anySatisfy(call -> assertThat(call).contains(selectedQuery))
+            .noneSatisfy(call -> assertThat(call).contains(skippedQuery));
+    }
+
+    @Test
     void composeRunnerRecordsRouteFailuresWhenServiceRestartFailsAndContinues() throws Exception {
         List<String> calls = new ArrayList<>();
         String queryName = QueryCatalog.queries().get(0).name();

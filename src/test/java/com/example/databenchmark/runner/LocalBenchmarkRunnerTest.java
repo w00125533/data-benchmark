@@ -71,7 +71,7 @@ class LocalBenchmarkRunnerTest {
             99L,
             new BenchmarkConfig.SuiteConfig("tpch", new BigDecimal("0.01"), "smoke"),
             new BenchmarkConfig.DatasetConfig(2, 1, 50, "2026-01-01T00:00:00", dataDir.toString(), 8L, null),
-            new BenchmarkConfig.QueryConfig(1, 1, 1),
+            new BenchmarkConfig.QueryConfig(1, 1, 1, null),
             new BenchmarkConfig.ReportConfig("html", reportDir.toString())
         );
 

@@ -1,0 +1,27 @@
+profile: compose-smoke
+seed: 20260602
+suite:
+  name: kpi
+  scaleFactor: 0.01
+  querySet: smoke
+dataset:
+  cells: 10000
+  days: 1
+  columns: 50
+  startTime: "2026-01-01T00:00:00"
+  output: "data/generated"
+  rowCap: 10000
+  spark:
+    master: "local[*]"
+    partitions: 4
+    rowsPerPartition: 2500
+    outputMode: "overwrite"
+query:
+  coldRuns: 1
+  warmRuns: 3
+  concurrency: 1
+  names:
+    - date_partition_pruning
+report:
+  format: html
+  output: "reports/runs"

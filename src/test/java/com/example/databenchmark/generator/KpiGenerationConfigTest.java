@@ -35,7 +35,7 @@ class KpiGenerationConfigTest {
             1L,
             BenchmarkConfig.SuiteConfig.defaultSuite(),
             new BenchmarkConfig.DatasetConfig(0, 1, 50, "2026-01-01T00:00:00", "data/generated", 10L, null),
-            new BenchmarkConfig.QueryConfig(1, 1, 1),
+            new BenchmarkConfig.QueryConfig(1, 1, 1, null),
             new BenchmarkConfig.ReportConfig("html", "reports/runs")
         );
 
