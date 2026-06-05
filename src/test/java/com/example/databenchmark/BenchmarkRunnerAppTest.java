@@ -3,6 +3,7 @@ package com.example.databenchmark;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.databenchmark.config.BenchmarkConfig;
+import com.example.databenchmark.generator.DatasetResult;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Files;
@@ -37,7 +38,9 @@ class BenchmarkRunnerAppTest {
 
     @Test
     void generateCommandWritesToConfiguredOutput() {
+        FakeRunnerFactory runners = new FakeRunnerFactory();
         CommandResult result = execute(
+            new BenchmarkRunnerApp(runners),
             "generate",
             "--output", tempDir.toString(),
             "--cells", "3",
@@ -49,6 +52,7 @@ class BenchmarkRunnerAppTest {
         assertThat(result.exitCode()).isZero();
         assertThat(result.out()).contains("rows=12");
         assertThat(result.out()).contains(tempDir.toString());
+        assertThat(runners.calls).containsExactly("generate");
     }
 
     @Test
@@ -215,6 +219,13 @@ class BenchmarkRunnerAppTest {
         public BenchmarkRunnerApp.CliRunResult runCompose(BenchmarkConfig config, Path reportRoot, String runId) {
             calls.add("compose:" + runId);
             return new BenchmarkRunnerApp.CliRunResult(22L, reportRoot.resolve(runId + ".html"), true);
+        }
+
+        @Override
+        public DatasetResult generateKpi(BenchmarkConfig config) {
+            calls.add("generate");
+            Path output = Path.of(config.dataset().output());
+            return new DatasetResult(output, List.of(output.resolve("part-00000.parquet")), config.dataset().rowCap(), 128L);
         }
     }
 

@@ -2,7 +2,8 @@ package com.example.databenchmark.runner;
 
 import com.example.databenchmark.config.BenchmarkConfig;
 import com.example.databenchmark.generator.DatasetResult;
-import com.example.databenchmark.generator.KpiDataGenerator;
+import com.example.databenchmark.generator.KpiDatasetGenerator;
+import com.example.databenchmark.generator.SparkKpiDataGenerator;
 import com.example.databenchmark.report.BenchmarkReport;
 import com.example.databenchmark.report.WebReportWriter;
 import java.nio.file.Path;
@@ -10,6 +11,16 @@ import java.time.Instant;
 import java.util.List;
 
 public class LocalBenchmarkRunner {
+    private final KpiDatasetGenerator generator;
+
+    public LocalBenchmarkRunner() {
+        this(new SparkKpiDataGenerator());
+    }
+
+    LocalBenchmarkRunner(KpiDatasetGenerator generator) {
+        this.generator = generator;
+    }
+
     public LocalRunResult run(BenchmarkConfig config, Path reportRoot, String runId) throws Exception {
         requireKpiSuite(config);
 
@@ -17,7 +28,7 @@ public class LocalBenchmarkRunner {
         Instant started = Instant.now();
         long startedNanos = System.nanoTime();
 
-        DatasetResult dataset = new KpiDataGenerator().generate(config);
+        DatasetResult dataset = generator.generate(config);
 
         double durationSeconds = (System.nanoTime() - startedNanos) / 1_000_000_000.0;
         Instant ended = Instant.now();

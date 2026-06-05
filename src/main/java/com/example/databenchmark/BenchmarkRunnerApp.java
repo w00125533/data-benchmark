@@ -1,6 +1,8 @@
 package com.example.databenchmark;
 
 import com.example.databenchmark.config.BenchmarkConfig;
+import com.example.databenchmark.generator.DatasetResult;
+import com.example.databenchmark.generator.SparkKpiDataGenerator;
 import com.example.databenchmark.runner.ComposeBenchmarkRunner;
 import com.example.databenchmark.runner.LocalBenchmarkRunner;
 import java.nio.file.Path;
@@ -45,6 +47,9 @@ public class BenchmarkRunnerApp implements Callable<Integer> {
 
     @Command(name = "generate", description = "Generate deterministic wireless KPI data skeleton.")
     static class GenerateCommand implements Callable<Integer> {
+        @ParentCommand
+        BenchmarkRunnerApp parent;
+
         @Spec
         CommandSpec spec;
 
@@ -71,7 +76,7 @@ public class BenchmarkRunnerApp implements Callable<Integer> {
             var config = new com.example.databenchmark.config.BenchmarkConfigLoader()
                 .load(configPath)
                 .withOverrides(cells, days, seed, output, rowCap);
-            var result = new com.example.databenchmark.generator.KpiDataGenerator().generate(config);
+            var result = parent.runnerFactory.generateKpi(config);
             spec.commandLine().getOut().println("generate command is available");
             spec.commandLine().getOut().printf(
                 "rows=%d bytes=%d output=%s%n",
@@ -137,6 +142,8 @@ public class BenchmarkRunnerApp implements Callable<Integer> {
     }
 
     interface RunnerFactory {
+        DatasetResult generateKpi(BenchmarkConfig config) throws Exception;
+
         CliRunResult runLocal(BenchmarkConfig config, Path reportRoot, String runId) throws Exception;
 
         CliRunResult runCompose(BenchmarkConfig config, Path reportRoot, String runId) throws Exception;
@@ -145,6 +152,11 @@ public class BenchmarkRunnerApp implements Callable<Integer> {
     record CliRunResult(long rows, Path reportPath, boolean success) {}
 
     private static final class DefaultRunnerFactory implements RunnerFactory {
+        @Override
+        public DatasetResult generateKpi(BenchmarkConfig config) throws Exception {
+            return new SparkKpiDataGenerator().generate(config);
+        }
+
         @Override
         public CliRunResult runLocal(BenchmarkConfig config, Path reportRoot, String runId) throws Exception {
             LocalBenchmarkRunner.LocalRunResult result = new LocalBenchmarkRunner().run(config, reportRoot, runId);

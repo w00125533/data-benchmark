@@ -4,9 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.databenchmark.config.BenchmarkConfig;
+import com.example.databenchmark.generator.DatasetResult;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -19,7 +21,7 @@ class LocalBenchmarkRunnerTest {
         BenchmarkConfig config = BenchmarkConfig.defaultSmoke()
             .withOverrides(2, 1, 99L, tempDir.resolve("data").toString(), 8L);
 
-        LocalBenchmarkRunner.LocalRunResult result = new LocalBenchmarkRunner()
+        LocalBenchmarkRunner.LocalRunResult result = new LocalBenchmarkRunner(fakeDataset(config))
             .run(config, tempDir.resolve("reports"), "run-local-test");
 
         assertThat(result.dataset().rows()).isEqualTo(8L);
@@ -34,7 +36,7 @@ class LocalBenchmarkRunnerTest {
         BenchmarkConfig config = BenchmarkConfig.defaultSmoke()
             .withOverrides(2, 1, 99L, tempDir.resolve("data").toString(), 8L);
 
-        LocalBenchmarkRunner.LocalRunResult result = new LocalBenchmarkRunner()
+        LocalBenchmarkRunner.LocalRunResult result = new LocalBenchmarkRunner(fakeDataset(config))
             .run(config, tempDir.resolve("reports"), "run-local-test");
 
         String html = Files.readString(result.reportPath());
@@ -53,7 +55,7 @@ class LocalBenchmarkRunnerTest {
         BenchmarkConfig config = BenchmarkConfig.defaultSmoke()
             .withOverrides(1, 1, 99L, tempDir.resolve("data").toString(), 1L);
 
-        LocalBenchmarkRunner.LocalRunResult result = new LocalBenchmarkRunner()
+        LocalBenchmarkRunner.LocalRunResult result = new LocalBenchmarkRunner(fakeDataset(config))
             .run(config, tempDir.resolve("reports"), null);
 
         assertThat(result.reportPath()).exists();
@@ -81,5 +83,14 @@ class LocalBenchmarkRunnerTest {
 
         assertThat(dataDir).doesNotExist();
         assertThat(reportDir).doesNotExist();
+    }
+
+    private static com.example.databenchmark.generator.KpiDatasetGenerator fakeDataset(BenchmarkConfig config) {
+        return ignored -> new DatasetResult(
+            Path.of(config.dataset().output()),
+            List.of(Path.of(config.dataset().output()).resolve("part-00000.parquet")),
+            config.dataset().rowCap(),
+            128L
+        );
     }
 }
