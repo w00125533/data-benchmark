@@ -77,8 +77,8 @@ The generator writes deterministic, partitioned Parquet files under `event_date=
 
 HDFS and the Hive Metastore are provided by the shared lakehouse infrastructure. Start that prerequisite from `D:\agent-code\shared-data-infra` before starting this benchmark runtime:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\infra-up.ps1 -Profiles lakehouse
+```sh
+sh scripts/infra-up.sh lakehouse
 ```
 
 The HDFS Iceberg warehouse path remains `hdfs://hdfs-namenode:8020/warehouse/iceberg`, and HiveServer2 uses the shared metastore at `thrift://hive-metastore:9083`.
