@@ -167,7 +167,7 @@ public class SparkSubmitKpiDataGenerator implements KpiDatasetGenerator {
 
     private static boolean isHdfsOutput(String output) {
         String normalized = output.replace('\\', '/');
-        return normalized.startsWith("/") || normalized.startsWith("hdfs://");
+        return normalized.startsWith("hdfs://");
     }
 
     private static String hdfsPath(String output) {

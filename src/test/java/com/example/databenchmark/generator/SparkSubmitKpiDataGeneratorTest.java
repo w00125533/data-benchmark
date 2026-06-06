@@ -61,7 +61,7 @@ class SparkSubmitKpiDataGeneratorTest {
     @Test
     void returnsHdfsDatasetAfterSparkSubmitGeneration() throws Exception {
         BenchmarkConfig config = BenchmarkConfig.defaultSmoke()
-            .withOverrides(10, 1, null, "/benchmark/kpi-1b/generated", 100L);
+            .withOverrides(10, 1, null, "hdfs://hdfs-namenode:8020/benchmark/kpi-1b/generated", 100L);
         CapturingCommandRunner commandRunner = new CapturingCommandRunner(null);
 
         DatasetResult result = new SparkSubmitKpiDataGenerator(commandRunner, tempDir, Duration.ofSeconds(30))
@@ -110,7 +110,7 @@ class SparkSubmitKpiDataGeneratorTest {
     @Test
     void reusesExistingHdfsDatasetWhenExplicitlyEnabled() throws Exception {
         BenchmarkConfig config = BenchmarkConfig.defaultSmoke()
-            .withOverrides(10, 1, null, "/benchmark/kpi-1b/generated", 100L);
+            .withOverrides(10, 1, null, "hdfs://hdfs-namenode:8020/benchmark/kpi-1b/generated", 100L);
         CapturingCommandRunner commandRunner = new CapturingCommandRunner(null);
 
         DatasetResult result = new SparkSubmitKpiDataGenerator(
@@ -128,6 +128,23 @@ class SparkSubmitKpiDataGeneratorTest {
         assertThat(commandRunner.commands.get(0))
             .contains("exec", "-T", "spark", "bash", "-lc")
             .doesNotContain("/opt/spark/bin/spark-submit");
+    }
+
+    @Test
+    void bareAbsoluteOutputIsTreatedAsLocalPath() throws Exception {
+        Path output = tempDir.resolve("absolute-generated");
+        BenchmarkConfig config = BenchmarkConfig.defaultSmoke()
+            .withOverrides(10, 1, null, output.toString(), 100L);
+        CapturingCommandRunner commandRunner = new CapturingCommandRunner(output);
+
+        DatasetResult result = new SparkSubmitKpiDataGenerator(commandRunner, tempDir, Duration.ofSeconds(30))
+            .generate(config);
+
+        assertThat(result.outputPath()).isEqualTo(output);
+        assertThat(result.files()).hasSize(1);
+        assertThat(result.bytesWritten()).isGreaterThan(0L);
+        assertThat(commandRunner.commands).hasSize(1);
+        assertThat(commandRunner.commands.get(0)).contains("/opt/spark/bin/spark-submit");
     }
 
     private static final class CapturingCommandRunner extends CommandRunner {
