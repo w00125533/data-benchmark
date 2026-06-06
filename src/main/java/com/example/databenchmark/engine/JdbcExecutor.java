@@ -68,7 +68,7 @@ public class JdbcExecutor {
     public StarRocksBrokerLoad.LoadState latestLoadState(String database, String label) throws SQLException {
         String escapedLabel = escapeSqlLiteral(label);
         String sql = """
-            SELECT STATE, IFNULL(LOADED_ROWS, IFNULL(SINK_ROWS, 0)) AS SINK_ROWS, IFNULL(ERROR_MSG, '') AS ERROR_MSG
+            SELECT STATE, IFNULL(SINK_ROWS, 0) AS SINK_ROWS, IFNULL(ERROR_MSG, '') AS ERROR_MSG
             FROM information_schema.loads
             WHERE LABEL = '%s'
             ORDER BY CREATE_TIME DESC

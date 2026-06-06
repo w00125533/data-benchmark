@@ -164,20 +164,29 @@ public class ComposeBenchmarkRunner {
             }
 
             if (dataset != null) {
-                try {
-                    csvPath = csvExporter.export(dataset, starRocksCsvOutput(config, dataset));
-                } catch (Exception exception) {
-                    loadResults.add(failed("compose", "starrocks_csv", "compose_prepare", exception));
+                boolean hdfsOutput = isHdfsDatasetOutput(config);
+                if (!hdfsOutput) {
+                    try {
+                        csvPath = csvExporter.export(dataset, starRocksCsvOutput(config, dataset));
+                    } catch (Exception exception) {
+                        loadResults.add(failed("compose", "starrocks_csv", "compose_prepare", exception));
+                    }
                 }
                 loadResults.add(loadSpark(dataset, actualRunId, config.profile()));
-                loadResults.add(loadStarRocksInternal(csvPath, actualRunId, config.profile()));
+                if (!hdfsOutput) {
+                    loadResults.add(loadStarRocksInternal(dataset, actualRunId, config.profile()));
+                }
                 loadResults.add(refreshStarRocksExternal(actualRunId, config.profile()));
                 String hiveRoot = hiveParquetRoot(config);
-                EngineRunResult hivePublish = publishHiveDataset(dataset, hiveRoot);
-                loadResults.add(hivePublish);
+                EngineRunResult hivePublish = hdfsOutput
+                    ? successfulExistingHiveDataset(dataset)
+                    : publishHiveDataset(dataset, hiveRoot);
+                if (!hdfsOutput) {
+                    loadResults.add(hivePublish);
+                }
                 EngineRunResult hiveLoad = createHiveExternalTable(hiveRoot);
                 loadResults.add(hiveLoad);
-                queryResults.addAll(runKpiRouteQueries(config, hiveRouteFailure(hivePublish, hiveLoad)));
+                queryResults.addAll(runKpiRouteQueries(config, hiveRouteFailure(hivePublish, hiveLoad), !hdfsOutput));
             }
 
             recordMetrics(
@@ -374,18 +383,18 @@ public class ComposeBenchmarkRunner {
         }
     }
 
-    private EngineRunResult loadStarRocksInternal(Path csvPath, String runId, String profile) {
-        if (csvPath == null) {
+    private EngineRunResult loadStarRocksInternal(DatasetResult dataset, String runId, String profile) {
+        if (dataset == null || dataset.outputPath() == null) {
             return failedLoad(
                 "starrocks",
                 "starrocks_internal",
                 EngineStage.STARROCKS_INTERNAL_LOAD.name(),
-                "StarRocks CSV export failed before internal load"
+                "HDFS Parquet dataset is missing before StarRocks Broker Load"
             );
         }
         try {
             serviceController.waitUntilReady(BenchmarkRoute.STARROCKS_INTERNAL);
-            return starRocksClient.loadInternal(csvPath, runId, profile);
+            return starRocksClient.loadInternal(dataset.outputPath(), runId, profile, dataset.rows(), dataset.bytesWritten());
         } catch (Exception exception) {
             return failed("starrocks", "starrocks_internal", EngineStage.STARROCKS_INTERNAL_LOAD.name(), exception);
         }
@@ -418,10 +427,21 @@ public class ComposeBenchmarkRunner {
     }
 
     private List<EngineRunResult> runKpiRouteQueries(BenchmarkConfig config, String hiveRouteFailure) {
+        return runKpiRouteQueries(config, hiveRouteFailure, true);
+    }
+
+    private List<EngineRunResult> runKpiRouteQueries(
+        BenchmarkConfig config,
+        String hiveRouteFailure,
+        boolean includeStarRocksInternal
+    ) {
         List<EngineRunResult> results = new ArrayList<>();
         for (var query : selectedKpiQueries(config)) {
             String queryName = query.name();
             for (BenchmarkRoute route : BenchmarkRoute.values()) {
+                if (!includeStarRocksInternal && route == BenchmarkRoute.STARROCKS_INTERNAL) {
+                    continue;
+                }
                 if (route == BenchmarkRoute.HIVE_HDFS_PARQUET && hiveRouteFailure != null) {
                     results.addAll(failedRoutePhases(route, queryName, hiveRouteFailure));
                     continue;
@@ -554,6 +574,25 @@ public class ComposeBenchmarkRunner {
         return null;
     }
 
+    private EngineRunResult successfulExistingHiveDataset(DatasetResult dataset) {
+        return new EngineRunResult(
+            "hive",
+            "hive_hdfs_parquet",
+            "HIVE_HDFS_PARQUET_PUBLISH",
+            null,
+            dataset.rows(),
+            dataset.bytesWritten(),
+            0.0,
+            true,
+            ""
+        );
+    }
+
+    private static boolean isHdfsDatasetOutput(BenchmarkConfig config) {
+        String configuredOutput = config.dataset().output().replace('\\', '/');
+        return configuredOutput.startsWith("/") || configuredOutput.startsWith("hdfs://");
+    }
+
     private static String hdfsUriPath(String value) {
         String path = URI.create(value).getPath();
         if (path == null || path.isBlank() || "/".equals(path)) {
@@ -628,7 +667,7 @@ public class ComposeBenchmarkRunner {
     }
 
     interface StarRocksClientFacade {
-        EngineRunResult loadInternal(Path csv, String runId, String profile);
+        EngineRunResult loadInternal(Path parquetRoot, String runId, String profile, long expectedRows, long bytesWritten);
 
         EngineRunResult refreshExternalCatalog(String runId, String profile);
 
@@ -730,8 +769,8 @@ public class ComposeBenchmarkRunner {
 
     private record StarRocksClientAdapter(StarRocksClient delegate) implements StarRocksClientFacade {
         @Override
-        public EngineRunResult loadInternal(Path csv, String runId, String profile) {
-            return delegate.loadInternal(csv, runId, profile);
+        public EngineRunResult loadInternal(Path parquetRoot, String runId, String profile, long expectedRows, long bytesWritten) {
+            return delegate.loadInternal(parquetRoot, runId, profile, expectedRows, bytesWritten);
         }
 
         @Override

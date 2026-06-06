@@ -172,7 +172,7 @@ class StarRocksClientTest {
 
         EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
             new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
-        )).loadInternal(Path.of("load.csv"), "run-1", "smoke");
+        )).loadInternal(Path.of("generated"), "run-1", "smoke");
 
         assertThat(result.success()).isFalse();
         assertThat(result.error()).startsWith("create_internal_table failed:");
@@ -209,6 +209,21 @@ class StarRocksClientTest {
     }
 
     @Test
+    void loadInternalDurationIncludesBrokerLoadPollingElapsedTime() {
+        FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
+        jdbc.executionDurationSeconds = 0.0;
+        jdbc.loadStateDelayMillis = 75L;
+        jdbc.loadStates.add(new StarRocksBrokerLoad.LoadState("FINISHED", 100L, ""));
+
+        EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        )).loadInternal(Path.of("generated"), "run-1", "smoke", 100L, 2048L);
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.durationSeconds()).isGreaterThanOrEqualTo(0.05);
+    }
+
+    @Test
     void loadInternalThreeArgumentCompatibilityUsesBrokerLoad() {
         FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
         jdbc.loadStates.add(new StarRocksBrokerLoad.LoadState("FINISHED", 10L, ""));
@@ -219,6 +234,19 @@ class StarRocksClientTest {
 
         assertThat(result.success()).isTrue();
         assertThat(result.rows()).isEqualTo(10L);
+    }
+
+    @Test
+    void loadInternalThreeArgumentCompatibilityRejectsCsvPath() {
+        FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
+
+        EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        )).loadInternal(Path.of("cell_kpi_1min.csv"), "run-1", "smoke");
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.error()).contains("expects an HDFS Parquet root");
+        assertThat(jdbc.sql()).isEmpty();
     }
 
     @Test
@@ -401,6 +429,8 @@ class StarRocksClientTest {
     private static final class FakeJdbcExecutor extends JdbcExecutor {
         private final List<String> sql = new ArrayList<>();
         private final List<StarRocksBrokerLoad.LoadState> loadStates = new ArrayList<>();
+        private double executionDurationSeconds = 0.1;
+        private long loadStateDelayMillis;
         private SQLException failure;
         private String failOnSql;
         private String failOnSqlContaining;
@@ -412,7 +442,7 @@ class StarRocksClientTest {
                 && (failOnSqlContaining == null || sql.contains(failOnSqlContaining))) {
                 throw failure;
             }
-            return new JdbcExecutionResult(0, 0.1);
+            return new JdbcExecutionResult(0, executionDurationSeconds);
         }
 
         @Override
@@ -427,6 +457,14 @@ class StarRocksClientTest {
 
         @Override
         public StarRocksBrokerLoad.LoadState latestLoadState(String database, String label) throws SQLException {
+            if (loadStateDelayMillis > 0) {
+                try {
+                    Thread.sleep(loadStateDelayMillis);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new SQLException("interrupted while delaying load state", e);
+                }
+            }
             if (loadStates.isEmpty()) {
                 return new StarRocksBrokerLoad.LoadState("UNKNOWN", 0L, "");
             }

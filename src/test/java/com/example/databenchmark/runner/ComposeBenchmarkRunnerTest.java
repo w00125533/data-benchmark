@@ -232,7 +232,7 @@ class ComposeBenchmarkRunnerTest {
             "export CSV",
             "Spark load",
             "ready STARROCKS_INTERNAL",
-            "StarRocks internal load",
+            "StarRocks internal load from parquet " + dataset.outputPath().toString().replace('\\', '/') + " rows=5 bytes=123",
             "ready STARROCKS_EXTERNAL_ICEBERG",
             "StarRocks external refresh",
             "Hive HDFS publish /data/generated",
@@ -262,6 +262,34 @@ class ComposeBenchmarkRunnerTest {
             );
         assertThat(reportWriter.report.querySummaries())
             .hasSize(QueryCatalog.queries().size() * BenchmarkRoute.values().length * RoutePhase.values().length);
+    }
+
+    @Test
+    void composeRunnerPassesDatasetParquetPathToStarRocksInternalLoad() throws Exception {
+        List<String> calls = new ArrayList<>();
+        DatasetResult dataset = new DatasetResult(tempDir.resolve("data/generated"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
+        CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
+
+        ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
+            config -> dataset,
+            (generatedDataset, outputDir) -> outputDir.resolve("csv/cell_kpi_1min.csv"),
+            failingTpchGenerator(),
+            failingTpchCsvExport(),
+            new FakeSparkClient(calls),
+            new FakeStarRocksClient(calls, true),
+            new FakeHdfsDatasetPublisher(calls, true),
+            new FakeHiveClient(calls),
+            new FakeServiceController(calls),
+            reportWriter,
+            new CapturingMetricsRecorder(calls, "smoke", "kpi", "smoke")
+        );
+
+        runner.run(BenchmarkConfig.defaultSmoke(), tempDir.resolve("reports"), "compose-test");
+
+        assertThat(calls)
+            .contains("StarRocks internal load from parquet " + dataset.outputPath().toString().replace('\\', '/') + " rows=5 bytes=123")
+            .noneMatch(call -> call.contains("StarRocks internal load from parquet ")
+                && call.contains("csv/cell_kpi_1min.csv"));
     }
 
     @Test
@@ -353,7 +381,7 @@ class ComposeBenchmarkRunnerTest {
             "generate dataset",
             "export CSV",
             "Spark load",
-            "StarRocks internal load",
+            "StarRocks internal load from parquet " + dataset.outputPath().toString().replace('\\', '/') + " rows=5 bytes=123",
             "StarRocks external refresh",
             "Hive HDFS publish /data/generated",
             "Hive external table /data/generated",
@@ -372,7 +400,7 @@ class ComposeBenchmarkRunnerTest {
     }
 
     @Test
-    void composeRunnerUsesStableHiveHdfsLocationWhenDatasetOutputIsHdfsUri() throws Exception {
+    void composeRunnerUsesHdfsDatasetOutputDirectlyForHiveExternalTable() throws Exception {
         List<String> calls = new ArrayList<>();
         DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
         CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
@@ -398,10 +426,8 @@ class ComposeBenchmarkRunnerTest {
         );
 
         assertThat(result.success()).isTrue();
-        assertThat(calls).containsSubsequence(
-            "Hive HDFS publish /data/generated",
-            "Hive external table /data/generated"
-        );
+        assertThat(calls).doesNotContain("Hive HDFS publish /data/generated");
+        assertThat(calls).contains("Hive external table /data/generated");
     }
 
     @Test
@@ -930,10 +956,11 @@ class ComposeBenchmarkRunnerTest {
         }
 
         @Override
-        public EngineRunResult loadInternal(Path csv, String runId, String profile) {
-            calls.add("StarRocks internal load");
+        public EngineRunResult loadInternal(Path parquetRoot, String runId, String profile, long expectedRows, long bytesWritten) {
+            calls.add("StarRocks internal load from parquet " + parquetRoot.toString().replace('\\', '/')
+                + " rows=" + expectedRows + " bytes=" + bytesWritten);
             return new EngineRunResult("starrocks", "starrocks_internal",
-                EngineStage.STARROCKS_INTERNAL_LOAD.name(), null, 5L, 0L, 1.5, true, "");
+                EngineStage.STARROCKS_INTERNAL_LOAD.name(), null, expectedRows, bytesWritten, 1.5, true, "");
         }
 
         @Override

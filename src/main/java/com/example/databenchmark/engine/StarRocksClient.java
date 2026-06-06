@@ -12,6 +12,7 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class StarRocksClient {
@@ -28,20 +29,22 @@ public class StarRocksClient {
     }
 
     public EngineRunResult loadInternal(Path parquetRoot, String runId, String profile, long expectedRows, long bytesWritten) {
+        long started = System.nanoTime();
         double durationSeconds = 0.0;
         String label = StarRocksBrokerLoad.label(runId);
         String parquetGlob = StarRocksBrokerLoad.normalizeHdfsParquetGlob(parquetRoot.toString());
         try {
-            durationSeconds += jdbcExecutor.execute(SqlTemplates.starRocksCreateInternalTable()).durationSeconds();
+            jdbcExecutor.execute(SqlTemplates.starRocksCreateInternalTable());
         } catch (SQLException e) {
-            return failed("starrocks_internal", EngineStage.STARROCKS_INTERNAL_LOAD.name(), null, 0.0,
+            return failed("starrocks_internal", EngineStage.STARROCKS_INTERNAL_LOAD.name(), null, elapsedSeconds(started),
                 "create_internal_table failed: " + e.getMessage());
         }
 
         try {
-            durationSeconds += jdbcExecutor.execute(SqlTemplates.starRocksTruncateInternalTable()).durationSeconds();
-            durationSeconds += jdbcExecutor.execute(SqlTemplates.starRocksBrokerLoadFromParquet(label, parquetGlob)).durationSeconds();
+            jdbcExecutor.execute(SqlTemplates.starRocksTruncateInternalTable());
+            jdbcExecutor.execute(SqlTemplates.starRocksBrokerLoadFromParquet(label, parquetGlob));
             StarRocksBrokerLoad.LoadState state = waitForBrokerLoad(label);
+            durationSeconds = elapsedSeconds(started);
             if (!state.finished()) {
                 return failed(
                     "starrocks_internal",
@@ -68,6 +71,7 @@ public class StarRocksClient {
                 ""
             );
         } catch (SQLException e) {
+            durationSeconds = elapsedSeconds(started);
             return failed(
                 "starrocks_internal",
                 EngineStage.STARROCKS_INTERNAL_LOAD.name(),
@@ -79,6 +83,15 @@ public class StarRocksClient {
     }
 
     public EngineRunResult loadInternal(Path parquetRoot, String runId, String profile) {
+        if (looksLikeCsvPath(parquetRoot)) {
+            return failed(
+                "starrocks_internal",
+                EngineStage.STARROCKS_INTERNAL_LOAD.name(),
+                null,
+                0.0,
+                "loadInternal(Path,String,String) expects an HDFS Parquet root for Broker Load, not a CSV path: " + parquetRoot
+            );
+        }
         return loadInternal(parquetRoot, runId, profile, 0L, 0L);
     }
 
@@ -347,5 +360,16 @@ public class StarRocksClient {
             false,
             error
         );
+    }
+
+    private static double elapsedSeconds(long startedNanos) {
+        return (System.nanoTime() - startedNanos) / 1_000_000_000.0;
+    }
+
+    private static boolean looksLikeCsvPath(Path path) {
+        if (path == null) {
+            return false;
+        }
+        return path.toString().toLowerCase(Locale.ROOT).endsWith(".csv");
     }
 }
