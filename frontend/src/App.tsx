@@ -68,7 +68,7 @@ export default function App() {
                 showIcon
                 style={{ marginBottom: 12 }}
                 message="No comparable route performance data in this run."
-                description="Local smoke runs only generate local data and static report plumbing. Run compose mode to compare Spark Native Parquet, Spark Iceberg, StarRocks Internal, StarRocks External Iceberg, and Hive HDFS Parquet."
+                description="Local smoke runs only generate local data and static report plumbing. Run compose mode to compare Spark SQL Native Parquet, Spark Iceberg, StarRocks Internal, StarRocks External Iceberg, and Hive HDFS Parquet."
               />
             ) : null}
             <PerformanceMatrixTable rows={report.performanceMatrix} dataset={report.dataset} />

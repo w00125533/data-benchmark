@@ -3,7 +3,7 @@ import type { ColumnsType } from 'antd/es/table';
 import type { DatasetInfo, PerformanceMatrixRow, RouteKey, RouteResult } from '../types/report';
 
 const routeLabels: Record<RouteKey, string> = {
-  spark_native_parquet: 'Spark Native Parquet',
+  spark_native_parquet: 'Spark SQL Native Parquet',
   spark_iceberg: 'Spark Iceberg',
   starrocks_internal: 'StarRocks Internal',
   starrocks_external_iceberg: 'StarRocks External Iceberg',
@@ -146,7 +146,7 @@ export default function PerformanceMatrixTable({
       scroll={{ x: 1200 }}
       locale={{
         emptyText:
-          'No comparable route query results. Run compose mode to compare Spark Native Parquet, Spark Iceberg, StarRocks Internal, StarRocks External Iceberg, and Hive HDFS Parquet.',
+          'No comparable route query results. Run compose mode to compare Spark SQL Native Parquet, Spark Iceberg, StarRocks Internal, StarRocks External Iceberg, and Hive HDFS Parquet.',
       }}
     />
   );
