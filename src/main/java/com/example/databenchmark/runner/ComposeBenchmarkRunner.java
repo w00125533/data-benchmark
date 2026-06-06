@@ -166,13 +166,6 @@ public class ComposeBenchmarkRunner {
             if (dataset != null) {
                 boolean hdfsOutput = isHdfsDatasetOutput(config);
                 String hiveRoot = hiveParquetRoot(config);
-                if (!hdfsOutput) {
-                    try {
-                        csvPath = csvExporter.export(dataset, starRocksCsvOutput(config, dataset));
-                    } catch (Exception exception) {
-                        loadResults.add(failed("compose", "starrocks_csv", "compose_prepare", exception));
-                    }
-                }
                 loadResults.add(loadSpark(dataset, actualRunId, config.profile()));
                 EngineRunResult hivePublish = hdfsOutput
                     ? successfulExistingHiveDataset(dataset)
@@ -180,11 +173,22 @@ public class ComposeBenchmarkRunner {
                 if (!hdfsOutput) {
                     loadResults.add(hivePublish);
                 }
-                loadResults.add(loadStarRocksInternal(dataset, Path.of(hiveRoot), actualRunId, config.profile()));
+                EngineRunResult starRocksInternalLoad = starRocksInternalLoadAfterPublish(
+                    dataset,
+                    Path.of(hiveRoot),
+                    actualRunId,
+                    config.profile(),
+                    hivePublish
+                );
+                loadResults.add(starRocksInternalLoad);
                 loadResults.add(refreshStarRocksExternal(actualRunId, config.profile()));
                 EngineRunResult hiveLoad = createHiveExternalTable(hiveRoot);
                 loadResults.add(hiveLoad);
-                queryResults.addAll(runKpiRouteQueries(config, hiveRouteFailure(hivePublish, hiveLoad)));
+                queryResults.addAll(runKpiRouteQueries(
+                    config,
+                    hiveRouteFailure(hivePublish, hiveLoad),
+                    routeFailure(starRocksInternalLoad)
+                ));
             }
 
             recordMetrics(
@@ -398,6 +402,24 @@ public class ComposeBenchmarkRunner {
         }
     }
 
+    private EngineRunResult starRocksInternalLoadAfterPublish(
+        DatasetResult dataset,
+        Path parquetRoot,
+        String runId,
+        String profile,
+        EngineRunResult hivePublish
+    ) {
+        if (!hivePublish.success()) {
+            return failedLoad(
+                "starrocks",
+                "starrocks_internal",
+                EngineStage.STARROCKS_INTERNAL_LOAD.name(),
+                "HDFS publish failed before StarRocks Broker Load: " + hivePublish.error()
+            );
+        }
+        return loadStarRocksInternal(dataset, parquetRoot, runId, profile);
+    }
+
     private EngineRunResult refreshStarRocksExternal(String runId, String profile) {
         try {
             serviceController.waitUntilReady(BenchmarkRoute.STARROCKS_EXTERNAL_ICEBERG);
@@ -424,13 +446,21 @@ public class ComposeBenchmarkRunner {
         }
     }
 
-    private List<EngineRunResult> runKpiRouteQueries(BenchmarkConfig config, String hiveRouteFailure) {
+    private List<EngineRunResult> runKpiRouteQueries(
+        BenchmarkConfig config,
+        String hiveRouteFailure,
+        String starRocksInternalRouteFailure
+    ) {
         List<EngineRunResult> results = new ArrayList<>();
         for (var query : selectedKpiQueries(config)) {
             String queryName = query.name();
             for (BenchmarkRoute route : BenchmarkRoute.values()) {
                 if (route == BenchmarkRoute.HIVE_HDFS_PARQUET && hiveRouteFailure != null) {
                     results.addAll(failedRoutePhases(route, queryName, hiveRouteFailure));
+                    continue;
+                }
+                if (route == BenchmarkRoute.STARROCKS_INTERNAL && starRocksInternalRouteFailure != null) {
+                    results.addAll(failedRoutePhases(route, queryName, starRocksInternalRouteFailure));
                     continue;
                 }
                 results.addAll(runKpiRoutePhases(queryName, route));
@@ -561,6 +591,10 @@ public class ComposeBenchmarkRunner {
         return null;
     }
 
+    private String routeFailure(EngineRunResult loadResult) {
+        return loadResult.success() ? null : loadResult.error();
+    }
+
     private EngineRunResult successfulExistingHiveDataset(DatasetResult dataset) {
         return new EngineRunResult(
             "hive",
@@ -577,7 +611,7 @@ public class ComposeBenchmarkRunner {
 
     private static boolean isHdfsDatasetOutput(BenchmarkConfig config) {
         String configuredOutput = config.dataset().output().replace('\\', '/');
-        return configuredOutput.startsWith("/") || configuredOutput.startsWith("hdfs://");
+        return configuredOutput.startsWith("hdfs://");
     }
 
     private static String hdfsUriPath(String value) {

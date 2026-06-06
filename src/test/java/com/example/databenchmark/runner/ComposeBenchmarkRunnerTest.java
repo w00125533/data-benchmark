@@ -198,11 +198,7 @@ class ComposeBenchmarkRunnerTest {
                 calls.add("generate dataset");
                 return dataset;
             },
-            (generatedDataset, outputDir) -> {
-                calls.add("export CSV");
-                assertThat(generatedDataset).isSameAs(dataset);
-                return outputDir.resolve("cell_kpi_1min.csv");
-            },
+            failingCsvExporter(),
             failingTpchGenerator(),
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
@@ -224,12 +220,11 @@ class ComposeBenchmarkRunnerTest {
         assertThat(result.dataset()).isSameAs(dataset);
         assertThat(result.rows()).isEqualTo(dataset.rows());
         assertThat(result.bytesWritten()).isEqualTo(dataset.bytesWritten());
-        assertThat(result.csvPath().getFileName().toString()).isEqualTo("cell_kpi_1min.csv");
+        assertThat(result.csvPath()).isNull();
         assertThat(result.reportPath()).isEqualTo(tempDir.resolve("reports/compose-test/index.html"));
         assertThat(calls).containsSubsequence(
             "start metrics",
             "generate dataset",
-            "export CSV",
             "Spark load",
             "Hive HDFS publish /data/generated",
             "ready STARROCKS_INTERNAL",
@@ -262,17 +257,18 @@ class ComposeBenchmarkRunnerTest {
             );
         assertThat(reportWriter.report.querySummaries())
             .hasSize(QueryCatalog.queries().size() * BenchmarkRoute.values().length * RoutePhase.values().length);
+        assertThat(calls).doesNotContain("export CSV");
     }
 
     @Test
-    void composeRunnerPublishesLocalOutputBeforeStarRocksInternalLoad() throws Exception {
+    void composeRunnerPublishesRelativeLocalOutputBeforeStarRocksInternalLoad() throws Exception {
         List<String> calls = new ArrayList<>();
         DatasetResult dataset = new DatasetResult(tempDir.resolve("data/generated"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
         CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             config -> dataset,
-            (generatedDataset, outputDir) -> outputDir.resolve("csv/cell_kpi_1min.csv"),
+            failingCsvExporter(),
             failingTpchGenerator(),
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
@@ -296,6 +292,43 @@ class ComposeBenchmarkRunnerTest {
                 && call.contains(dataset.outputPath().toString().replace('\\', '/')))
             .noneMatch(call -> call.contains("StarRocks internal load from parquet ")
                 && call.contains("csv/cell_kpi_1min.csv"));
+    }
+
+    @Test
+    void composeRunnerPublishesAbsoluteLocalOutputBeforeStarRocksInternalLoad() throws Exception {
+        List<String> calls = new ArrayList<>();
+        DatasetResult dataset = new DatasetResult(
+            tempDir.resolve("benchmark/kpi-smoke/generated"),
+            List.of(tempDir.resolve("part.parquet")),
+            5L,
+            123L
+        );
+        CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
+
+        ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
+            config -> dataset,
+            failingCsvExporter(),
+            failingTpchGenerator(),
+            failingTpchCsvExport(),
+            new FakeSparkClient(calls),
+            new FakeStarRocksClient(calls, true),
+            new FakeHdfsDatasetPublisher(calls, true),
+            new FakeHiveClient(calls),
+            new FakeServiceController(calls),
+            reportWriter,
+            new CapturingMetricsRecorder(calls, "smoke", "kpi", "smoke")
+        );
+
+        runner.run(
+            BenchmarkConfig.defaultSmoke().withOverrides(null, null, null, "/benchmark/kpi-smoke/generated", null),
+            tempDir.resolve("reports"),
+            "compose-test"
+        );
+
+        assertThat(calls).containsSubsequence(
+            "Hive HDFS publish /benchmark/kpi-smoke/generated",
+            "StarRocks internal load from parquet /benchmark/kpi-smoke/generated rows=5 bytes=123"
+        );
     }
 
     @Test
@@ -357,10 +390,7 @@ class ComposeBenchmarkRunnerTest {
                 calls.add("generate dataset");
                 return dataset;
             },
-            (generatedDataset, outputDir) -> {
-                calls.add("export CSV");
-                return outputDir.resolve("cell_kpi_1min.csv");
-            },
+            failingCsvExporter(),
             failingTpchGenerator(),
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
@@ -385,7 +415,6 @@ class ComposeBenchmarkRunnerTest {
         assertThat(calls).containsSubsequence(
             "start metrics",
             "generate dataset",
-            "export CSV",
             "Spark load",
             "Hive HDFS publish /data/generated",
             "StarRocks internal load from parquet /data/generated rows=5 bytes=123",
@@ -403,6 +432,7 @@ class ComposeBenchmarkRunnerTest {
         assertThat(reportWriter.report.status()).isEqualTo("DEGRADED");
         assertThat(reportWriter.report.loadSummaries())
             .anySatisfy(summary -> assertThat(summary.error()).contains("catalog refresh failed"));
+        assertThat(calls).doesNotContain("export CSV");
     }
 
     @Test
@@ -504,6 +534,62 @@ class ComposeBenchmarkRunnerTest {
             .allSatisfy(summary -> {
                 assertThat(summary.success()).isFalse();
                 assertThat(summary.error()).contains("hdfs publish failed");
+            });
+    }
+
+    @Test
+    void composeRunnerRecordsStarRocksInternalLoadFailureWhenHdfsPublishFailsAndSkipsInternalQueries() throws Exception {
+        List<String> calls = new ArrayList<>();
+        String queryName = QueryCatalog.queries().get(0).name();
+        DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
+        CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
+
+        ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
+            config -> dataset,
+            failingCsvExporter(),
+            failingTpchGenerator(),
+            failingTpchCsvExport(),
+            new FakeSparkClient(calls),
+            new FakeStarRocksClient(calls, true),
+            new FakeHdfsDatasetPublisher(calls, false),
+            new FakeHiveClient(calls),
+            new FakeServiceController(calls),
+            reportWriter,
+            new CapturingMetricsRecorder(calls, "smoke", "kpi", "smoke")
+        );
+
+        ComposeBenchmarkRunner.ComposeRunResult result = runner.run(
+            BenchmarkConfig.defaultSmoke(),
+            tempDir.resolve("reports"),
+            "compose-test"
+        );
+
+        assertThat(result.success()).isFalse();
+        assertThat(calls)
+            .contains("Hive HDFS publish /data/generated")
+            .noneMatch(call -> call.startsWith("StarRocks internal load from parquet "))
+            .doesNotContain(
+                "restart STARROCKS_INTERNAL",
+                "StarRocks starrocks_internal " + queryName + " COLD",
+                "StarRocks starrocks_internal " + queryName + " WARM",
+                "StarRocks starrocks_internal " + queryName + " HOT"
+            );
+        assertThat(reportWriter.report.loadSummaries())
+            .filteredOn(summary -> summary.tableShape().equals("starrocks_internal"))
+            .filteredOn(summary -> summary.stage().equals(EngineStage.STARROCKS_INTERNAL_LOAD.name()))
+            .singleElement()
+            .satisfies(summary -> {
+                assertThat(summary.success()).isFalse();
+                assertThat(summary.error()).contains("HDFS publish failed");
+                assertThat(summary.error()).contains("hdfs publish failed");
+            });
+        assertThat(reportWriter.report.querySummaries())
+            .filteredOn(summary -> summary.tableShape().equals("starrocks_internal"))
+            .filteredOn(summary -> summary.queryName().equals(queryName))
+            .hasSize(3)
+            .allSatisfy(summary -> {
+                assertThat(summary.success()).isFalse();
+                assertThat(summary.error()).contains("HDFS publish failed");
             });
     }
 

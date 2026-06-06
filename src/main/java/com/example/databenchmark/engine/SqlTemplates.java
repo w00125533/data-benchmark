@@ -76,7 +76,7 @@ public final class SqlTemplates {
             );
             """.formatted(
                 escapeSqlIdentifierPart(label),
-                escapeSqlLiteral(parquetGlob),
+                escapeDoubleQuotedSqlString(parquetGlob),
                 kpiColumnNames(),
                 StarRocksBrokerLoad.DEFAULT_TIMEOUT.toSeconds()
             );
@@ -168,6 +168,10 @@ public final class SqlTemplates {
 
     private static String escapeSqlLiteral(String value) {
         return value.replace("'", "''");
+    }
+
+    private static String escapeDoubleQuotedSqlString(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private static String escapeSqlIdentifierPart(String value) {

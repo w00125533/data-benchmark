@@ -45,6 +45,17 @@ class SqlTemplatesTest {
     }
 
     @Test
+    void starRocksBrokerLoadEscapesDoubleQuotedDataInfilePath() {
+        String sql = SqlTemplates.starRocksBrokerLoadFromParquet(
+            "run-1",
+            "hdfs://hdfs-namenode:8020/benchmark/kpi\"smoke\\generated/*/*.parquet"
+        );
+
+        assertThat(sql)
+            .contains("DATA INFILE(\"hdfs://hdfs-namenode:8020/benchmark/kpi\\\"smoke\\\\generated/*/*.parquet\")");
+    }
+
+    @Test
     void externalCatalogUsesHiveMetastoreOnly() {
         String sql = SqlTemplates.starRocksCreateExternalCatalog();
 

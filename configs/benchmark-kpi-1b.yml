@@ -5,7 +5,7 @@ dataset:
   days: 70
   columns: 50
   startTime: "2026-01-01T00:00:00"
-  output: "data/generated"
+  output: "hdfs://hdfs-namenode:8020/benchmark/kpi-1b/generated"
   rowCap: 1000000000
   spark:
     master: "local[*]"
