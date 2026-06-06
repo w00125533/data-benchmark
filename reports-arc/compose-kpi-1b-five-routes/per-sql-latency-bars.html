@@ -1,0 +1,1497 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>1B Benchmark Per-SQL Latency Bars</title>
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; background: #f6f7f9; color: #111827; }
+    header { padding: 24px 28px 16px; background: #ffffff; border-bottom: 1px solid #e5e7eb; }
+    h1 { margin: 0 0 8px; font-size: 24px; letter-spacing: 0; }
+    .meta { color: #4b5563; font-size: 14px; line-height: 1.6; }
+    main { padding: 20px 28px 36px; }
+    .sql-row { display: grid; grid-template-columns: minmax(320px, 460px) 1fr; gap: 16px; align-items: start; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    .sql-label { font-size: 12px; font-weight: 700; color: #6b7280; text-transform: uppercase; }
+    h2 { margin: 4px 0 8px; font-size: 19px; overflow-wrap: anywhere; }
+    .best { color: #374151; font-size: 13px; margin-bottom: 12px; }
+    .phase-charts { display: grid; grid-template-columns: repeat(3, minmax(300px, 1fr)); gap: 12px; }
+    .chart { width: 100%; background: #fbfdff; border: 1px solid #e5e7eb; border-radius: 6px; display: block; }
+    .chart-title { font-size: 15px; font-weight: 700; fill: #111827; }
+    .scale-note { font-size: 11px; fill: #6b7280; }
+    .route-label { font-size: 12px; fill: #374151; }
+    .bar-value { font-size: 12px; font-weight: 700; fill: #111827; }
+    .sql-details { margin-top: 12px; font-size: 13px; }
+    .route-sql { margin-top: 8px; }
+    summary { cursor: pointer; color: #1f2937; font-weight: 700; }
+    pre { overflow: auto; white-space: pre; background: #0f172a; color: #e5e7eb; border-radius: 6px; padding: 10px; font-size: 12px; line-height: 1.45; }
+    @media (max-width: 1300px) { .sql-row { grid-template-columns: 1fr; } .phase-charts { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>1B Benchmark Per-SQL Cold/Warm/Hot Latency</h1>
+    <div class="meta">
+      Run ID: compose-kpi-1b-five-routes | Status: SUCCESS | Rows: 1,000,000,000 | Bytes: 125,537,163,934<br />
+      Bars use a strict linear scale inside each chart. The SQL name is shown first on every row, followed by Cold, Warm, and Hot charts. Actual SQL is expandable under each SQL row.
+    </div>
+  </header>
+  <main>
+    <section class="sql-row">
+      <aside class="sql-name">
+        <div class="sql-label">SQL</div>
+        <h2>single_cell_day_trend</h2>
+        <div class="best">Best hot route: StarRocks Internal (56.78ms)</div>
+        <details class="sql-details"><summary>Actual SQL sent by route</summary><details class="route-sql"><summary>Spark SQL Native Parquet</summary><pre><code>SELECT event_time, cell_id, rsrp_avg, sinr_avg, prb_dl_util, active_users
+FROM spark_catalog.benchmark_native.cell_kpi_1min
+WHERE cell_id = &#39;CELL-000001&#39;
+  AND event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+ORDER BY event_time</code></pre></details><details class="route-sql"><summary>Spark Iceberg</summary><pre><code>SELECT event_time, cell_id, rsrp_avg, sinr_avg, prb_dl_util, active_users
+FROM iceberg_catalog.iceberg_db.cell_kpi_1min
+WHERE cell_id = &#39;CELL-000001&#39;
+  AND event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+ORDER BY event_time</code></pre></details><details class="route-sql"><summary>StarRocks Internal</summary><pre><code>SELECT event_time, cell_id, rsrp_avg, sinr_avg, prb_dl_util, active_users
+FROM sr_internal.cell_kpi_1min
+WHERE cell_id = &#39;CELL-000001&#39;
+  AND event_time &gt;= CAST(&#39;2026-01-01 00:00:00&#39; AS DATETIME)
+  AND event_time &lt; CAST(&#39;2026-01-02 00:00:00&#39; AS DATETIME)
+ORDER BY event_time</code></pre></details><details class="route-sql"><summary>StarRocks External Iceberg</summary><pre><code>SELECT event_time, cell_id, rsrp_avg, sinr_avg, prb_dl_util, active_users
+FROM sr_external_iceberg.iceberg_db.cell_kpi_1min
+WHERE cell_id = &#39;CELL-000001&#39;
+  AND event_time &gt;= CAST(&#39;2026-01-01 00:00:00&#39; AS DATETIME)
+  AND event_time &lt; CAST(&#39;2026-01-02 00:00:00&#39; AS DATETIME)
+ORDER BY event_time</code></pre></details><details class="route-sql"><summary>Hive HDFS Parquet</summary><pre><code>SELECT event_time, cell_id, rsrp_avg, sinr_avg, prb_dl_util, active_users
+FROM hive_hdfs_parquet.cell_kpi_1min
+WHERE cell_id = &#39;CELL-000001&#39;
+  AND event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_date = &#39;2026-01-01&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+ORDER BY event_time</code></pre></details></details>
+      </aside>
+      <div class="phase-charts">
+        
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="single_cell_day_trend Cold query">
+        <text x="10" y="24" class="chart-title">Cold query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 29.8s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">29.8s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="116.0148" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="338.0147508323461" y="95" class="bar-value">10.5s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="8.7669" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="230.76686030827386" y="129" class="bar-value">792.7ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="65.9243" height="20" rx="2" fill="#f97316"></rect>
+      <text x="287.92426898478067" y="163" class="bar-value">5.96s</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="142.7184" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="364.71836054201776" y="197" class="bar-value">12.9s</text>
+      </svg>
+
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="single_cell_day_trend Warm query">
+        <text x="10" y="24" class="chart-title">Warm query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 27.2s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">27.2s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="123.7431" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="345.7431259513215" y="95" class="bar-value">10.2s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="1.4463" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="223.44629136108762" y="129" class="bar-value">119.4ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="3.7357" height="20" rx="2" fill="#f97316"></rect>
+      <text x="225.73567820477516" y="163" class="bar-value">308.3ms</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="108.6576" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="330.65759526780624" y="197" class="bar-value">8.97s</text>
+      </svg>
+
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="single_cell_day_trend Hot query">
+        <text x="10" y="24" class="chart-title">Hot query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 21.8s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">21.8s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="160.0479" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="382.04787418199567" y="95" class="bar-value">10.6s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="0.8576" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="222.8576076072869" y="129" class="bar-value">56.78ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="7.2489" height="20" rx="2" fill="#f97316"></rect>
+      <text x="229.24894272546234" y="163" class="bar-value">479.9ms</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="131.0633" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="353.06331087542276" y="197" class="bar-value">8.68s</text>
+      </svg>
+      </div>
+    </section>
+
+    <section class="sql-row">
+      <aside class="sql-name">
+        <div class="sql-label">SQL</div>
+        <h2>single_cell_week_trend</h2>
+        <div class="best">Best hot route: StarRocks Internal (60.70ms)</div>
+        <details class="sql-details"><summary>Actual SQL sent by route</summary><details class="route-sql"><summary>Spark SQL Native Parquet</summary><pre><code>SELECT DATE_TRUNC(&#39;day&#39;, event_time) AS event_day,
+       cell_id,
+       AVG(rsrp_avg) AS rsrp_avg,
+       AVG(sinr_avg) AS sinr_avg,
+       AVG(load_score) AS load_score
+FROM spark_catalog.benchmark_native.cell_kpi_1min
+WHERE cell_id = &#39;CELL-000001&#39;
+  AND event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-08 00:00:00&#39;
+GROUP BY DATE_TRUNC(&#39;day&#39;, event_time), cell_id
+ORDER BY event_day</code></pre></details><details class="route-sql"><summary>Spark Iceberg</summary><pre><code>SELECT DATE_TRUNC(&#39;day&#39;, event_time) AS event_day,
+       cell_id,
+       AVG(rsrp_avg) AS rsrp_avg,
+       AVG(sinr_avg) AS sinr_avg,
+       AVG(load_score) AS load_score
+FROM iceberg_catalog.iceberg_db.cell_kpi_1min
+WHERE cell_id = &#39;CELL-000001&#39;
+  AND event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-08 00:00:00&#39;
+GROUP BY DATE_TRUNC(&#39;day&#39;, event_time), cell_id
+ORDER BY event_day</code></pre></details><details class="route-sql"><summary>StarRocks Internal</summary><pre><code>SELECT DATE_TRUNC(&#39;day&#39;, event_time) AS event_day,
+       cell_id,
+       AVG(rsrp_avg) AS rsrp_avg,
+       AVG(sinr_avg) AS sinr_avg,
+       AVG(load_score) AS load_score
+FROM sr_internal.cell_kpi_1min
+WHERE cell_id = &#39;CELL-000001&#39;
+  AND event_time &gt;= CAST(&#39;2026-01-01 00:00:00&#39; AS DATETIME)
+  AND event_time &lt; CAST(&#39;2026-01-08 00:00:00&#39; AS DATETIME)
+GROUP BY DATE_TRUNC(&#39;day&#39;, event_time), cell_id
+ORDER BY event_day</code></pre></details><details class="route-sql"><summary>StarRocks External Iceberg</summary><pre><code>SELECT DATE_TRUNC(&#39;day&#39;, event_time) AS event_day,
+       cell_id,
+       AVG(rsrp_avg) AS rsrp_avg,
+       AVG(sinr_avg) AS sinr_avg,
+       AVG(load_score) AS load_score
+FROM sr_external_iceberg.iceberg_db.cell_kpi_1min
+WHERE cell_id = &#39;CELL-000001&#39;
+  AND event_time &gt;= CAST(&#39;2026-01-01 00:00:00&#39; AS DATETIME)
+  AND event_time &lt; CAST(&#39;2026-01-08 00:00:00&#39; AS DATETIME)
+GROUP BY DATE_TRUNC(&#39;day&#39;, event_time), cell_id
+ORDER BY event_day</code></pre></details><details class="route-sql"><summary>Hive HDFS Parquet</summary><pre><code>SELECT date_format(event_time, &#39;yyyy-MM-dd 00:00:00&#39;) AS event_day,
+       cell_id,
+       AVG(rsrp_avg) AS rsrp_avg,
+       AVG(sinr_avg) AS sinr_avg,
+       AVG(load_score) AS load_score
+FROM hive_hdfs_parquet.cell_kpi_1min
+WHERE cell_id = &#39;CELL-000001&#39;
+  AND event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_date &gt;= &#39;2026-01-01&#39;
+  AND event_date &lt; &#39;2026-01-08&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-08 00:00:00&#39;
+GROUP BY date_format(event_time, &#39;yyyy-MM-dd 00:00:00&#39;), cell_id
+ORDER BY event_day</code></pre></details></details>
+      </aside>
+      <div class="phase-charts">
+        
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="single_cell_week_trend Cold query">
+        <text x="10" y="24" class="chart-title">Cold query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 46.7s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="238.1071" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="460.10706229405935" y="61" class="bar-value">33.7s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="125.2014" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="347.2014462532294" y="95" class="bar-value">17.7s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="6.0109" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="228.0108645011484" y="129" class="bar-value">850.6ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="51.2884" height="20" rx="2" fill="#f97316"></rect>
+      <text x="273.28838620275206" y="163" class="bar-value">7.26s</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="330.0000" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="552" y="197" class="bar-value">46.7s</text>
+      </svg>
+
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="single_cell_week_trend Warm query">
+        <text x="10" y="24" class="chart-title">Warm query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 33.3s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="315.7989" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="537.7989222870318" y="61" class="bar-value">31.9s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="176.0362" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="398.03616885987344" y="95" class="bar-value">17.8s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="0.7064" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="222.70642304440372" y="129" class="bar-value">71.38ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="16.6391" height="20" rx="2" fill="#f97316"></rect>
+      <text x="238.63906117018476" y="163" class="bar-value">1.68s</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="330.0000" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="552" y="197" class="bar-value">33.3s</text>
+      </svg>
+
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="single_cell_week_trend Hot query">
+        <text x="10" y="24" class="chart-title">Hot query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 31.4s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="291.6868" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="513.6868486497594" y="61" class="bar-value">27.8s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="169.8139" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="391.81393069611175" y="95" class="bar-value">16.2s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="0.6372" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="222.63716582762396" y="129" class="bar-value">60.70ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="17.1793" height="20" rx="2" fill="#f97316"></rect>
+      <text x="239.17931253423555" y="163" class="bar-value">1.64s</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="330.0000" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="552" y="197" class="bar-value">31.4s</text>
+      </svg>
+      </div>
+    </section>
+
+    <section class="sql-row">
+      <aside class="sql-name">
+        <div class="sql-label">SQL</div>
+        <h2>city_vendor_band_rat_minute_agg</h2>
+        <div class="best">Best hot route: StarRocks Internal (141.0ms)</div>
+        <details class="sql-details"><summary>Actual SQL sent by route</summary><details class="route-sql"><summary>Spark SQL Native Parquet</summary><pre><code>SELECT DATE_TRUNC(&#39;minute&#39;, event_time) AS event_minute,
+       city,
+       vendor,
+       band,
+       rat,
+       AVG(prb_dl_util) AS prb_dl_util,
+       SUM(active_users) AS active_users
+FROM spark_catalog.benchmark_native.cell_kpi_1min
+WHERE city = &#39;city-001&#39;
+  AND event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+GROUP BY DATE_TRUNC(&#39;minute&#39;, event_time), city, vendor, band, rat
+ORDER BY event_minute, vendor, band, rat</code></pre></details><details class="route-sql"><summary>Spark Iceberg</summary><pre><code>SELECT DATE_TRUNC(&#39;minute&#39;, event_time) AS event_minute,
+       city,
+       vendor,
+       band,
+       rat,
+       AVG(prb_dl_util) AS prb_dl_util,
+       SUM(active_users) AS active_users
+FROM iceberg_catalog.iceberg_db.cell_kpi_1min
+WHERE city = &#39;city-001&#39;
+  AND event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+GROUP BY DATE_TRUNC(&#39;minute&#39;, event_time), city, vendor, band, rat
+ORDER BY event_minute, vendor, band, rat</code></pre></details><details class="route-sql"><summary>StarRocks Internal</summary><pre><code>SELECT DATE_TRUNC(&#39;minute&#39;, event_time) AS event_minute,
+       city,
+       vendor,
+       band,
+       rat,
+       AVG(prb_dl_util) AS prb_dl_util,
+       SUM(active_users) AS active_users
+FROM sr_internal.cell_kpi_1min
+WHERE city = &#39;city-001&#39;
+  AND event_time &gt;= CAST(&#39;2026-01-01 00:00:00&#39; AS DATETIME)
+  AND event_time &lt; CAST(&#39;2026-01-02 00:00:00&#39; AS DATETIME)
+GROUP BY DATE_TRUNC(&#39;minute&#39;, event_time), city, vendor, band, rat
+ORDER BY event_minute, vendor, band, rat</code></pre></details><details class="route-sql"><summary>StarRocks External Iceberg</summary><pre><code>SELECT DATE_TRUNC(&#39;minute&#39;, event_time) AS event_minute,
+       city,
+       vendor,
+       band,
+       rat,
+       AVG(prb_dl_util) AS prb_dl_util,
+       SUM(active_users) AS active_users
+FROM sr_external_iceberg.iceberg_db.cell_kpi_1min
+WHERE city = &#39;city-001&#39;
+  AND event_time &gt;= CAST(&#39;2026-01-01 00:00:00&#39; AS DATETIME)
+  AND event_time &lt; CAST(&#39;2026-01-02 00:00:00&#39; AS DATETIME)
+GROUP BY DATE_TRUNC(&#39;minute&#39;, event_time), city, vendor, band, rat
+ORDER BY event_minute, vendor, band, rat</code></pre></details><details class="route-sql"><summary>Hive HDFS Parquet</summary><pre><code>SELECT date_format(event_time, &#39;yyyy-MM-dd HH:mm:00&#39;) AS event_minute,
+       city,
+       vendor,
+       band,
+       rat,
+       AVG(prb_dl_util) AS prb_dl_util,
+       SUM(active_users) AS active_users
+FROM hive_hdfs_parquet.cell_kpi_1min
+WHERE city = &#39;city-001&#39;
+  AND event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_date = &#39;2026-01-01&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+GROUP BY date_format(event_time, &#39;yyyy-MM-dd HH:mm:00&#39;), city, vendor, band, rat
+ORDER BY event_minute, vendor, band, rat</code></pre></details></details>
+      </aside>
+      <div class="phase-charts">
+        
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="city_vendor_band_rat_minute_agg Cold query">
+        <text x="10" y="24" class="chart-title">Cold query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 20.6s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">20.6s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="164.5282" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="386.52823319724035" y="95" class="bar-value">10.3s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="25.3133" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="247.31330846493864" y="129" class="bar-value">1.58s</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="82.2836" height="20" rx="2" fill="#f97316"></rect>
+      <text x="304.28355659050953" y="163" class="bar-value">5.13s</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="241.3062" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="463.3061562283999" y="197" class="bar-value">15.0s</text>
+      </svg>
+
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="city_vendor_band_rat_minute_agg Warm query">
+        <text x="10" y="24" class="chart-title">Warm query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 20.3s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">20.3s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="167.3467" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="389.34667837992976" y="95" class="bar-value">10.3s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="1.4929" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="223.49289368164182" y="129" class="bar-value">91.82ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="9.0580" height="20" rx="2" fill="#f97316"></rect>
+      <text x="231.05798523433185" y="163" class="bar-value">557.1ms</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="187.3256" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="409.32561588856083" y="197" class="bar-value">11.5s</text>
+      </svg>
+
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="city_vendor_band_rat_minute_agg Hot query">
+        <text x="10" y="24" class="chart-title">Hot query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 19.8s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">19.8s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="171.5112" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="393.51120346195364" y="95" class="bar-value">10.3s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="2.3512" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="224.35123640983355" y="129" class="bar-value">141.0ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="8.6948" height="20" rx="2" fill="#f97316"></rect>
+      <text x="230.69475414797856" y="163" class="bar-value">521.3ms</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="163.0496" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="385.04958801502676" y="197" class="bar-value">9.78s</text>
+      </svg>
+      </div>
+    </section>
+
+    <section class="sql-row">
+      <aside class="sql-name">
+        <div class="sql-label">SQL</div>
+        <h2>topn_high_load_cells</h2>
+        <div class="best">Best hot route: StarRocks Internal (230.1ms)</div>
+        <details class="sql-details"><summary>Actual SQL sent by route</summary><details class="route-sql"><summary>Spark SQL Native Parquet</summary><pre><code>SELECT cell_id,
+       MAX(prb_dl_util) AS prb_dl_util,
+       MAX(active_users) AS active_users,
+       MAX(load_score) AS load_score
+FROM spark_catalog.benchmark_native.cell_kpi_1min
+WHERE event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+GROUP BY cell_id
+ORDER BY load_score DESC
+LIMIT 100</code></pre></details><details class="route-sql"><summary>Spark Iceberg</summary><pre><code>SELECT cell_id,
+       MAX(prb_dl_util) AS prb_dl_util,
+       MAX(active_users) AS active_users,
+       MAX(load_score) AS load_score
+FROM iceberg_catalog.iceberg_db.cell_kpi_1min
+WHERE event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+GROUP BY cell_id
+ORDER BY load_score DESC
+LIMIT 100</code></pre></details><details class="route-sql"><summary>StarRocks Internal</summary><pre><code>SELECT cell_id,
+       MAX(prb_dl_util) AS prb_dl_util,
+       MAX(active_users) AS active_users,
+       MAX(load_score) AS load_score
+FROM sr_internal.cell_kpi_1min
+WHERE event_time &gt;= CAST(&#39;2026-01-01 00:00:00&#39; AS DATETIME)
+  AND event_time &lt; CAST(&#39;2026-01-02 00:00:00&#39; AS DATETIME)
+GROUP BY cell_id
+ORDER BY load_score DESC
+LIMIT 100</code></pre></details><details class="route-sql"><summary>StarRocks External Iceberg</summary><pre><code>SELECT cell_id,
+       MAX(prb_dl_util) AS prb_dl_util,
+       MAX(active_users) AS active_users,
+       MAX(load_score) AS load_score
+FROM sr_external_iceberg.iceberg_db.cell_kpi_1min
+WHERE event_time &gt;= CAST(&#39;2026-01-01 00:00:00&#39; AS DATETIME)
+  AND event_time &lt; CAST(&#39;2026-01-02 00:00:00&#39; AS DATETIME)
+GROUP BY cell_id
+ORDER BY load_score DESC
+LIMIT 100</code></pre></details><details class="route-sql"><summary>Hive HDFS Parquet</summary><pre><code>SELECT cell_id,
+       MAX(prb_dl_util) AS prb_dl_util,
+       MAX(active_users) AS active_users,
+       MAX(load_score) AS load_score
+FROM hive_hdfs_parquet.cell_kpi_1min
+WHERE event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_date = &#39;2026-01-01&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+GROUP BY cell_id
+ORDER BY load_score DESC
+LIMIT 100</code></pre></details></details>
+      </aside>
+      <div class="phase-charts">
+        
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="topn_high_load_cells Cold query">
+        <text x="10" y="24" class="chart-title">Cold query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 24.6s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">24.6s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="115.5559" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="337.55586298347293" y="95" class="bar-value">8.60s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="37.8582" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="259.85815612600743" y="129" class="bar-value">2.82s</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="83.0923" height="20" rx="2" fill="#f97316"></rect>
+      <text x="305.09227988624997" y="163" class="bar-value">6.18s</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="168.9433" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="390.94333979027" y="197" class="bar-value">12.6s</text>
+      </svg>
+
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="topn_high_load_cells Warm query">
+        <text x="10" y="24" class="chart-title">Warm query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 16.5s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">16.5s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="179.1322" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="401.13223089510825" y="95" class="bar-value">8.97s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="2.6665" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="224.6665015904413" y="129" class="bar-value">133.6ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="12.8786" height="20" rx="2" fill="#f97316"></rect>
+      <text x="234.87861708057494" y="163" class="bar-value">645.2ms</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="202.6705" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="424.670507329965" y="197" class="bar-value">10.2s</text>
+      </svg>
+
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="topn_high_load_cells Hot query">
+        <text x="10" y="24" class="chart-title">Hot query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 16.0s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">16.0s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="204.9877" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="426.98766760919796" y="95" class="bar-value">9.94s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="4.7464" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="226.74642652635336" y="129" class="bar-value">230.1ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="13.9993" height="20" rx="2" fill="#f97316"></rect>
+      <text x="235.999333911477" y="163" class="bar-value">678.5ms</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="189.1920" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="411.192000985816" y="197" class="bar-value">9.17s</text>
+      </svg>
+      </div>
+    </section>
+
+    <section class="sql-row">
+      <aside class="sql-name">
+        <div class="sql-label">SQL</div>
+        <h2>weak_coverage_cells</h2>
+        <div class="best">Best hot route: StarRocks Internal (232.3ms)</div>
+        <details class="sql-details"><summary>Actual SQL sent by route</summary><details class="route-sql"><summary>Spark SQL Native Parquet</summary><pre><code>SELECT cell_id,
+       city,
+       AVG(rsrp_avg) AS rsrp_avg,
+       AVG(sinr_avg) AS sinr_avg,
+       COUNT(*) AS samples
+FROM spark_catalog.benchmark_native.cell_kpi_1min
+WHERE event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+  AND (rsrp_avg &lt; -110
+   OR sinr_avg &lt; 0)
+GROUP BY cell_id, city
+ORDER BY rsrp_avg ASC, sinr_avg ASC
+LIMIT 100</code></pre></details><details class="route-sql"><summary>Spark Iceberg</summary><pre><code>SELECT cell_id,
+       city,
+       AVG(rsrp_avg) AS rsrp_avg,
+       AVG(sinr_avg) AS sinr_avg,
+       COUNT(*) AS samples
+FROM iceberg_catalog.iceberg_db.cell_kpi_1min
+WHERE event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+  AND (rsrp_avg &lt; -110
+   OR sinr_avg &lt; 0)
+GROUP BY cell_id, city
+ORDER BY rsrp_avg ASC, sinr_avg ASC
+LIMIT 100</code></pre></details><details class="route-sql"><summary>StarRocks Internal</summary><pre><code>SELECT cell_id,
+       city,
+       AVG(rsrp_avg) AS rsrp_avg,
+       AVG(sinr_avg) AS sinr_avg,
+       COUNT(*) AS samples
+FROM sr_internal.cell_kpi_1min
+WHERE event_time &gt;= CAST(&#39;2026-01-01 00:00:00&#39; AS DATETIME)
+  AND event_time &lt; CAST(&#39;2026-01-02 00:00:00&#39; AS DATETIME)
+  AND (rsrp_avg &lt; -110
+   OR sinr_avg &lt; 0)
+GROUP BY cell_id, city
+ORDER BY rsrp_avg ASC, sinr_avg ASC
+LIMIT 100</code></pre></details><details class="route-sql"><summary>StarRocks External Iceberg</summary><pre><code>SELECT cell_id,
+       city,
+       AVG(rsrp_avg) AS rsrp_avg,
+       AVG(sinr_avg) AS sinr_avg,
+       COUNT(*) AS samples
+FROM sr_external_iceberg.iceberg_db.cell_kpi_1min
+WHERE event_time &gt;= CAST(&#39;2026-01-01 00:00:00&#39; AS DATETIME)
+  AND event_time &lt; CAST(&#39;2026-01-02 00:00:00&#39; AS DATETIME)
+  AND (rsrp_avg &lt; -110
+   OR sinr_avg &lt; 0)
+GROUP BY cell_id, city
+ORDER BY rsrp_avg ASC, sinr_avg ASC
+LIMIT 100</code></pre></details><details class="route-sql"><summary>Hive HDFS Parquet</summary><pre><code>SELECT cell_id,
+       city,
+       AVG(rsrp_avg) AS rsrp_avg,
+       AVG(sinr_avg) AS sinr_avg,
+       COUNT(*) AS samples
+FROM hive_hdfs_parquet.cell_kpi_1min
+WHERE event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_date = &#39;2026-01-01&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+  AND (rsrp_avg &lt; -110
+   OR sinr_avg &lt; 0)
+GROUP BY cell_id, city
+ORDER BY rsrp_avg ASC, sinr_avg ASC
+LIMIT 100</code></pre></details></details>
+      </aside>
+      <div class="phase-charts">
+        
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="weak_coverage_cells Cold query">
+        <text x="10" y="24" class="chart-title">Cold query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 21.7s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">21.7s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="144.7102" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="366.7102410929291" y="95" class="bar-value">9.53s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="25.7904" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="247.79039773633002" y="129" class="bar-value">1.70s</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="69.0764" height="20" rx="2" fill="#f97316"></rect>
+      <text x="291.0763698704523" y="163" class="bar-value">4.55s</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="168.8407" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="390.8407052873821" y="197" class="bar-value">11.1s</text>
+      </svg>
+
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="weak_coverage_cells Warm query">
+        <text x="10" y="24" class="chart-title">Warm query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 16.9s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">16.9s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="198.8388" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="420.8388101981999" y="95" class="bar-value">10.2s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="4.6777" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="226.6776763814034" y="129" class="bar-value">240.0ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="11.1906" height="20" rx="2" fill="#f97316"></rect>
+      <text x="233.19056066855072" y="163" class="bar-value">574.2ms</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="160.1415" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="382.1415487507136" y="197" class="bar-value">8.22s</text>
+      </svg>
+
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="weak_coverage_cells Hot query">
+        <text x="10" y="24" class="chart-title">Hot query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 18.3s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">18.3s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="171.2581" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="393.25812172522524" y="95" class="bar-value">9.51s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="4.1858" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="226.18582260528336" y="129" class="bar-value">232.3ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="9.7031" height="20" rx="2" fill="#f97316"></rect>
+      <text x="231.7030949177036" y="163" class="bar-value">538.5ms</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="150.4053" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="372.4053494488949" y="197" class="bar-value">8.35s</text>
+      </svg>
+      </div>
+    </section>
+
+    <section class="sql-row">
+      <aside class="sql-name">
+        <div class="sql-label">SQL</div>
+        <h2>adjacent_window_kpi_spike</h2>
+        <div class="best">Best hot route: StarRocks Internal (99.95ms)</div>
+        <details class="sql-details"><summary>Actual SQL sent by route</summary><details class="route-sql"><summary>Spark SQL Native Parquet</summary><pre><code>SELECT current_window.cell_id,
+       current_window.load_score AS current_load_score,
+       previous_window.load_score AS previous_load_score,
+       current_window.load_score - previous_window.load_score AS load_score_delta
+FROM (
+    SELECT cell_id, AVG(load_score) AS load_score
+    FROM spark_catalog.benchmark_native.cell_kpi_1min
+    WHERE event_time &gt;= TIMESTAMP &#39;2026-01-01 12:00:00&#39;
+      AND event_time &lt; TIMESTAMP &#39;2026-01-01 13:00:00&#39;
+    GROUP BY cell_id
+) current_window
+JOIN (
+    SELECT cell_id, AVG(load_score) AS load_score
+    FROM spark_catalog.benchmark_native.cell_kpi_1min
+    WHERE event_time &gt;= TIMESTAMP &#39;2026-01-01 11:00:00&#39;
+      AND event_time &lt; TIMESTAMP &#39;2026-01-01 12:00:00&#39;
+    GROUP BY cell_id
+) previous_window
+  ON current_window.cell_id = previous_window.cell_id
+ORDER BY load_score_delta DESC
+LIMIT 100</code></pre></details><details class="route-sql"><summary>Spark Iceberg</summary><pre><code>SELECT current_window.cell_id,
+       current_window.load_score AS current_load_score,
+       previous_window.load_score AS previous_load_score,
+       current_window.load_score - previous_window.load_score AS load_score_delta
+FROM (
+    SELECT cell_id, AVG(load_score) AS load_score
+    FROM iceberg_catalog.iceberg_db.cell_kpi_1min
+    WHERE event_time &gt;= TIMESTAMP &#39;2026-01-01 12:00:00&#39;
+      AND event_time &lt; TIMESTAMP &#39;2026-01-01 13:00:00&#39;
+    GROUP BY cell_id
+) current_window
+JOIN (
+    SELECT cell_id, AVG(load_score) AS load_score
+    FROM iceberg_catalog.iceberg_db.cell_kpi_1min
+    WHERE event_time &gt;= TIMESTAMP &#39;2026-01-01 11:00:00&#39;
+      AND event_time &lt; TIMESTAMP &#39;2026-01-01 12:00:00&#39;
+    GROUP BY cell_id
+) previous_window
+  ON current_window.cell_id = previous_window.cell_id
+ORDER BY load_score_delta DESC
+LIMIT 100</code></pre></details><details class="route-sql"><summary>StarRocks Internal</summary><pre><code>SELECT current_window.cell_id,
+       current_window.load_score AS current_load_score,
+       previous_window.load_score AS previous_load_score,
+       current_window.load_score - previous_window.load_score AS load_score_delta
+FROM (
+    SELECT cell_id, AVG(load_score) AS load_score
+    FROM sr_internal.cell_kpi_1min
+    WHERE event_time &gt;= CAST(&#39;2026-01-01 12:00:00&#39; AS DATETIME)
+      AND event_time &lt; CAST(&#39;2026-01-01 13:00:00&#39; AS DATETIME)
+    GROUP BY cell_id
+) current_window
+JOIN (
+    SELECT cell_id, AVG(load_score) AS load_score
+    FROM sr_internal.cell_kpi_1min
+    WHERE event_time &gt;= CAST(&#39;2026-01-01 11:00:00&#39; AS DATETIME)
+      AND event_time &lt; CAST(&#39;2026-01-01 12:00:00&#39; AS DATETIME)
+    GROUP BY cell_id
+) previous_window
+  ON current_window.cell_id = previous_window.cell_id
+ORDER BY load_score_delta DESC
+LIMIT 100</code></pre></details><details class="route-sql"><summary>StarRocks External Iceberg</summary><pre><code>SELECT current_window.cell_id,
+       current_window.load_score AS current_load_score,
+       previous_window.load_score AS previous_load_score,
+       current_window.load_score - previous_window.load_score AS load_score_delta
+FROM (
+    SELECT cell_id, AVG(load_score) AS load_score
+    FROM sr_external_iceberg.iceberg_db.cell_kpi_1min
+    WHERE event_time &gt;= CAST(&#39;2026-01-01 12:00:00&#39; AS DATETIME)
+      AND event_time &lt; CAST(&#39;2026-01-01 13:00:00&#39; AS DATETIME)
+    GROUP BY cell_id
+) current_window
+JOIN (
+    SELECT cell_id, AVG(load_score) AS load_score
+    FROM sr_external_iceberg.iceberg_db.cell_kpi_1min
+    WHERE event_time &gt;= CAST(&#39;2026-01-01 11:00:00&#39; AS DATETIME)
+      AND event_time &lt; CAST(&#39;2026-01-01 12:00:00&#39; AS DATETIME)
+    GROUP BY cell_id
+) previous_window
+  ON current_window.cell_id = previous_window.cell_id
+ORDER BY load_score_delta DESC
+LIMIT 100</code></pre></details><details class="route-sql"><summary>Hive HDFS Parquet</summary><pre><code>SELECT current_window.cell_id,
+       current_window.load_score AS current_load_score,
+       previous_window.load_score AS previous_load_score,
+       current_window.load_score - previous_window.load_score AS load_score_delta
+FROM (
+    SELECT cell_id, AVG(load_score) AS load_score
+    FROM hive_hdfs_parquet.cell_kpi_1min
+    WHERE event_time &gt;= TIMESTAMP &#39;2026-01-01 12:00:00&#39;
+                  AND event_date = &#39;2026-01-01&#39;
+      AND event_time &lt; TIMESTAMP &#39;2026-01-01 13:00:00&#39;
+    GROUP BY cell_id
+) current_window
+JOIN (
+    SELECT cell_id, AVG(load_score) AS load_score
+    FROM hive_hdfs_parquet.cell_kpi_1min
+    WHERE event_time &gt;= TIMESTAMP &#39;2026-01-01 11:00:00&#39;
+                  AND event_date = &#39;2026-01-01&#39;
+      AND event_time &lt; TIMESTAMP &#39;2026-01-01 12:00:00&#39;
+    GROUP BY cell_id
+) previous_window
+  ON current_window.cell_id = previous_window.cell_id
+ORDER BY load_score_delta DESC
+LIMIT 100</code></pre></details></details>
+      </aside>
+      <div class="phase-charts">
+        
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="adjacent_window_kpi_spike Cold query">
+        <text x="10" y="24" class="chart-title">Cold query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 19.6s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">19.6s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="154.8724" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="376.87243751522146" y="95" class="bar-value">9.18s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="9.2670" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="231.266977630514" y="129" class="bar-value">549.2ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="68.7975" height="20" rx="2" fill="#f97316"></rect>
+      <text x="290.79753396257297" y="163" class="bar-value">4.08s</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="302.2352" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="524.2352443567261" y="197" class="bar-value">17.9s</text>
+      </svg>
+
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="adjacent_window_kpi_spike Warm query">
+        <text x="10" y="24" class="chart-title">Warm query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 18.9s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">18.9s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="145.0597" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="367.05968778939473" y="95" class="bar-value">8.29s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="1.4382" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="223.4381803883379" y="129" class="bar-value">82.20ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="3.9568" height="20" rx="2" fill="#f97316"></rect>
+      <text x="225.9568025194943" y="163" class="bar-value">226.2ms</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="254.1036" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="476.1036477199689" y="197" class="bar-value">14.5s</text>
+      </svg>
+
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="adjacent_window_kpi_spike Hot query">
+        <text x="10" y="24" class="chart-title">Hot query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 16.2s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">16.2s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="167.5597" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="389.55972009621155" y="95" class="bar-value">8.23s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="2.0348" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="224.03481165485164" y="129" class="bar-value">99.95ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="4.4136" height="20" rx="2" fill="#f97316"></rect>
+      <text x="226.4136039568435" y="163" class="bar-value">216.8ms</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="272.2053" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="494.20534725654755" y="197" class="bar-value">13.4s</text>
+      </svg>
+      </div>
+    </section>
+
+    <section class="sql-row">
+      <aside class="sql-name">
+        <div class="sql-label">SQL</div>
+        <h2>recent_hot_cells</h2>
+        <div class="best">Best hot route: StarRocks Internal (43.96ms)</div>
+        <details class="sql-details"><summary>Actual SQL sent by route</summary><details class="route-sql"><summary>Spark SQL Native Parquet</summary><pre><code>SELECT cell_id,
+       city,
+       MAX(event_time) AS latest_event_time,
+       AVG(load_score) AS load_score,
+       MAX(load_score) AS peak_load_score,
+       AVG(prb_dl_util) AS prb_dl_util
+FROM spark_catalog.benchmark_native.cell_kpi_1min
+WHERE event_time &gt;= TIMESTAMP &#39;2026-01-01 23:00:00&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+GROUP BY cell_id, city
+HAVING MAX(load_score) &gt;= 80
+ORDER BY peak_load_score DESC
+LIMIT 100</code></pre></details><details class="route-sql"><summary>Spark Iceberg</summary><pre><code>SELECT cell_id,
+       city,
+       MAX(event_time) AS latest_event_time,
+       AVG(load_score) AS load_score,
+       MAX(load_score) AS peak_load_score,
+       AVG(prb_dl_util) AS prb_dl_util
+FROM iceberg_catalog.iceberg_db.cell_kpi_1min
+WHERE event_time &gt;= TIMESTAMP &#39;2026-01-01 23:00:00&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+GROUP BY cell_id, city
+HAVING MAX(load_score) &gt;= 80
+ORDER BY peak_load_score DESC
+LIMIT 100</code></pre></details><details class="route-sql"><summary>StarRocks Internal</summary><pre><code>SELECT cell_id,
+       city,
+       MAX(event_time) AS latest_event_time,
+       AVG(load_score) AS load_score,
+       MAX(load_score) AS peak_load_score,
+       AVG(prb_dl_util) AS prb_dl_util
+FROM sr_internal.cell_kpi_1min
+WHERE event_time &gt;= CAST(&#39;2026-01-01 23:00:00&#39; AS DATETIME)
+  AND event_time &lt; CAST(&#39;2026-01-02 00:00:00&#39; AS DATETIME)
+GROUP BY cell_id, city
+HAVING MAX(load_score) &gt;= 80
+ORDER BY peak_load_score DESC
+LIMIT 100</code></pre></details><details class="route-sql"><summary>StarRocks External Iceberg</summary><pre><code>SELECT cell_id,
+       city,
+       MAX(event_time) AS latest_event_time,
+       AVG(load_score) AS load_score,
+       MAX(load_score) AS peak_load_score,
+       AVG(prb_dl_util) AS prb_dl_util
+FROM sr_external_iceberg.iceberg_db.cell_kpi_1min
+WHERE event_time &gt;= CAST(&#39;2026-01-01 23:00:00&#39; AS DATETIME)
+  AND event_time &lt; CAST(&#39;2026-01-02 00:00:00&#39; AS DATETIME)
+GROUP BY cell_id, city
+HAVING MAX(load_score) &gt;= 80
+ORDER BY peak_load_score DESC
+LIMIT 100</code></pre></details><details class="route-sql"><summary>Hive HDFS Parquet</summary><pre><code>SELECT cell_id,
+       city,
+       MAX(event_time) AS latest_event_time,
+       AVG(load_score) AS load_score,
+       MAX(load_score) AS peak_load_score,
+       AVG(prb_dl_util) AS prb_dl_util
+FROM hive_hdfs_parquet.cell_kpi_1min
+WHERE event_time &gt;= TIMESTAMP &#39;2026-01-01 23:00:00&#39;
+  AND event_date = &#39;2026-01-01&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+GROUP BY cell_id, city
+HAVING MAX(load_score) &gt;= 80
+ORDER BY peak_load_score DESC
+LIMIT 100</code></pre></details></details>
+      </aside>
+      <div class="phase-charts">
+        
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="recent_hot_cells Cold query">
+        <text x="10" y="24" class="chart-title">Cold query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 14.5s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">14.5s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="170.8399" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="392.8399215352547" y="95" class="bar-value">7.51s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="10.8069" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="232.80692381253604" y="129" class="bar-value">474.9ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="78.6710" height="20" rx="2" fill="#f97316"></rect>
+      <text x="300.67099768672557" y="163" class="bar-value">3.46s</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="247.2410" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="469.24096053325906" y="197" class="bar-value">10.9s</text>
+      </svg>
+
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="recent_hot_cells Warm query">
+        <text x="10" y="24" class="chart-title">Warm query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 14.5s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">14.5s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="166.6944" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="388.69441846056577" y="95" class="bar-value">7.32s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="1.5502" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="223.55024701312595" y="129" class="bar-value">68.12ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="4.0598" height="20" rx="2" fill="#f97316"></rect>
+      <text x="226.0598315472271" y="163" class="bar-value">178.4ms</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="180.3645" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="402.36446608117654" y="197" class="bar-value">7.93s</text>
+      </svg>
+
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="recent_hot_cells Hot query">
+        <text x="10" y="24" class="chart-title">Hot query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 14.7s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">14.7s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="162.6298" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="384.62982201354487" y="95" class="bar-value">7.27s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="0.9839" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="222.98386013359072" y="129" class="bar-value">43.96ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="3.6240" height="20" rx="2" fill="#f97316"></rect>
+      <text x="225.6239881430524" y="163" class="bar-value">161.9ms</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="180.4100" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="402.4100453112534" y="197" class="bar-value">8.06s</text>
+      </svg>
+      </div>
+    </section>
+
+    <section class="sql-row">
+      <aside class="sql-name">
+        <div class="sql-label">SQL</div>
+        <h2>wide_filter_group_by</h2>
+        <div class="best">Best hot route: StarRocks Internal (133.9ms)</div>
+        <details class="sql-details"><summary>Actual SQL sent by route</summary><details class="route-sql"><summary>Spark SQL Native Parquet</summary><pre><code>SELECT province,
+       city,
+       vendor,
+       rat,
+       band,
+       COUNT(*) AS samples,
+       AVG(active_users) AS active_users,
+       AVG(load_score) AS load_score
+FROM spark_catalog.benchmark_native.cell_kpi_1min
+WHERE province = &#39;province-01&#39;
+  AND vendor IN (&#39;Huawei&#39;, &#39;ZTE&#39;)
+  AND rat IN (&#39;4G&#39;, &#39;5G&#39;)
+  AND band IN (&#39;N78&#39;, &#39;B3&#39;)
+  AND prb_dl_util BETWEEN 0.40 AND 0.95
+  AND event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+GROUP BY province, city, vendor, rat, band
+ORDER BY samples DESC</code></pre></details><details class="route-sql"><summary>Spark Iceberg</summary><pre><code>SELECT province,
+       city,
+       vendor,
+       rat,
+       band,
+       COUNT(*) AS samples,
+       AVG(active_users) AS active_users,
+       AVG(load_score) AS load_score
+FROM iceberg_catalog.iceberg_db.cell_kpi_1min
+WHERE province = &#39;province-01&#39;
+  AND vendor IN (&#39;Huawei&#39;, &#39;ZTE&#39;)
+  AND rat IN (&#39;4G&#39;, &#39;5G&#39;)
+  AND band IN (&#39;N78&#39;, &#39;B3&#39;)
+  AND prb_dl_util BETWEEN 0.40 AND 0.95
+  AND event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+GROUP BY province, city, vendor, rat, band
+ORDER BY samples DESC</code></pre></details><details class="route-sql"><summary>StarRocks Internal</summary><pre><code>SELECT province,
+       city,
+       vendor,
+       rat,
+       band,
+       COUNT(*) AS samples,
+       AVG(active_users) AS active_users,
+       AVG(load_score) AS load_score
+FROM sr_internal.cell_kpi_1min
+WHERE province = &#39;province-01&#39;
+  AND vendor IN (&#39;Huawei&#39;, &#39;ZTE&#39;)
+  AND rat IN (&#39;4G&#39;, &#39;5G&#39;)
+  AND band IN (&#39;N78&#39;, &#39;B3&#39;)
+  AND prb_dl_util BETWEEN 0.40 AND 0.95
+  AND event_time &gt;= CAST(&#39;2026-01-01 00:00:00&#39; AS DATETIME)
+  AND event_time &lt; CAST(&#39;2026-01-02 00:00:00&#39; AS DATETIME)
+GROUP BY province, city, vendor, rat, band
+ORDER BY samples DESC</code></pre></details><details class="route-sql"><summary>StarRocks External Iceberg</summary><pre><code>SELECT province,
+       city,
+       vendor,
+       rat,
+       band,
+       COUNT(*) AS samples,
+       AVG(active_users) AS active_users,
+       AVG(load_score) AS load_score
+FROM sr_external_iceberg.iceberg_db.cell_kpi_1min
+WHERE province = &#39;province-01&#39;
+  AND vendor IN (&#39;Huawei&#39;, &#39;ZTE&#39;)
+  AND rat IN (&#39;4G&#39;, &#39;5G&#39;)
+  AND band IN (&#39;N78&#39;, &#39;B3&#39;)
+  AND prb_dl_util BETWEEN 0.40 AND 0.95
+  AND event_time &gt;= CAST(&#39;2026-01-01 00:00:00&#39; AS DATETIME)
+  AND event_time &lt; CAST(&#39;2026-01-02 00:00:00&#39; AS DATETIME)
+GROUP BY province, city, vendor, rat, band
+ORDER BY samples DESC</code></pre></details><details class="route-sql"><summary>Hive HDFS Parquet</summary><pre><code>SELECT province,
+       city,
+       vendor,
+       rat,
+       band,
+       COUNT(*) AS samples,
+       AVG(active_users) AS active_users,
+       AVG(load_score) AS load_score
+FROM hive_hdfs_parquet.cell_kpi_1min
+WHERE province = &#39;province-01&#39;
+  AND vendor IN (&#39;Huawei&#39;, &#39;ZTE&#39;)
+  AND rat IN (&#39;4G&#39;, &#39;5G&#39;)
+  AND band IN (&#39;N78&#39;, &#39;B3&#39;)
+  AND prb_dl_util BETWEEN 0.40 AND 0.95
+  AND event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_date = &#39;2026-01-01&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+GROUP BY province, city, vendor, rat, band
+ORDER BY samples DESC</code></pre></details></details>
+      </aside>
+      <div class="phase-charts">
+        
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="wide_filter_group_by Cold query">
+        <text x="10" y="24" class="chart-title">Cold query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 17.6s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">17.6s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="178.7923" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="400.79232192585" y="95" class="bar-value">9.55s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="14.7874" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="236.787407109662" y="129" class="bar-value">789.8ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="76.1135" height="20" rx="2" fill="#f97316"></rect>
+      <text x="298.11349010101105" y="163" class="bar-value">4.07s</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="214.5017" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="436.50172710714304" y="197" class="bar-value">11.5s</text>
+      </svg>
+
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="wide_filter_group_by Warm query">
+        <text x="10" y="24" class="chart-title">Warm query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 16.9s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">16.9s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="185.5759" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="407.5759427957815" y="95" class="bar-value">9.49s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="3.1045" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="225.10447912444263" y="129" class="bar-value">158.7ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="10.9478" height="20" rx="2" fill="#f97316"></rect>
+      <text x="232.94778443880273" y="163" class="bar-value">559.8ms</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="181.0177" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="403.0176807543789" y="197" class="bar-value">9.26s</text>
+      </svg>
+
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="wide_filter_group_by Hot query">
+        <text x="10" y="24" class="chart-title">Hot query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 17.0s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">17.0s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="186.6655" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="408.6654704502558" y="95" class="bar-value">9.64s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="2.5944" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="224.59435743897228" y="129" class="bar-value">133.9ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="10.0541" height="20" rx="2" fill="#f97316"></rect>
+      <text x="232.05411323825936" y="163" class="bar-value">519.1ms</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="173.3818" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="395.3818141414262" y="197" class="bar-value">8.95s</text>
+      </svg>
+      </div>
+    </section>
+
+    <section class="sql-row">
+      <aside class="sql-name">
+        <div class="sql-label">SQL</div>
+        <h2>date_partition_pruning</h2>
+        <div class="best">Best hot route: StarRocks Internal (73.15ms)</div>
+        <details class="sql-details"><summary>Actual SQL sent by route</summary><details class="route-sql"><summary>Spark SQL Native Parquet</summary><pre><code>SELECT DATE_TRUNC(&#39;hour&#39;, event_time) AS event_hour,
+       COUNT(*) AS samples,
+       AVG(load_score) AS load_score
+FROM spark_catalog.benchmark_native.cell_kpi_1min
+WHERE event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+GROUP BY DATE_TRUNC(&#39;hour&#39;, event_time)
+ORDER BY event_hour</code></pre></details><details class="route-sql"><summary>Spark Iceberg</summary><pre><code>SELECT DATE_TRUNC(&#39;hour&#39;, event_time) AS event_hour,
+       COUNT(*) AS samples,
+       AVG(load_score) AS load_score
+FROM iceberg_catalog.iceberg_db.cell_kpi_1min
+WHERE event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+GROUP BY DATE_TRUNC(&#39;hour&#39;, event_time)
+ORDER BY event_hour</code></pre></details><details class="route-sql"><summary>StarRocks Internal</summary><pre><code>SELECT DATE_TRUNC(&#39;hour&#39;, event_time) AS event_hour,
+       COUNT(*) AS samples,
+       AVG(load_score) AS load_score
+FROM sr_internal.cell_kpi_1min
+WHERE event_time &gt;= CAST(&#39;2026-01-01 00:00:00&#39; AS DATETIME)
+  AND event_time &lt; CAST(&#39;2026-01-02 00:00:00&#39; AS DATETIME)
+GROUP BY DATE_TRUNC(&#39;hour&#39;, event_time)
+ORDER BY event_hour</code></pre></details><details class="route-sql"><summary>StarRocks External Iceberg</summary><pre><code>SELECT DATE_TRUNC(&#39;hour&#39;, event_time) AS event_hour,
+       COUNT(*) AS samples,
+       AVG(load_score) AS load_score
+FROM sr_external_iceberg.iceberg_db.cell_kpi_1min
+WHERE event_time &gt;= CAST(&#39;2026-01-01 00:00:00&#39; AS DATETIME)
+  AND event_time &lt; CAST(&#39;2026-01-02 00:00:00&#39; AS DATETIME)
+GROUP BY DATE_TRUNC(&#39;hour&#39;, event_time)
+ORDER BY event_hour</code></pre></details><details class="route-sql"><summary>Hive HDFS Parquet</summary><pre><code>SELECT date_format(event_time, &#39;yyyy-MM-dd HH:00:00&#39;) AS event_hour,
+       COUNT(*) AS samples,
+       AVG(load_score) AS load_score
+FROM hive_hdfs_parquet.cell_kpi_1min
+WHERE event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_date = &#39;2026-01-01&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+GROUP BY date_format(event_time, &#39;yyyy-MM-dd HH:00:00&#39;)
+ORDER BY event_hour</code></pre></details></details>
+      </aside>
+      <div class="phase-charts">
+        
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="date_partition_pruning Cold query">
+        <text x="10" y="24" class="chart-title">Cold query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 14.9s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">14.9s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="188.9836" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="410.9835962756898" y="95" class="bar-value">8.56s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="10.5869" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="232.5869139207505" y="129" class="bar-value">479.4ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="88.0071" height="20" rx="2" fill="#f97316"></rect>
+      <text x="310.0071242679436" y="163" class="bar-value">3.99s</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="308.4227" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="530.4226992033532" y="197" class="bar-value">14.0s</text>
+      </svg>
+
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="date_partition_pruning Warm query">
+        <text x="10" y="24" class="chart-title">Warm query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 14.9s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">14.9s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="189.8312" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="411.8312290362069" y="95" class="bar-value">8.59s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="1.7058" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="223.7058285421353" y="129" class="bar-value">77.20ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="11.6913" height="20" rx="2" fill="#f97316"></rect>
+      <text x="233.69131132254742" y="163" class="bar-value">529.1ms</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="265.0516" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="487.0515504920829" y="197" class="bar-value">12.0s</text>
+      </svg>
+
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="date_partition_pruning Hot query">
+        <text x="10" y="24" class="chart-title">Hot query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 15.1s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">15.1s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="180.4186" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="402.41861802077494" y="95" class="bar-value">8.26s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="1.5973" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="223.5972902726237" y="129" class="bar-value">73.15ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="10.4008" height="20" rx="2" fill="#f97316"></rect>
+      <text x="232.4008385449032" y="163" class="bar-value">476.3ms</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="256.0482" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="478.04824233712134" y="197" class="bar-value">11.7s</text>
+      </svg>
+      </div>
+    </section>
+
+    <section class="sql-row">
+      <aside class="sql-name">
+        <div class="sql-label">SQL</div>
+        <h2>large_cell_id_filter</h2>
+        <div class="best">Best hot route: StarRocks Internal (51.64ms)</div>
+        <details class="sql-details"><summary>Actual SQL sent by route</summary><details class="route-sql"><summary>Spark SQL Native Parquet</summary><pre><code>SELECT cell_id,
+       event_time,
+       rsrp_avg,
+       sinr_avg,
+       active_users,
+       load_score
+FROM spark_catalog.benchmark_native.cell_kpi_1min
+WHERE cell_id IN (
+    &#39;CELL-000001&#39;, &#39;CELL-000010&#39;, &#39;CELL-000100&#39;, &#39;CELL-001000&#39;,
+    &#39;CELL-002000&#39;, &#39;CELL-003000&#39;, &#39;CELL-004000&#39;, &#39;CELL-005000&#39;
+)
+  AND event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+ORDER BY cell_id, event_time</code></pre></details><details class="route-sql"><summary>Spark Iceberg</summary><pre><code>SELECT cell_id,
+       event_time,
+       rsrp_avg,
+       sinr_avg,
+       active_users,
+       load_score
+FROM iceberg_catalog.iceberg_db.cell_kpi_1min
+WHERE cell_id IN (
+    &#39;CELL-000001&#39;, &#39;CELL-000010&#39;, &#39;CELL-000100&#39;, &#39;CELL-001000&#39;,
+    &#39;CELL-002000&#39;, &#39;CELL-003000&#39;, &#39;CELL-004000&#39;, &#39;CELL-005000&#39;
+)
+  AND event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+ORDER BY cell_id, event_time</code></pre></details><details class="route-sql"><summary>StarRocks Internal</summary><pre><code>SELECT cell_id,
+       event_time,
+       rsrp_avg,
+       sinr_avg,
+       active_users,
+       load_score
+FROM sr_internal.cell_kpi_1min
+WHERE cell_id IN (
+    &#39;CELL-000001&#39;, &#39;CELL-000010&#39;, &#39;CELL-000100&#39;, &#39;CELL-001000&#39;,
+    &#39;CELL-002000&#39;, &#39;CELL-003000&#39;, &#39;CELL-004000&#39;, &#39;CELL-005000&#39;
+)
+  AND event_time &gt;= CAST(&#39;2026-01-01 00:00:00&#39; AS DATETIME)
+  AND event_time &lt; CAST(&#39;2026-01-02 00:00:00&#39; AS DATETIME)
+ORDER BY cell_id, event_time</code></pre></details><details class="route-sql"><summary>StarRocks External Iceberg</summary><pre><code>SELECT cell_id,
+       event_time,
+       rsrp_avg,
+       sinr_avg,
+       active_users,
+       load_score
+FROM sr_external_iceberg.iceberg_db.cell_kpi_1min
+WHERE cell_id IN (
+    &#39;CELL-000001&#39;, &#39;CELL-000010&#39;, &#39;CELL-000100&#39;, &#39;CELL-001000&#39;,
+    &#39;CELL-002000&#39;, &#39;CELL-003000&#39;, &#39;CELL-004000&#39;, &#39;CELL-005000&#39;
+)
+  AND event_time &gt;= CAST(&#39;2026-01-01 00:00:00&#39; AS DATETIME)
+  AND event_time &lt; CAST(&#39;2026-01-02 00:00:00&#39; AS DATETIME)
+ORDER BY cell_id, event_time</code></pre></details><details class="route-sql"><summary>Hive HDFS Parquet</summary><pre><code>SELECT cell_id,
+       event_time,
+       rsrp_avg,
+       sinr_avg,
+       active_users,
+       load_score
+FROM hive_hdfs_parquet.cell_kpi_1min
+WHERE cell_id IN (
+    &#39;CELL-000001&#39;, &#39;CELL-000010&#39;, &#39;CELL-000100&#39;, &#39;CELL-001000&#39;,
+    &#39;CELL-002000&#39;, &#39;CELL-003000&#39;, &#39;CELL-004000&#39;, &#39;CELL-005000&#39;
+)
+  AND event_time &gt;= TIMESTAMP &#39;2026-01-01 00:00:00&#39;
+  AND event_date = &#39;2026-01-01&#39;
+  AND event_time &lt; TIMESTAMP &#39;2026-01-02 00:00:00&#39;
+ORDER BY cell_id, event_time</code></pre></details></details>
+      </aside>
+      <div class="phase-charts">
+        
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="large_cell_id_filter Cold query">
+        <text x="10" y="24" class="chart-title">Cold query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 18.6s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">18.6s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="146.1025" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="368.1025484023752" y="95" class="bar-value">8.22s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="8.6372" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="230.63722904160815" y="129" class="bar-value">486.2ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="67.1935" height="20" rx="2" fill="#f97316"></rect>
+      <text x="289.1934557510218" y="163" class="bar-value">3.78s</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="151.9040" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="373.9040067425948" y="197" class="bar-value">8.55s</text>
+      </svg>
+
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="large_cell_id_filter Warm query">
+        <text x="10" y="24" class="chart-title">Warm query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 16.3s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">16.3s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="203.0582" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="425.058241269591" y="95" class="bar-value">10.0s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="1.0290" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="223.02897321795604" y="129" class="bar-value">50.86ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="7.0192" height="20" rx="2" fill="#f97316"></rect>
+      <text x="229.01918797691678" y="163" class="bar-value">346.9ms</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="136.9238" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="358.92378423717014" y="197" class="bar-value">6.77s</text>
+      </svg>
+
+      <svg class="chart" viewBox="0 0 650 230" role="img" aria-label="large_cell_id_filter Hot query">
+        <text x="10" y="24" class="chart-title">Hot query</text>
+        <text x="214" y="24" class="scale-note">linear scale; max 15.8s</text>
+        
+      <text x="10" y="61" class="route-label">Spark SQL Native Parquet</text>
+      <rect x="214" y="47" width="330.0000" height="20" rx="2" fill="#2563eb"></rect>
+      <text x="552" y="61" class="bar-value">15.8s</text>
+
+      <text x="10" y="95" class="route-label">Spark Iceberg</text>
+      <rect x="214" y="81" width="171.4045" height="20" rx="2" fill="#0891b2"></rect>
+      <text x="393.4044626184203" y="95" class="bar-value">8.21s</text>
+
+      <text x="10" y="129" class="route-label">StarRocks Internal</text>
+      <rect x="214" y="115" width="1.0782" height="20" rx="2" fill="#dc2626"></rect>
+      <text x="223.07816044673126" y="129" class="bar-value">51.64ms</text>
+
+      <text x="10" y="163" class="route-label">StarRocks External Iceberg</text>
+      <rect x="214" y="149" width="6.0590" height="20" rx="2" fill="#f97316"></rect>
+      <text x="228.05897652828742" y="163" class="bar-value">290.2ms</text>
+
+      <text x="10" y="197" class="route-label">Hive HDFS Parquet</text>
+      <rect x="214" y="183" width="137.2124" height="20" rx="2" fill="#16a34a"></rect>
+      <text x="359.21241504172053" y="197" class="bar-value">6.57s</text>
+      </svg>
+      </div>
+    </section></main>
+</body>
+</html>
