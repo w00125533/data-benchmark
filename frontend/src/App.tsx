@@ -67,8 +67,8 @@ export default function App() {
                 type="info"
                 showIcon
                 style={{ marginBottom: 12 }}
-                message="本次运行没有四技术路线性能对比数据。"
-                description="local smoke 只生成本地数据并验证静态报告渲染，不会执行 Spark Iceberg、StarRocks Internal、StarRocks External Iceberg、Hive HDFS Parquet 查询。请使用 compose 模式生成真实对比报告。"
+                message="No comparable route performance data in this run."
+                description="Local smoke runs only generate local data and static report plumbing. Run compose mode to compare Spark Native Parquet, Spark Iceberg, StarRocks Internal, StarRocks External Iceberg, and Hive HDFS Parquet."
               />
             ) : null}
             <PerformanceMatrixTable rows={report.performanceMatrix} dataset={report.dataset} />

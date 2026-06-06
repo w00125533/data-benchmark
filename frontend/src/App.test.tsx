@@ -50,6 +50,7 @@ test('renders performance matrix with route statuses and best route', async () =
   expect(screen.getByText('datasetId tpch')).toBeInTheDocument();
   expect(screen.getAllByText('rows 60,000').length).toBeGreaterThan(0);
   expect(screen.getAllByText('cells 10,000 / days 1').length).toBeGreaterThan(0);
+  expect(screen.getAllByText('Spark Native Parquet').length).toBeGreaterThan(0);
   expect(screen.getAllByText('StarRocks Internal').length).toBeGreaterThan(0);
   expect(screen.getAllByText('Hive HDFS Parquet').length).toBeGreaterThan(0);
   expect(screen.getByText('cold 500 ms')).toBeInTheDocument();
@@ -57,7 +58,7 @@ test('renders performance matrix with route statuses and best route', async () =
   expect(screen.getByText('hot 60 ms')).toBeInTheDocument();
   expect(screen.getByText('best hot 60 ms')).toBeInTheDocument();
   expect(screen.getByText('catalog timeout')).toBeInTheDocument();
-  expect(screen.getByText('SKIPPED')).toBeInTheDocument();
+  expect(screen.getAllByText('SKIPPED').length).toBeGreaterThan(0);
 });
 
 test('keeps load and query detail sections visible', async () => {
@@ -133,13 +134,14 @@ test('explains when a local smoke run has no comparable route matrix', async () 
 
   render(<App />);
 
-  expect(await screen.findByText('本次运行没有四技术路线性能对比数据。')).toBeInTheDocument();
+  expect(await screen.findByText('No comparable route performance data in this run.')).toBeInTheDocument();
   expect(screen.queryByText(/三技术路线/)).not.toBeInTheDocument();
+  expect(screen.getAllByText(/Spark Native Parquet/).length).toBeGreaterThan(0);
   expect(screen.getAllByText(/Spark Iceberg/).length).toBeGreaterThan(0);
   expect(screen.getAllByText(/StarRocks Internal/).length).toBeGreaterThan(0);
   expect(screen.getAllByText(/StarRocks External Iceberg/).length).toBeGreaterThan(0);
   expect(screen.getAllByText(/Hive HDFS Parquet/).length).toBeGreaterThan(0);
-  expect(screen.getAllByText(/local smoke 只生成本地数据/).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/Local smoke runs only generate local data/).length).toBeGreaterThan(0);
   expect(screen.queryByText('datasetId kpi')).not.toBeInTheDocument();
   expect(screen.getByText('catalog_render_check')).toBeInTheDocument();
 });
