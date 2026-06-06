@@ -54,6 +54,8 @@ public final class QueryCatalog {
                    SUM(active_users) AS active_users
             FROM {table}
             WHERE city = 'city-001'
+              AND event_time >= TIMESTAMP '2026-01-01 00:00:00'
+              AND event_time < TIMESTAMP '2026-01-02 00:00:00'
             GROUP BY DATE_TRUNC('minute', event_time), city, vendor, band, rat
             ORDER BY event_minute, vendor, band, rat
             """
@@ -66,6 +68,8 @@ public final class QueryCatalog {
                    MAX(active_users) AS active_users,
                    MAX(load_score) AS load_score
             FROM {table}
+            WHERE event_time >= TIMESTAMP '2026-01-01 00:00:00'
+              AND event_time < TIMESTAMP '2026-01-02 00:00:00'
             GROUP BY cell_id
             ORDER BY load_score DESC
             LIMIT 100
@@ -80,8 +84,10 @@ public final class QueryCatalog {
                    AVG(sinr_avg) AS sinr_avg,
                    COUNT(*) AS samples
             FROM {table}
-            WHERE rsrp_avg < -110
-               OR sinr_avg < 0
+            WHERE event_time >= TIMESTAMP '2026-01-01 00:00:00'
+              AND event_time < TIMESTAMP '2026-01-02 00:00:00'
+              AND (rsrp_avg < -110
+               OR sinr_avg < 0)
             GROUP BY cell_id, city
             ORDER BY rsrp_avg ASC, sinr_avg ASC
             LIMIT 100
@@ -120,12 +126,14 @@ public final class QueryCatalog {
                    city,
                    MAX(event_time) AS latest_event_time,
                    AVG(load_score) AS load_score,
+                   MAX(load_score) AS peak_load_score,
                    AVG(prb_dl_util) AS prb_dl_util
             FROM {table}
             WHERE event_time >= TIMESTAMP '2026-01-01 23:00:00'
+              AND event_time < TIMESTAMP '2026-01-02 00:00:00'
             GROUP BY cell_id, city
-            HAVING AVG(load_score) >= 80
-            ORDER BY load_score DESC
+            HAVING MAX(load_score) >= 80
+            ORDER BY peak_load_score DESC
             LIMIT 100
             """
         ),
@@ -145,7 +153,9 @@ public final class QueryCatalog {
               AND vendor IN ('Huawei', 'ZTE')
               AND rat IN ('4G', '5G')
               AND band IN ('N78', 'B3')
-              AND prb_dl_util BETWEEN 40 AND 95
+              AND prb_dl_util BETWEEN 0.40 AND 0.95
+              AND event_time >= TIMESTAMP '2026-01-01 00:00:00'
+              AND event_time < TIMESTAMP '2026-01-02 00:00:00'
             GROUP BY province, city, vendor, rat, band
             ORDER BY samples DESC
             """
@@ -177,6 +187,8 @@ public final class QueryCatalog {
                 'CELL-000001', 'CELL-000010', 'CELL-000100', 'CELL-001000',
                 'CELL-002000', 'CELL-003000', 'CELL-004000', 'CELL-005000'
             )
+              AND event_time >= TIMESTAMP '2026-01-01 00:00:00'
+              AND event_time < TIMESTAMP '2026-01-02 00:00:00'
             ORDER BY cell_id, event_time
             """
         )

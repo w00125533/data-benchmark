@@ -51,8 +51,32 @@ class QueryCatalogTest {
                 "SELECT cell_id, MAX(prb_dl_util) AS prb_dl_util, "
                     + "MAX(active_users) AS active_users, MAX(load_score) AS load_score "
                     + "FROM iceberg_catalog.iceberg_db.cell_kpi_1min "
+                    + "WHERE event_time >= TIMESTAMP '2026-01-01 00:00:00' "
+                    + "AND event_time < TIMESTAMP '2026-01-02 00:00:00' "
                     + "GROUP BY cell_id ORDER BY load_score DESC LIMIT 100"
             );
+    }
+
+    @Test
+    void recentHotCellsUsesPeakLoadSoGeneratedDataCanMatch() {
+        BenchmarkEngine engine = engine("spark_iceberg");
+
+        String normalized = normalizeSql(QueryCatalog.render("recent_hot_cells", engine));
+
+        assertThat(normalized)
+            .contains("MAX(load_score) AS peak_load_score")
+            .contains("HAVING MAX(load_score) >= 80");
+        assertThat(normalized).doesNotContain("HAVING AVG(load_score) >= 80");
+    }
+
+    @Test
+    void wideFilterGroupByUsesFractionalPrbUtilRange() {
+        BenchmarkEngine engine = engine("spark_iceberg");
+
+        String normalized = normalizeSql(QueryCatalog.render("wide_filter_group_by", engine));
+
+        assertThat(normalized).contains("prb_dl_util BETWEEN 0.40 AND 0.95");
+        assertThat(normalized).doesNotContain("prb_dl_util BETWEEN 40 AND 95");
     }
 
     @Test

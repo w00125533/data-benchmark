@@ -34,16 +34,27 @@ class SqlRendererTest {
 
         assertThat(hiveDaySql)
             .contains("date_format(event_time, 'yyyy-MM-dd 00:00:00') AS event_day")
+            .contains("event_date >= '2026-01-01'")
+            .contains("event_date < '2026-01-08'")
             .contains("GROUP BY date_format(event_time, 'yyyy-MM-dd 00:00:00'), cell_id")
             .doesNotContainIgnoringCase("DATE_TRUNC");
         assertThat(hiveMinuteSql)
             .contains("date_format(event_time, 'yyyy-MM-dd HH:mm:00')")
+            .contains("event_date = '2026-01-01'")
             .doesNotContainIgnoringCase("DATE_TRUNC");
         assertThat(hiveHourSql)
             .contains("date_format(event_time, 'yyyy-MM-dd HH:00:00')")
+            .contains("event_date = '2026-01-01'")
             .doesNotContainIgnoringCase("DATE_TRUNC");
         assertThat(sparkSql).contains("DATE_TRUNC('day', event_time)");
         assertThat(starRocksSql).contains("DATE_TRUNC('day', event_time)");
+    }
+
+    @Test
+    void hiveAdjacentWindowAddsPartitionPredicateToBothSubqueries() {
+        String sql = SqlRenderer.render("adjacent_window_kpi_spike", "hive_hdfs_parquet");
+
+        assertThat(sql.split("event_date = '2026-01-01'", -1)).hasSize(3);
     }
 
     @Test
