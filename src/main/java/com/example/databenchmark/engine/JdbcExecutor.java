@@ -65,6 +65,32 @@ public class JdbcExecutor {
         }
     }
 
+    public StarRocksBrokerLoad.LoadState latestLoadState(String database, String label) throws SQLException {
+        String escapedLabel = escapeSqlLiteral(label);
+        String sql = """
+            SELECT STATE, IFNULL(LOADED_ROWS, IFNULL(SINK_ROWS, 0)) AS SINK_ROWS, IFNULL(ERROR_MSG, '') AS ERROR_MSG
+            FROM information_schema.loads
+            WHERE LABEL = '%s'
+            ORDER BY CREATE_TIME DESC
+            LIMIT 1
+            """.formatted(escapedLabel);
+        try (Connection connection = openConnection();
+             Statement statement = connection.createStatement()) {
+            try (ResultSet resultSet = statement.executeQuery(sql)) {
+                if (!resultSet.next()) {
+                    return new StarRocksBrokerLoad.LoadState("UNKNOWN", 0L, "");
+                }
+                return new StarRocksBrokerLoad.LoadState(
+                    resultSet.getString("STATE"),
+                    resultSet.getLong("SINK_ROWS"),
+                    resultSet.getString("ERROR_MSG")
+                );
+            } catch (SQLException informationSchemaFailure) {
+                return latestLoadStateFromShowLoad(statement, database, escapedLabel);
+            }
+        }
+    }
+
     private Connection openConnection() throws SQLException {
         SQLException last = null;
         for (int attempt = 1; attempt <= MAX_CONNECTION_ATTEMPTS; attempt++) {
@@ -97,6 +123,25 @@ public class JdbcExecutor {
         }
     }
 
+    private static StarRocksBrokerLoad.LoadState latestLoadStateFromShowLoad(
+        Statement statement,
+        String database,
+        String escapedLabel
+    ) throws SQLException {
+        String escapedDatabase = escapeSqlIdentifier(database);
+        String sql = "SHOW LOAD FROM " + escapedDatabase + " WHERE LABEL = '" + escapedLabel + "'";
+        try (ResultSet resultSet = statement.executeQuery(sql)) {
+            if (!resultSet.next()) {
+                return new StarRocksBrokerLoad.LoadState("UNKNOWN", 0L, "");
+            }
+            return new StarRocksBrokerLoad.LoadState(
+                readString(resultSet, "State", "STATE"),
+                readLong(resultSet, "LoadedRows", "SinkRows", "LOADED_ROWS", "SINK_ROWS"),
+                readString(resultSet, "ErrorMsg", "ERROR_MSG", "Error")
+            );
+        }
+    }
+
     static List<String> splitStatements(String sql) {
         List<String> statements = new ArrayList<>();
         for (String statement : sql.split(";")) {
@@ -114,6 +159,37 @@ public class JdbcExecutor {
             rows++;
         }
         return rows;
+    }
+
+    private static String readString(ResultSet resultSet, String... columns) throws SQLException {
+        for (String column : columns) {
+            try {
+                String value = resultSet.getString(column);
+                return value == null ? "" : value;
+            } catch (SQLException ignored) {
+                // Try the next StarRocks version-specific column name.
+            }
+        }
+        return "";
+    }
+
+    private static long readLong(ResultSet resultSet, String... columns) throws SQLException {
+        for (String column : columns) {
+            try {
+                return resultSet.getLong(column);
+            } catch (SQLException ignored) {
+                // Try the next StarRocks version-specific column name.
+            }
+        }
+        return 0L;
+    }
+
+    private static String escapeSqlLiteral(String value) {
+        return value.replace("'", "''");
+    }
+
+    private static String escapeSqlIdentifier(String value) {
+        return value.replaceAll("[^A-Za-z0-9_]", "_");
     }
 
     private static double elapsedSeconds(long startedNanos) {

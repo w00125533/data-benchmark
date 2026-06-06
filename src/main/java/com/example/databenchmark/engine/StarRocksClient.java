@@ -27,32 +27,59 @@ public class StarRocksClient {
         this.streamLoadClient = streamLoadClient;
     }
 
-    public EngineRunResult loadInternal(Path csv, String runId, String profile) {
-        JdbcExecutionResult ddl;
+    public EngineRunResult loadInternal(Path parquetRoot, String runId, String profile, long expectedRows, long bytesWritten) {
+        double durationSeconds = 0.0;
+        String label = StarRocksBrokerLoad.label(runId);
+        String parquetGlob = StarRocksBrokerLoad.normalizeHdfsParquetGlob(parquetRoot.toString());
         try {
-            ddl = jdbcExecutor.execute(SqlTemplates.starRocksCreateInternalTable());
+            durationSeconds += jdbcExecutor.execute(SqlTemplates.starRocksCreateInternalTable()).durationSeconds();
         } catch (SQLException e) {
             return failed("starrocks_internal", EngineStage.STARROCKS_INTERNAL_LOAD.name(), null, 0.0,
                 "create_internal_table failed: " + e.getMessage());
         }
 
-        StarRocksStreamLoadClient.StreamLoadResult load =
-            streamLoadClient.loadCsv(csv, runId + "_" + Instant.now().toEpochMilli());
-        if (!load.success()) {
-            return failed("starrocks_internal", EngineStage.STARROCKS_INTERNAL_LOAD.name(), null,
-                load.durationSeconds(), "stream_load failed: HTTP " + load.statusCode() + " body: " + load.body());
+        try {
+            durationSeconds += jdbcExecutor.execute(SqlTemplates.starRocksTruncateInternalTable()).durationSeconds();
+            durationSeconds += jdbcExecutor.execute(SqlTemplates.starRocksBrokerLoadFromParquet(label, parquetGlob)).durationSeconds();
+            StarRocksBrokerLoad.LoadState state = waitForBrokerLoad(label);
+            if (!state.finished()) {
+                return failed(
+                    "starrocks_internal",
+                    EngineStage.STARROCKS_INTERNAL_LOAD.name(),
+                    null,
+                    durationSeconds,
+                    "broker_load failed label=%s path=%s state=%s error=%s".formatted(
+                        label,
+                        parquetGlob,
+                        state.state(),
+                        state.errorMessage()
+                    )
+                );
+            }
+            return new EngineRunResult(
+                "starrocks",
+                "starrocks_internal",
+                EngineStage.STARROCKS_INTERNAL_LOAD.name(),
+                null,
+                state.sinkRows() > 0 ? state.sinkRows() : expectedRows,
+                bytesWritten,
+                durationSeconds,
+                true,
+                ""
+            );
+        } catch (SQLException e) {
+            return failed(
+                "starrocks_internal",
+                EngineStage.STARROCKS_INTERNAL_LOAD.name(),
+                null,
+                durationSeconds,
+                "broker_load failed label=%s path=%s: %s".formatted(label, parquetGlob, e.getMessage())
+            );
         }
-        return new EngineRunResult(
-            "starrocks",
-            "starrocks_internal",
-            EngineStage.STARROCKS_INTERNAL_LOAD.name(),
-            null,
-            0,
-            0,
-            ddl.durationSeconds() + load.durationSeconds(),
-            true,
-            ""
-        );
+    }
+
+    public EngineRunResult loadInternal(Path parquetRoot, String runId, String profile) {
+        return loadInternal(parquetRoot, runId, profile, 0L, 0L);
     }
 
     public EngineRunResult refreshExternalCatalog(String runId, String profile) {
@@ -217,6 +244,24 @@ public class StarRocksClient {
             results.add(runQueryFor(tableShape, query.name(), RoutePhase.HOT));
         }
         return results;
+    }
+
+    private StarRocksBrokerLoad.LoadState waitForBrokerLoad(String label) throws SQLException {
+        long deadline = System.nanoTime() + StarRocksBrokerLoad.DEFAULT_TIMEOUT.toNanos();
+        StarRocksBrokerLoad.LoadState last = new StarRocksBrokerLoad.LoadState("UNKNOWN", 0L, "");
+        while (System.nanoTime() < deadline) {
+            last = jdbcExecutor.latestLoadState("sr_internal", label);
+            if (last.finished() || last.cancelled()) {
+                return last;
+            }
+            try {
+                Thread.sleep(2_000L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return new StarRocksBrokerLoad.LoadState("INTERRUPTED", 0L, e.getMessage());
+            }
+        }
+        return new StarRocksBrokerLoad.LoadState("TIMEOUT", last.sinkRows(), last.errorMessage());
     }
 
     public EngineRunResult runQueryFor(String tableShape, String queryName, RoutePhase phase) {

@@ -112,17 +112,57 @@ class StarRocksClientTest {
     }
 
     @Test
-    void loadInternalCreatesTableAndStreamsCsv() {
+    void loadInternalCreatesTableTruncatesAndSubmitsBrokerLoad() {
         FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
+        jdbc.loadStates.add(new StarRocksBrokerLoad.LoadState("FINISHED", 0L, ""));
         CapturingStreamLoadClient streamLoad = new CapturingStreamLoadClient(
             new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
         );
 
-        EngineRunResult result = new StarRocksClient(jdbc, streamLoad).loadInternal(Path.of("load.csv"), "run-1", "smoke");
+        EngineRunResult result = new StarRocksClient(jdbc, streamLoad).loadInternal(Path.of("generated"), "run-1", "smoke");
 
         assertThat(result.success()).isTrue();
         assertThat(jdbc.sql()).contains(SqlTemplates.starRocksCreateInternalTable());
-        assertThat(streamLoad.request().headers().get("label")).startsWith("run-1_");
+        assertThat(jdbc.sql()).contains(SqlTemplates.starRocksTruncateInternalTable());
+        assertThat(jdbc.sql()).anySatisfy(sql -> assertThat(sql)
+            .contains("LOAD LABEL sr_internal.kpi_run_1_")
+            .contains("DATA INFILE(\"hdfs://hdfs-namenode:8020/generated/*.parquet\")"));
+        assertThat(streamLoad.request()).isNull();
+    }
+
+    @Test
+    void loadInternalUsesBrokerLoadFromHdfsParquet() {
+        FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
+        jdbc.loadStates.add(new StarRocksBrokerLoad.LoadState("FINISHED", 100L, ""));
+
+        EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        )).loadInternal(Path.of("/benchmark/kpi-smoke/generated"), "run-1", "smoke", 100L, 2048L);
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.rows()).isEqualTo(100L);
+        assertThat(result.bytes()).isEqualTo(2048L);
+        assertThat(jdbc.sql()).anySatisfy(sql -> assertThat(sql)
+            .contains("LOAD LABEL sr_internal.")
+            .contains("DATA INFILE(\"hdfs://hdfs-namenode:8020/benchmark/kpi-smoke/generated/*.parquet\")")
+            .contains("FORMAT AS \"parquet\"")
+            .contains("INTO TABLE cell_kpi_1min"));
+        assertThat(jdbc.sql()).noneMatch(sql -> sql.contains("_stream_load"));
+    }
+
+    @Test
+    void loadInternalFailsWhenBrokerLoadIsCancelled() {
+        FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
+        jdbc.loadStates.add(new StarRocksBrokerLoad.LoadState("CANCELLED", 0L, "bad parquet"));
+
+        EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        )).loadInternal(Path.of("/benchmark/kpi-smoke/generated"), "run-1", "smoke", 100L, 2048L);
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.error()).contains("broker_load failed");
+        assertThat(result.error()).contains("CANCELLED");
+        assertThat(result.error()).contains("bad parquet");
     }
 
     @Test
@@ -140,40 +180,45 @@ class StarRocksClientTest {
     }
 
     @Test
-    void failedHttpBecomesFailedEngineResultWithDetails() {
-        EngineRunResult result = new StarRocksClient(new FakeJdbcExecutor(), new CapturingStreamLoadClient(
+    void brokerLoadSqlFailureBecomesFailedEngineResultWithDetails() {
+        FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
+        jdbc.failOnSqlContaining = "LOAD LABEL";
+        jdbc.failure = new SQLException("load failed");
+
+        EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
             new StarRocksStreamLoadClient.StreamLoadResult(500, "stream failed", 0.25)
-        )).loadInternal(Path.of("load.csv"), "run-1", "smoke");
+        )).loadInternal(Path.of("generated"), "run-1", "smoke", 100L, 2048L);
 
         assertThat(result.success()).isFalse();
-        assertThat(result.error()).contains("stream_load failed:");
-        assertThat(result.error()).contains("HTTP 500");
-        assertThat(result.error()).contains("stream failed");
+        assertThat(result.error()).contains("broker_load failed");
+        assertThat(result.error()).contains("load failed");
     }
 
     @Test
-    void httpOkWithFailedStreamLoadStatusBecomesFailedEngineResult() {
-        String body = "{\"Status\":\"Fail\",\"Message\":\"bad\"}";
+    void loadInternalUsesExpectedRowsWhenBrokerLoadSinkRowsIsMissing() {
+        FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
+        jdbc.loadStates.add(new StarRocksBrokerLoad.LoadState("FINISHED", 0L, ""));
 
-        EngineRunResult result = new StarRocksClient(new FakeJdbcExecutor(), new CapturingStreamLoadClient(
-            new StarRocksStreamLoadClient.StreamLoadResult(200, body, 0.25)
-        )).loadInternal(Path.of("load.csv"), "run-1", "smoke");
-
-        assertThat(result.success()).isFalse();
-        assertThat(result.error()).contains("stream_load failed:");
-        assertThat(result.error()).contains("HTTP 200");
-        assertThat(result.error()).contains("Fail");
-        assertThat(result.error()).contains("bad");
-        assertThat(result.error()).contains(body);
-    }
-
-    @Test
-    void httpOkWithSuccessStreamLoadStatusIsSuccessful() {
-        EngineRunResult result = new StarRocksClient(new FakeJdbcExecutor(), new CapturingStreamLoadClient(
+        EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
             new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
-        )).loadInternal(Path.of("load.csv"), "run-1", "smoke");
+        )).loadInternal(Path.of("generated"), "run-1", "smoke", 100L, 2048L);
 
         assertThat(result.success()).isTrue();
+        assertThat(result.rows()).isEqualTo(100L);
+        assertThat(result.bytes()).isEqualTo(2048L);
+    }
+
+    @Test
+    void loadInternalThreeArgumentCompatibilityUsesBrokerLoad() {
+        FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
+        jdbc.loadStates.add(new StarRocksBrokerLoad.LoadState("FINISHED", 10L, ""));
+
+        EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        )).loadInternal(Path.of("generated"), "run-1", "smoke");
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.rows()).isEqualTo(10L);
     }
 
     @Test
@@ -355,13 +400,16 @@ class StarRocksClientTest {
 
     private static final class FakeJdbcExecutor extends JdbcExecutor {
         private final List<String> sql = new ArrayList<>();
+        private final List<StarRocksBrokerLoad.LoadState> loadStates = new ArrayList<>();
         private SQLException failure;
         private String failOnSql;
+        private String failOnSqlContaining;
 
         @Override
         public JdbcExecutionResult execute(String sql) throws SQLException {
             this.sql.add(sql);
-            if (failure != null && (failOnSql == null || failOnSql.equals(sql))) {
+            if (failure != null && (failOnSql == null || failOnSql.equals(sql))
+                && (failOnSqlContaining == null || sql.contains(failOnSqlContaining))) {
                 throw failure;
             }
             return new JdbcExecutionResult(0, 0.1);
@@ -370,10 +418,19 @@ class StarRocksClientTest {
         @Override
         public JdbcExecutionResult query(String sql) throws SQLException {
             this.sql.add(sql);
-            if (failure != null && (failOnSql == null || failOnSql.equals(sql))) {
+            if (failure != null && (failOnSql == null || failOnSql.equals(sql))
+                && (failOnSqlContaining == null || sql.contains(failOnSqlContaining))) {
                 throw failure;
             }
             return new JdbcExecutionResult(3, 0.2);
+        }
+
+        @Override
+        public StarRocksBrokerLoad.LoadState latestLoadState(String database, String label) throws SQLException {
+            if (loadStates.isEmpty()) {
+                return new StarRocksBrokerLoad.LoadState("UNKNOWN", 0L, "");
+            }
+            return loadStates.remove(0);
         }
 
         private List<String> sql() {

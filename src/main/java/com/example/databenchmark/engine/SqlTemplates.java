@@ -50,6 +50,38 @@ public final class SqlTemplates {
             """.formatted(starRocksColumns());
     }
 
+    public static String starRocksTruncateInternalTable() {
+        return "TRUNCATE TABLE sr_internal.cell_kpi_1min;";
+    }
+
+    public static String starRocksBrokerLoadFromParquet(String label, String parquetGlob) {
+        return """
+            LOAD LABEL sr_internal.%s
+            (
+                DATA INFILE("%s")
+                INTO TABLE cell_kpi_1min
+                FORMAT AS "parquet"
+                (%s)
+            )
+            WITH BROKER
+            (
+                "hadoop.security.authentication" = "simple",
+                "username" = "root",
+                "password" = ""
+            )
+            PROPERTIES
+            (
+                "timeout" = "%d",
+                "max_filter_ratio" = "0"
+            );
+            """.formatted(
+                escapeSqlIdentifierPart(label),
+                escapeSqlLiteral(parquetGlob),
+                kpiColumnNames(),
+                StarRocksBrokerLoad.DEFAULT_TIMEOUT.toSeconds()
+            );
+    }
+
     public static String starRocksCreateExternalCatalog() {
         return """
             CREATE EXTERNAL CATALOG IF NOT EXISTS sr_external_iceberg
@@ -84,6 +116,12 @@ public final class SqlTemplates {
         return KpiSchema.columns().stream()
             .map(column -> "    " + column.name() + " " + sparkType(column))
             .collect(Collectors.joining(",\n"));
+    }
+
+    private static String kpiColumnNames() {
+        return KpiSchema.columns().stream()
+            .map(KpiColumn::name)
+            .collect(Collectors.joining(", "));
     }
 
     private static String starRocksColumns() {
@@ -130,5 +168,9 @@ public final class SqlTemplates {
 
     private static String escapeSqlLiteral(String value) {
         return value.replace("'", "''");
+    }
+
+    private static String escapeSqlIdentifierPart(String value) {
+        return value.replaceAll("[^A-Za-z0-9_]", "_");
     }
 }
