@@ -31,6 +31,15 @@ class BenchmarkConfigLoaderTest {
     }
 
     @Test
+    void composeSmokeRunsAllKpiQueriesByDefault() throws Exception {
+        BenchmarkConfig config = new BenchmarkConfigLoader().load(Path.of("configs/benchmark-compose-smoke.yml"));
+
+        assertThat(config.suite().name()).isEqualTo("kpi");
+        assertThat(config.suite().querySet()).isEqualTo("smoke");
+        assertThat(config.query().names()).isNull();
+    }
+
+    @Test
     void loadsSmokeDefaults() throws Exception {
         BenchmarkConfig config = new BenchmarkConfigLoader().load(Path.of("configs/benchmark-smoke.yml"));
 

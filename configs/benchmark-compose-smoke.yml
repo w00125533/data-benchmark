@@ -20,8 +20,6 @@ query:
   coldRuns: 1
   warmRuns: 3
   concurrency: 1
-  names:
-    - date_partition_pruning
 report:
   format: html
   output: "reports/runs"
