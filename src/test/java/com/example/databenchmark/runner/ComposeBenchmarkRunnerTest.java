@@ -36,7 +36,6 @@ class ComposeBenchmarkRunnerTest {
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             config -> dataset,
-            (generatedDataset, outputDir) -> outputDir.resolve("cell_kpi_1min.csv"),
             failingTpchGenerator(),
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
@@ -127,7 +126,6 @@ class ComposeBenchmarkRunnerTest {
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             generatedConfig -> dataset,
-            (generatedDataset, outputDir) -> outputDir.resolve("cell_kpi_1min.csv"),
             failingTpchGenerator(),
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
@@ -158,7 +156,6 @@ class ComposeBenchmarkRunnerTest {
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             config -> dataset,
-            (generatedDataset, outputDir) -> outputDir.resolve("cell_kpi_1min.csv"),
             failingTpchGenerator(),
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
@@ -290,7 +287,6 @@ class ComposeBenchmarkRunnerTest {
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             config -> dataset,
-            failingCsvExporter(),
             failingTpchGenerator(),
             failingTpchCsvExport(),
             new FakeSparkClient(calls, "spark_native_parquet"),
@@ -346,7 +342,6 @@ class ComposeBenchmarkRunnerTest {
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             config -> dataset,
-            failingCsvExporter(),
             failingTpchGenerator(),
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
@@ -385,7 +380,6 @@ class ComposeBenchmarkRunnerTest {
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             config -> dataset,
-            failingCsvExporter(),
             failingTpchGenerator(),
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
@@ -417,7 +411,6 @@ class ComposeBenchmarkRunnerTest {
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             config -> dataset,
-            (generatedDataset, outputDir) -> outputDir.resolve("cell_kpi_1min.csv"),
             failingTpchGenerator(),
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
@@ -468,7 +461,6 @@ class ComposeBenchmarkRunnerTest {
                 calls.add("generate dataset");
                 return dataset;
             },
-            failingCsvExporter(),
             failingTpchGenerator(),
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
@@ -522,7 +514,6 @@ class ComposeBenchmarkRunnerTest {
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             config -> dataset,
-            (generatedDataset, outputDir) -> outputDir.resolve("cell_kpi_1min.csv"),
             failingTpchGenerator(),
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
@@ -562,7 +553,6 @@ class ComposeBenchmarkRunnerTest {
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             config -> dataset,
-            (generatedDataset, outputDir) -> outputDir.resolve("cell_kpi_1min.csv"),
             failingTpchGenerator(),
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
@@ -624,7 +614,6 @@ class ComposeBenchmarkRunnerTest {
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             config -> dataset,
-            failingCsvExporter(),
             failingTpchGenerator(),
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
@@ -680,7 +669,6 @@ class ComposeBenchmarkRunnerTest {
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             config -> dataset,
-            (generatedDataset, outputDir) -> outputDir.resolve("cell_kpi_1min.csv"),
             failingTpchGenerator(),
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
@@ -845,7 +833,6 @@ class ComposeBenchmarkRunnerTest {
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             failingDatasetGenerator(),
-            failingCsvExporter(),
             (configArg, runId) -> {
                 calls.add("generate TPC-H dataset");
                 assertThat(configArg).isSameAs(config);
@@ -929,7 +916,6 @@ class ComposeBenchmarkRunnerTest {
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             failingDatasetGenerator(),
-            failingCsvExporter(),
             (configArg, runId) -> {
                 calls.add("generate TPC-H dataset");
                 throw new IllegalStateException("tpch generation failed");
@@ -987,7 +973,6 @@ class ComposeBenchmarkRunnerTest {
 
         ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
             failingDatasetGenerator(),
-            failingCsvExporter(),
             (configArg, runId) -> {
                 calls.add("generate TPC-H dataset");
                 return tpchDataset;
@@ -1038,12 +1023,6 @@ class ComposeBenchmarkRunnerTest {
     private static ComposeBenchmarkRunner.DatasetGenerator failingDatasetGenerator() {
         return config -> {
             throw new AssertionError("KPI dataset generator should not be called for TPC-H");
-        };
-    }
-
-    private static ComposeBenchmarkRunner.CsvExporter failingCsvExporter() {
-        return (dataset, outputDir) -> {
-            throw new AssertionError("KPI CSV exporter should not be called for TPC-H");
         };
     }
 

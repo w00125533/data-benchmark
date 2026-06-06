@@ -123,58 +123,6 @@ public class ComposeBenchmarkRunner {
         this.metricsRecorder = metricsRecorder;
     }
 
-    ComposeBenchmarkRunner(
-        DatasetGenerator generator,
-        CsvExporter csvExporter,
-        TpchGenerator tpchGenerator,
-        TpchCsvExport tpchCsvExport,
-        SparkClient sparkClient,
-        StarRocksClientFacade starRocksClient,
-        ReportWriter reportWriter
-    ) {
-        this(generator, tpchGenerator, tpchCsvExport, sparkClient, starRocksClient, reportWriter);
-    }
-
-    ComposeBenchmarkRunner(
-        DatasetGenerator generator,
-        CsvExporter csvExporter,
-        TpchGenerator tpchGenerator,
-        TpchCsvExport tpchCsvExport,
-        SparkClient sparkClient,
-        StarRocksClientFacade starRocksClient,
-        ReportWriter reportWriter,
-        MetricsRecorder metricsRecorder
-    ) {
-        this(generator, tpchGenerator, tpchCsvExport, sparkClient, starRocksClient, reportWriter, metricsRecorder);
-    }
-
-    ComposeBenchmarkRunner(
-        DatasetGenerator generator,
-        CsvExporter csvExporter,
-        TpchGenerator tpchGenerator,
-        TpchCsvExport tpchCsvExport,
-        SparkClient sparkClient,
-        StarRocksClientFacade starRocksClient,
-        HdfsDatasetPublisher hdfsDatasetPublisher,
-        HiveClientFacade hiveClient,
-        ServiceController serviceController,
-        ReportWriter reportWriter,
-        MetricsRecorder metricsRecorder
-    ) {
-        this(
-            generator,
-            tpchGenerator,
-            tpchCsvExport,
-            sparkClient,
-            starRocksClient,
-            hdfsDatasetPublisher,
-            hiveClient,
-            serviceController,
-            reportWriter,
-            metricsRecorder
-        );
-    }
-
     public ComposeRunResult run(BenchmarkConfig config, Path reportRoot, String runId) throws Exception {
         String actualRunId = runId == null ? generatedRunId() : runId;
         Instant started = Instant.now();
@@ -783,10 +731,6 @@ public class ComposeBenchmarkRunner {
 
     interface DatasetGenerator {
         DatasetResult generate(BenchmarkConfig config) throws Exception;
-    }
-
-    interface CsvExporter {
-        Path export(DatasetResult dataset, Path outputDir) throws Exception;
     }
 
     interface TpchGenerator {
