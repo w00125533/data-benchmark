@@ -22,6 +22,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
@@ -166,7 +167,10 @@ public class ComposeBenchmarkRunner {
             if (dataset != null) {
                 boolean hdfsOutput = isHdfsDatasetOutput(config);
                 String hiveRoot = hiveParquetRoot(config);
-                loadResults.add(loadSpark(dataset, actualRunId, config.profile()));
+                EngineRunResult sparkNativeLoad = loadSparkNativeParquet(dataset, actualRunId, config.profile());
+                loadResults.add(sparkNativeLoad);
+                EngineRunResult sparkIcebergLoad = loadSpark(dataset, actualRunId, config.profile());
+                loadResults.add(sparkIcebergLoad);
                 EngineRunResult hivePublish = hdfsOutput
                     ? successfulExistingHiveDataset(dataset)
                     : publishHiveDataset(dataset, hiveRoot);
@@ -181,14 +185,22 @@ public class ComposeBenchmarkRunner {
                     hivePublish
                 );
                 loadResults.add(starRocksInternalLoad);
-                loadResults.add(refreshStarRocksExternal(actualRunId, config.profile()));
+                EngineRunResult starRocksExternalRefresh = refreshStarRocksExternal(actualRunId, config.profile());
+                loadResults.add(starRocksExternalRefresh);
                 EngineRunResult hiveLoad = createHiveExternalTable(hiveRoot);
                 loadResults.add(hiveLoad);
-                queryResults.addAll(runKpiRouteQueries(
-                    config,
-                    hiveRouteFailure(hivePublish, hiveLoad),
-                    routeFailure(starRocksInternalLoad)
-                ));
+                Map<BenchmarkRoute, String> routeFailures = loadFailures(
+                    sparkNativeLoad,
+                    sparkIcebergLoad,
+                    starRocksInternalLoad,
+                    starRocksExternalRefresh,
+                    hivePublish,
+                    hiveLoad
+                );
+                List<EngineRunResult> validations = validateKpiRoutes(dataset.rows(), routeFailures);
+                loadResults.addAll(validations);
+                routeFailures.putAll(validationFailures(validations));
+                queryResults.addAll(runKpiRouteQueries(config, routeFailures));
             }
 
             recordMetrics(
@@ -402,6 +414,14 @@ public class ComposeBenchmarkRunner {
         }
     }
 
+    private EngineRunResult loadSparkNativeParquet(DatasetResult dataset, String runId, String profile) {
+        try {
+            return sparkClient.loadNativeParquet(dataset, runId, profile);
+        } catch (Exception exception) {
+            return failed("spark", "spark_native_parquet", EngineStage.SPARK_NATIVE_PARQUET_LOAD.name(), exception);
+        }
+    }
+
     private EngineRunResult starRocksInternalLoadAfterPublish(
         DatasetResult dataset,
         Path parquetRoot,
@@ -446,21 +466,83 @@ public class ComposeBenchmarkRunner {
         }
     }
 
-    private List<EngineRunResult> runKpiRouteQueries(
-        BenchmarkConfig config,
-        String hiveRouteFailure,
-        String starRocksInternalRouteFailure
+    private Map<BenchmarkRoute, String> loadFailures(
+        EngineRunResult sparkNativeLoad,
+        EngineRunResult sparkIcebergLoad,
+        EngineRunResult starRocksInternalLoad,
+        EngineRunResult starRocksExternalRefresh,
+        EngineRunResult hivePublish,
+        EngineRunResult hiveLoad
     ) {
+        Map<BenchmarkRoute, String> failures = new EnumMap<>(BenchmarkRoute.class);
+        putFailure(failures, BenchmarkRoute.SPARK_NATIVE_PARQUET, sparkNativeLoad);
+        putFailure(failures, BenchmarkRoute.SPARK_ICEBERG, sparkIcebergLoad);
+        putFailure(failures, BenchmarkRoute.STARROCKS_INTERNAL, starRocksInternalLoad);
+        if (!sparkIcebergLoad.success()) {
+            failures.put(BenchmarkRoute.STARROCKS_EXTERNAL_ICEBERG, sparkIcebergLoad.error());
+        } else {
+            putFailure(failures, BenchmarkRoute.STARROCKS_EXTERNAL_ICEBERG, starRocksExternalRefresh);
+        }
+        if (!hivePublish.success()) {
+            failures.put(BenchmarkRoute.HIVE_HDFS_PARQUET, hivePublish.error());
+        } else {
+            putFailure(failures, BenchmarkRoute.HIVE_HDFS_PARQUET, hiveLoad);
+        }
+        return failures;
+    }
+
+    private List<EngineRunResult> validateKpiRoutes(long expectedRows, Map<BenchmarkRoute, String> routeFailures) {
+        List<EngineRunResult> results = new ArrayList<>();
+        for (BenchmarkRoute route : BenchmarkRoute.values()) {
+            String loadFailure = routeFailures.get(route);
+            if (loadFailure != null) {
+                results.add(failedLoad(routeEngine(route), routeTableShape(route), validateStage(route),
+                    "Route load failed before validation: " + loadFailure));
+                continue;
+            }
+            try {
+                results.add(validateKpiRoute(route, expectedRows));
+            } catch (Exception exception) {
+                results.add(failed(routeEngine(route), routeTableShape(route), validateStage(route), exception));
+            }
+        }
+        return results;
+    }
+
+    private EngineRunResult validateKpiRoute(BenchmarkRoute route, long expectedRows) {
+        return switch (route) {
+            case SPARK_NATIVE_PARQUET -> sparkClient.validateCount("spark_native_parquet", expectedRows);
+            case SPARK_ICEBERG -> sparkClient.validateCount("spark_iceberg", expectedRows);
+            case STARROCKS_INTERNAL -> starRocksClient.validateCount("starrocks_internal", expectedRows);
+            case STARROCKS_EXTERNAL_ICEBERG -> starRocksClient.validateCount("starrocks_external_iceberg", expectedRows);
+            case HIVE_HDFS_PARQUET -> hiveClient.validateCount(expectedRows);
+        };
+    }
+
+    private Map<BenchmarkRoute, String> validationFailures(List<EngineRunResult> validations) {
+        Map<BenchmarkRoute, String> failures = new EnumMap<>(BenchmarkRoute.class);
+        for (EngineRunResult validation : validations) {
+            if (!validation.success()) {
+                failures.put(routeForTableShape(validation.tableShape()), validation.error());
+            }
+        }
+        return failures;
+    }
+
+    private void putFailure(Map<BenchmarkRoute, String> failures, BenchmarkRoute route, EngineRunResult result) {
+        if (!result.success()) {
+            failures.put(route, result.error());
+        }
+    }
+
+    private List<EngineRunResult> runKpiRouteQueries(BenchmarkConfig config, Map<BenchmarkRoute, String> routeFailures) {
         List<EngineRunResult> results = new ArrayList<>();
         for (var query : selectedKpiQueries(config)) {
             String queryName = query.name();
             for (BenchmarkRoute route : BenchmarkRoute.values()) {
-                if (route == BenchmarkRoute.HIVE_HDFS_PARQUET && hiveRouteFailure != null) {
-                    results.addAll(failedRoutePhases(route, queryName, hiveRouteFailure));
-                    continue;
-                }
-                if (route == BenchmarkRoute.STARROCKS_INTERNAL && starRocksInternalRouteFailure != null) {
-                    results.addAll(failedRoutePhases(route, queryName, starRocksInternalRouteFailure));
+                String routeFailure = routeFailures.get(route);
+                if (routeFailure != null) {
+                    results.addAll(failedRoutePhases(route, queryName, routeFailure));
                     continue;
                 }
                 results.addAll(runKpiRoutePhases(queryName, route));
@@ -520,6 +602,7 @@ public class ComposeBenchmarkRunner {
 
     private EngineRunResult runKpiRouteQuery(BenchmarkRoute route, String queryName, RoutePhase phase) {
         return switch (route) {
+            case SPARK_NATIVE_PARQUET -> sparkClient.runNativeQuery(queryName, phase);
             case SPARK_ICEBERG -> sparkClient.runQuery(queryName, phase);
             case STARROCKS_INTERNAL -> starRocksClient.runQueryFor("starrocks_internal", queryName, phase);
             case STARROCKS_EXTERNAL_ICEBERG -> starRocksClient.runQueryFor("starrocks_external_iceberg", queryName, phase);
@@ -544,7 +627,7 @@ public class ComposeBenchmarkRunner {
 
     private String routeEngine(BenchmarkRoute route) {
         return switch (route) {
-            case SPARK_ICEBERG -> "spark";
+            case SPARK_NATIVE_PARQUET, SPARK_ICEBERG -> "spark";
             case STARROCKS_INTERNAL, STARROCKS_EXTERNAL_ICEBERG -> "starrocks";
             case HIVE_HDFS_PARQUET -> "hive";
         };
@@ -552,10 +635,32 @@ public class ComposeBenchmarkRunner {
 
     private String routeTableShape(BenchmarkRoute route) {
         return switch (route) {
+            case SPARK_NATIVE_PARQUET -> "spark_native_parquet";
             case SPARK_ICEBERG -> "spark_iceberg";
             case STARROCKS_INTERNAL -> "starrocks_internal";
             case STARROCKS_EXTERNAL_ICEBERG -> "starrocks_external_iceberg";
             case HIVE_HDFS_PARQUET -> "hive_hdfs_parquet";
+        };
+    }
+
+    private BenchmarkRoute routeForTableShape(String tableShape) {
+        return switch (tableShape) {
+            case "spark_native_parquet" -> BenchmarkRoute.SPARK_NATIVE_PARQUET;
+            case "spark_iceberg" -> BenchmarkRoute.SPARK_ICEBERG;
+            case "starrocks_internal" -> BenchmarkRoute.STARROCKS_INTERNAL;
+            case "starrocks_external_iceberg" -> BenchmarkRoute.STARROCKS_EXTERNAL_ICEBERG;
+            case "hive_hdfs_parquet" -> BenchmarkRoute.HIVE_HDFS_PARQUET;
+            default -> throw new IllegalArgumentException("Unknown table shape: " + tableShape);
+        };
+    }
+
+    private String validateStage(BenchmarkRoute route) {
+        return switch (route) {
+            case SPARK_NATIVE_PARQUET -> EngineStage.SPARK_NATIVE_PARQUET_VALIDATE.name();
+            case SPARK_ICEBERG -> EngineStage.SPARK_ICEBERG_VALIDATE.name();
+            case STARROCKS_INTERNAL -> EngineStage.STARROCKS_INTERNAL_VALIDATE.name();
+            case STARROCKS_EXTERNAL_ICEBERG -> EngineStage.STARROCKS_EXTERNAL_VALIDATE.name();
+            case HIVE_HDFS_PARQUET -> EngineStage.HIVE_HDFS_PARQUET_VALIDATE.name();
         };
     }
 
@@ -579,20 +684,6 @@ public class ComposeBenchmarkRunner {
             return dataset.outputPath().resolve("starrocks-csv");
         }
         return Path.of(config.dataset().output()).resolve("starrocks-csv");
-    }
-
-    private String hiveRouteFailure(EngineRunResult hivePublish, EngineRunResult hiveLoad) {
-        if (!hivePublish.success()) {
-            return hivePublish.error();
-        }
-        if (!hiveLoad.success()) {
-            return hiveLoad.error();
-        }
-        return null;
-    }
-
-    private String routeFailure(EngineRunResult loadResult) {
-        return loadResult.success() ? null : loadResult.error();
     }
 
     private EngineRunResult successfulExistingHiveDataset(DatasetResult dataset) {
@@ -672,11 +763,17 @@ public class ComposeBenchmarkRunner {
     }
 
     interface SparkClient {
+        EngineRunResult loadNativeParquet(DatasetResult dataset, String runId, String profile);
+
         EngineRunResult load(DatasetResult dataset, String runId, String profile);
 
         List<EngineRunResult> runQueries(String runId, String profile);
 
+        EngineRunResult validateCount(String tableShape, long expectedRows);
+
         EngineRunResult runQuery(String queryName, RoutePhase phase);
+
+        EngineRunResult runNativeQuery(String queryName, RoutePhase phase);
 
         default EngineRunResult loadTpch(TpchDatasetResult dataset, String runId, String profile) {
             throw new UnsupportedOperationException("TPC-H load not implemented");
@@ -693,6 +790,8 @@ public class ComposeBenchmarkRunner {
         EngineRunResult refreshExternalCatalog(String runId, String profile);
 
         List<EngineRunResult> runQueries(String runId, String profile);
+
+        EngineRunResult validateCount(String tableShape, long expectedRows);
 
         EngineRunResult runQueryFor(String tableShape, String queryName, RoutePhase phase);
 
@@ -722,6 +821,8 @@ public class ComposeBenchmarkRunner {
         EngineRunResult createExternalTable(String parquetRoot);
 
         EngineRunResult runQuery(String queryName, RoutePhase phase);
+
+        EngineRunResult validateCount(long expectedRows);
     }
 
     interface ServiceController {
@@ -763,6 +864,11 @@ public class ComposeBenchmarkRunner {
 
     private record SparkClientAdapter(SparkIcebergClient delegate) implements SparkClient {
         @Override
+        public EngineRunResult loadNativeParquet(DatasetResult dataset, String runId, String profile) {
+            return delegate.loadNativeParquet(dataset, runId, profile);
+        }
+
+        @Override
         public EngineRunResult load(DatasetResult dataset, String runId, String profile) {
             return delegate.load(dataset, runId, profile);
         }
@@ -773,8 +879,18 @@ public class ComposeBenchmarkRunner {
         }
 
         @Override
+        public EngineRunResult validateCount(String tableShape, long expectedRows) {
+            return delegate.validateCount(tableShape, expectedRows);
+        }
+
+        @Override
         public EngineRunResult runQuery(String queryName, RoutePhase phase) {
             return delegate.runQuery(queryName, phase);
+        }
+
+        @Override
+        public EngineRunResult runNativeQuery(String queryName, RoutePhase phase) {
+            return delegate.runNativeQuery(queryName, phase);
         }
 
         @Override
@@ -802,6 +918,11 @@ public class ComposeBenchmarkRunner {
         @Override
         public List<EngineRunResult> runQueries(String runId, String profile) {
             return delegate.runQueries(runId, profile);
+        }
+
+        @Override
+        public EngineRunResult validateCount(String tableShape, long expectedRows) {
+            return delegate.validateCount(tableShape, expectedRows);
         }
 
         @Override
@@ -1002,6 +1123,11 @@ public class ComposeBenchmarkRunner {
         @Override
         public EngineRunResult runQuery(String queryName, RoutePhase phase) {
             return delegate.runQuery(queryName, phase);
+        }
+
+        @Override
+        public EngineRunResult validateCount(long expectedRows) {
+            return delegate.validateCount(expectedRows);
         }
     }
 

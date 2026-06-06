@@ -86,6 +86,26 @@ public class HiveClient {
         return failed(EngineStage.QUERY.name(), queryName, phase, command);
     }
 
+    public EngineRunResult validateCount(long expectedRows) {
+        CommandResult command = runHiveSql("SELECT COUNT(*) FROM hive_hdfs_parquet.cell_kpi_1min");
+        if (command.exitCode() != 0) {
+            return failed(EngineStage.HIVE_HDFS_PARQUET_VALIDATE.name(), null, RoutePhase.HOT, command);
+        }
+        long actualRows = CliQueryRows.scalarCount(command).orElse(0L);
+        boolean success = actualRows == expectedRows;
+        return new EngineRunResult(
+            "hive",
+            TABLE_SHAPE,
+            EngineStage.HIVE_HDFS_PARQUET_VALIDATE.name(),
+            null,
+            actualRows,
+            0,
+            command.durationSeconds(),
+            success,
+            success ? "" : "row count mismatch for %s: expected=%d actual=%d".formatted(TABLE_SHAPE, expectedRows, actualRows)
+        );
+    }
+
     private CommandResult runHiveSql(String sql) {
         try {
             return commandRunner.run(hiveCommand(sql), workingDirectory, timeout);

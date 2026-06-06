@@ -297,6 +297,30 @@ public class StarRocksClient {
         }
     }
 
+    public EngineRunResult validateCount(String tableShape, long expectedRows) {
+        String tableName = com.example.databenchmark.schema.KpiSchema.tableShapes().get(tableShape);
+        if (tableName == null) {
+            return failed(tableShape, validateStage(tableShape), null, 0.0, "Unknown engine key: " + tableShape);
+        }
+        try {
+            long actualRows = jdbcExecutor.queryLong("SELECT COUNT(*) FROM " + tableName);
+            boolean success = actualRows == expectedRows;
+            return new EngineRunResult(
+                "starrocks",
+                tableShape,
+                validateStage(tableShape),
+                null,
+                actualRows,
+                0,
+                0.0,
+                success,
+                success ? "" : "row count mismatch for %s: expected=%d actual=%d".formatted(tableShape, expectedRows, actualRows)
+            );
+        } catch (SQLException e) {
+            return failed(tableShape, validateStage(tableShape), null, 0.0, e.getMessage());
+        }
+    }
+
     private List<EngineRunResult> runTpchQueriesFor(String engineKey, String tableShape, String querySet) {
         List<EngineRunResult> results = new ArrayList<>();
         for (var query : TpchQueryCatalog.queries(querySet)) {
@@ -364,6 +388,12 @@ public class StarRocksClient {
 
     private static double elapsedSeconds(long startedNanos) {
         return (System.nanoTime() - startedNanos) / 1_000_000_000.0;
+    }
+
+    private static String validateStage(String tableShape) {
+        return "starrocks_external_iceberg".equals(tableShape)
+            ? EngineStage.STARROCKS_EXTERNAL_VALIDATE.name()
+            : EngineStage.STARROCKS_INTERNAL_VALIDATE.name();
     }
 
     private static boolean looksLikeCsvPath(Path path) {

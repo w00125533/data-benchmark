@@ -360,6 +360,24 @@ class StarRocksClientTest {
     }
 
     @Test
+    void validateCountUsesJdbcScalarCountAndReportsMismatch() {
+        FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
+        jdbc.queryLongResult = 4L;
+
+        EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        )).validateCount("starrocks_internal", 5L);
+
+        assertThat(result.engine()).isEqualTo("starrocks");
+        assertThat(result.tableShape()).isEqualTo("starrocks_internal");
+        assertThat(result.stage()).isEqualTo(EngineStage.STARROCKS_INTERNAL_VALIDATE.name());
+        assertThat(result.rows()).isEqualTo(4L);
+        assertThat(result.success()).isFalse();
+        assertThat(result.error()).contains("row count mismatch").contains("expected=5").contains("actual=4");
+        assertThat(jdbc.sql()).containsExactly("SELECT COUNT(*) FROM sr_internal.cell_kpi_1min");
+    }
+
+    @Test
     void tpchLoadCreatesTablesAndStreamsEachCsv() {
         FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
         CapturingStreamLoadClient streamLoad = new CapturingStreamLoadClient(
@@ -434,6 +452,7 @@ class StarRocksClientTest {
         private SQLException failure;
         private String failOnSql;
         private String failOnSqlContaining;
+        private long queryLongResult = 3L;
 
         @Override
         public JdbcExecutionResult execute(String sql) throws SQLException {
@@ -453,6 +472,16 @@ class StarRocksClientTest {
                 throw failure;
             }
             return new JdbcExecutionResult(3, 0.2);
+        }
+
+        @Override
+        public long queryLong(String sql) throws SQLException {
+            this.sql.add(sql);
+            if (failure != null && (failOnSql == null || failOnSql.equals(sql))
+                && (failOnSqlContaining == null || sql.contains(failOnSqlContaining))) {
+                throw failure;
+            }
+            return queryLongResult;
         }
 
         @Override

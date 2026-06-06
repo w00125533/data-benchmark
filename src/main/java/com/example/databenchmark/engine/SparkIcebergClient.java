@@ -174,6 +174,30 @@ public class SparkIcebergClient {
         return failed("spark_native_parquet", EngineStage.QUERY.name(), queryName, phase, command);
     }
 
+    public EngineRunResult validateCount(String tableShape, long expectedRows) {
+        String tableName = KpiSchema.tableShapes().get(tableShape);
+        if (tableName == null) {
+            return failed(tableShape, validateStage(tableShape), null, "Unknown engine key: " + tableShape);
+        }
+        CommandResult command = runSparkSql("SELECT COUNT(*) FROM " + tableName);
+        if (command.exitCode() != 0) {
+            return failed(tableShape, validateStage(tableShape), null, command);
+        }
+        long actualRows = CliQueryRows.scalarCount(command).orElse(0L);
+        boolean success = actualRows == expectedRows;
+        return new EngineRunResult(
+            "spark",
+            tableShape,
+            validateStage(tableShape),
+            null,
+            actualRows,
+            0,
+            command.durationSeconds(),
+            success,
+            success ? "" : "row count mismatch for %s: expected=%d actual=%d".formatted(tableShape, expectedRows, actualRows)
+        );
+    }
+
     public EngineRunResult loadTpch(TpchDatasetResult dataset, String runId, String profile) {
         double durationSeconds = 0.0;
         try {
@@ -350,6 +374,12 @@ public class SparkIcebergClient {
 
     private static String commandError(CommandResult command) {
         return command.stderr().isBlank() ? command.stdout() : command.stderr();
+    }
+
+    private static String validateStage(String tableShape) {
+        return "spark_native_parquet".equals(tableShape)
+            ? EngineStage.SPARK_NATIVE_PARQUET_VALIDATE.name()
+            : EngineStage.SPARK_ICEBERG_VALIDATE.name();
     }
 
     private static BenchmarkEngine engine(String name) {

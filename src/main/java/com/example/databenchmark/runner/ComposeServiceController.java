@@ -139,7 +139,7 @@ public class ComposeServiceController {
 
     List<List<String>> restartCommands(BenchmarkRoute route) {
         return switch (route) {
-            case SPARK_ICEBERG -> List.of(
+            case SPARK_NATIVE_PARQUET, SPARK_ICEBERG -> List.of(
                 composeCommand("restart", "spark")
             );
             case STARROCKS_INTERNAL, STARROCKS_EXTERNAL_ICEBERG -> List.of(
@@ -157,7 +157,7 @@ public class ComposeServiceController {
 
     private List<List<String>> readinessCommands(BenchmarkRoute route) {
         return switch (route) {
-            case SPARK_ICEBERG -> List.of(composeCommand(
+            case SPARK_NATIVE_PARQUET, SPARK_ICEBERG -> List.of(composeCommand(
                 "exec",
                 "-T",
                 "spark",

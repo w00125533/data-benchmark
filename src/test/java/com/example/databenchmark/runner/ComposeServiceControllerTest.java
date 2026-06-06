@@ -21,6 +21,8 @@ class ComposeServiceControllerTest {
         FakeCommandRunner commandRunner = new FakeCommandRunner();
         ComposeServiceController controller = new ComposeServiceController(commandRunner);
 
+        assertThat(controller.restartCommands(BenchmarkRoute.SPARK_NATIVE_PARQUET))
+            .containsExactly(composeCommand("restart", "spark"));
         assertThat(controller.restartCommands(BenchmarkRoute.SPARK_ICEBERG))
             .containsExactly(composeCommand("restart", "spark"));
         assertThat(controller.restartCommands(BenchmarkRoute.STARROCKS_INTERNAL))
@@ -180,6 +182,7 @@ class ComposeServiceControllerTest {
         FakeCommandRunner commandRunner = new FakeCommandRunner();
         commandRunner.enqueueSuccess();
         commandRunner.enqueueSuccess();
+        commandRunner.enqueueSuccess();
         commandRunner.enqueueSuccess("BackendId\tAlive\n10001\ttrue");
         commandRunner.enqueueSuccess("Empty set");
         commandRunner.enqueueSuccess();
@@ -195,12 +198,15 @@ class ComposeServiceControllerTest {
             ignored -> { }
         );
 
+        controller.waitUntilReady(BenchmarkRoute.SPARK_NATIVE_PARQUET);
         controller.waitUntilReady(BenchmarkRoute.SPARK_ICEBERG);
         controller.waitUntilReady(BenchmarkRoute.STARROCKS_INTERNAL);
         controller.waitUntilReady(BenchmarkRoute.STARROCKS_EXTERNAL_ICEBERG);
         controller.waitUntilReady(BenchmarkRoute.HIVE_HDFS_PARQUET);
 
         assertThat(commandRunner.commands).containsExactly(
+            composeCommand("exec", "-T", "spark",
+                "/opt/spark/bin/spark-sql", "-e", "SELECT 1"),
             composeCommand("exec", "-T", "spark",
                 "/opt/spark/bin/spark-sql", "-e", "SELECT 1"),
             composeCommand("exec", "-T", "starrocks-fe",

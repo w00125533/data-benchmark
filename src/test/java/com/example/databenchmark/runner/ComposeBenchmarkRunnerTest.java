@@ -28,7 +28,7 @@ class ComposeBenchmarkRunnerTest {
     Path tempDir;
 
     @Test
-    void composeRunnerRunsColdWarmHotForFourRoutes() throws Exception {
+    void composeRunnerRunsColdWarmHotForFiveRoutes() throws Exception {
         List<String> calls = new ArrayList<>();
         String queryName = QueryCatalog.queries().get(0).name();
         DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
@@ -56,6 +56,11 @@ class ComposeBenchmarkRunnerTest {
 
         assertThat(result.success()).isTrue();
         assertThat(calls).containsSubsequence(
+            "restart SPARK_NATIVE_PARQUET",
+            "ready SPARK_NATIVE_PARQUET",
+            "Spark native query " + queryName + " COLD",
+            "Spark native query " + queryName + " WARM",
+            "Spark native query " + queryName + " HOT",
             "restart SPARK_ICEBERG",
             "ready SPARK_ICEBERG",
             "Spark query " + queryName + " COLD",
@@ -85,6 +90,9 @@ class ComposeBenchmarkRunnerTest {
             .filteredOn(summary -> summary.queryName().equals(queryName))
             .extracting(BenchmarkReport.QuerySummary::tableShape, BenchmarkReport.QuerySummary::phase)
             .containsSequence(
+                org.assertj.core.groups.Tuple.tuple("spark_native_parquet", RoutePhase.COLD.name()),
+                org.assertj.core.groups.Tuple.tuple("spark_native_parquet", RoutePhase.WARM.name()),
+                org.assertj.core.groups.Tuple.tuple("spark_native_parquet", RoutePhase.HOT.name()),
                 org.assertj.core.groups.Tuple.tuple("spark_iceberg", RoutePhase.COLD.name()),
                 org.assertj.core.groups.Tuple.tuple("spark_iceberg", RoutePhase.WARM.name()),
                 org.assertj.core.groups.Tuple.tuple("spark_iceberg", RoutePhase.HOT.name()),
@@ -225,6 +233,7 @@ class ComposeBenchmarkRunnerTest {
         assertThat(calls).containsSubsequence(
             "start metrics",
             "generate dataset",
+            "Spark native load",
             "Spark load",
             "Hive HDFS publish /data/generated",
             "ready STARROCKS_INTERNAL",
@@ -233,6 +242,13 @@ class ComposeBenchmarkRunnerTest {
             "StarRocks external refresh",
             "ready HIVE_HDFS_PARQUET",
             "Hive external table /data/generated",
+            "Spark validate spark_native_parquet rows=5",
+            "Spark validate spark_iceberg rows=5",
+            "StarRocks validate starrocks_internal rows=5",
+            "StarRocks validate starrocks_external_iceberg rows=5",
+            "Hive validate rows=5",
+            "restart SPARK_NATIVE_PARQUET",
+            "ready SPARK_NATIVE_PARQUET",
             "restart SPARK_ICEBERG",
             "ready SPARK_ICEBERG",
             "record load:GENERATE",
@@ -249,15 +265,78 @@ class ComposeBenchmarkRunnerTest {
             .extracting(BenchmarkReport.LoadSummary::stage)
             .containsExactly(
                 EngineStage.GENERATE.name(),
+                EngineStage.SPARK_NATIVE_PARQUET_LOAD.name(),
                 EngineStage.SPARK_ICEBERG_LOAD.name(),
                 "HIVE_HDFS_PARQUET_PUBLISH",
                 EngineStage.STARROCKS_INTERNAL_LOAD.name(),
                 EngineStage.STARROCKS_EXTERNAL_REFRESH.name(),
-                "HIVE_HDFS_PARQUET_LOAD"
+                "HIVE_HDFS_PARQUET_LOAD",
+                EngineStage.SPARK_NATIVE_PARQUET_VALIDATE.name(),
+                EngineStage.SPARK_ICEBERG_VALIDATE.name(),
+                EngineStage.STARROCKS_INTERNAL_VALIDATE.name(),
+                EngineStage.STARROCKS_EXTERNAL_VALIDATE.name(),
+                EngineStage.HIVE_HDFS_PARQUET_VALIDATE.name()
             );
         assertThat(reportWriter.report.querySummaries())
             .hasSize(QueryCatalog.queries().size() * BenchmarkRoute.values().length * RoutePhase.values().length);
         assertThat(calls).doesNotContain("export CSV");
+    }
+
+    @Test
+    void composeRunnerSkipsOnlyRouteWhoseValidationFails() throws Exception {
+        List<String> calls = new ArrayList<>();
+        String queryName = QueryCatalog.queries().get(0).name();
+        DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
+        CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
+
+        ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
+            config -> dataset,
+            failingCsvExporter(),
+            failingTpchGenerator(),
+            failingTpchCsvExport(),
+            new FakeSparkClient(calls, "spark_native_parquet"),
+            new FakeStarRocksClient(calls, true),
+            new FakeHdfsDatasetPublisher(calls, true),
+            new FakeHiveClient(calls),
+            new FakeServiceController(calls),
+            reportWriter,
+            new CapturingMetricsRecorder(calls, "smoke", "kpi", "smoke")
+        );
+
+        ComposeBenchmarkRunner.ComposeRunResult result = runner.run(
+            BenchmarkConfig.defaultSmoke(),
+            tempDir.resolve("reports"),
+            "compose-test"
+        );
+
+        assertThat(result.success()).isFalse();
+        assertThat(calls).doesNotContain(
+            "restart SPARK_NATIVE_PARQUET",
+            "Spark native query " + queryName + " COLD",
+            "Spark native query " + queryName + " WARM",
+            "Spark native query " + queryName + " HOT"
+        );
+        assertThat(calls).contains(
+            "restart SPARK_ICEBERG",
+            "Spark query " + queryName + " COLD",
+            "StarRocks starrocks_internal " + queryName + " COLD",
+            "Hive query " + queryName + " COLD"
+        );
+        assertThat(reportWriter.report.loadSummaries())
+            .filteredOn(summary -> summary.stage().equals(EngineStage.SPARK_NATIVE_PARQUET_VALIDATE.name()))
+            .singleElement()
+            .satisfies(summary -> {
+                assertThat(summary.success()).isFalse();
+                assertThat(summary.error()).contains("row count mismatch");
+            });
+        assertThat(reportWriter.report.querySummaries())
+            .filteredOn(summary -> summary.tableShape().equals("spark_native_parquet"))
+            .filteredOn(summary -> summary.queryName().equals(queryName))
+            .hasSize(3)
+            .allSatisfy(summary -> {
+                assertThat(summary.success()).isFalse();
+                assertThat(summary.error()).contains("row count mismatch");
+            });
     }
 
     @Test
@@ -1006,9 +1085,22 @@ class ComposeBenchmarkRunnerTest {
 
     private static final class FakeSparkClient implements ComposeBenchmarkRunner.SparkClient {
         private final List<String> calls;
+        private final String failingValidationTableShape;
 
         private FakeSparkClient(List<String> calls) {
+            this(calls, null);
+        }
+
+        private FakeSparkClient(List<String> calls, String failingValidationTableShape) {
             this.calls = calls;
+            this.failingValidationTableShape = failingValidationTableShape;
+        }
+
+        @Override
+        public EngineRunResult loadNativeParquet(DatasetResult dataset, String runId, String profile) {
+            calls.add("Spark native load");
+            return new EngineRunResult("spark", "spark_native_parquet", EngineStage.SPARK_NATIVE_PARQUET_LOAD.name(),
+                null, dataset.rows(), dataset.bytesWritten(), 0.8, true, "");
         }
 
         @Override
@@ -1026,9 +1118,25 @@ class ComposeBenchmarkRunnerTest {
         }
 
         @Override
+        public EngineRunResult validateCount(String tableShape, long expectedRows) {
+            calls.add("Spark validate " + tableShape + " rows=" + expectedRows);
+            boolean success = !tableShape.equals(failingValidationTableShape);
+            return new EngineRunResult("spark", tableShape, validateStage(tableShape), null,
+                success ? expectedRows : expectedRows - 1, 0L, 0.1, success,
+                success ? "" : "row count mismatch for " + tableShape);
+        }
+
+        @Override
         public EngineRunResult runQuery(String queryName, RoutePhase phase) {
             calls.add("Spark query " + queryName + " " + phase.name());
             return new EngineRunResult("spark", "spark_iceberg", EngineStage.QUERY.name(),
+                queryName, phase.name(), 3L, 0L, 0.2, true, "");
+        }
+
+        @Override
+        public EngineRunResult runNativeQuery(String queryName, RoutePhase phase) {
+            calls.add("Spark native query " + queryName + " " + phase.name());
+            return new EngineRunResult("spark", "spark_native_parquet", EngineStage.QUERY.name(),
                 queryName, phase.name(), 3L, 0L, 0.2, true, "");
         }
 
@@ -1044,6 +1152,12 @@ class ComposeBenchmarkRunnerTest {
             calls.add("Spark TPC-H queries");
             return List.of(new EngineRunResult("spark", "tpch_iceberg", EngineStage.QUERY.name(),
                 "q01_pricing_summary_report", RoutePhase.COLD.name(), 3L, 0L, 0.2, true, ""));
+        }
+
+        private String validateStage(String tableShape) {
+            return tableShape.equals("spark_native_parquet")
+                ? EngineStage.SPARK_NATIVE_PARQUET_VALIDATE.name()
+                : EngineStage.SPARK_ICEBERG_VALIDATE.name();
         }
     }
 
@@ -1077,6 +1191,15 @@ class ComposeBenchmarkRunnerTest {
             calls.add("StarRocks queries");
             return List.of(new EngineRunResult("starrocks", "starrocks_internal", EngineStage.QUERY.name(),
                 "starrocks_query", 4L, 0L, 0.3, true, ""));
+        }
+
+        @Override
+        public EngineRunResult validateCount(String tableShape, long expectedRows) {
+            calls.add("StarRocks validate " + tableShape + " rows=" + expectedRows);
+            String stage = tableShape.equals("starrocks_internal")
+                ? EngineStage.STARROCKS_INTERNAL_VALIDATE.name()
+                : EngineStage.STARROCKS_EXTERNAL_VALIDATE.name();
+            return new EngineRunResult("starrocks", tableShape, stage, null, expectedRows, 0L, 0.2, true, "");
         }
 
         @Override
@@ -1169,6 +1292,13 @@ class ComposeBenchmarkRunnerTest {
             calls.add("Hive query " + queryName + " " + phase.name());
             return new EngineRunResult("hive", "hive_hdfs_parquet", EngineStage.QUERY.name(),
                 queryName, phase.name(), 2L, 0L, 0.4, true, "");
+        }
+
+        @Override
+        public EngineRunResult validateCount(long expectedRows) {
+            calls.add("Hive validate rows=" + expectedRows);
+            return new EngineRunResult("hive", "hive_hdfs_parquet", EngineStage.HIVE_HDFS_PARQUET_VALIDATE.name(),
+                null, expectedRows, 0L, 0.2, true, "");
         }
     }
 

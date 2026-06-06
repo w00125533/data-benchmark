@@ -18,6 +18,20 @@ final class CliQueryRows {
         return lastMatch(commandText(command), HIVE_SELECTED_ROWS).orElse(0L);
     }
 
+    static OptionalLong scalarCount(CommandResult command) {
+        OptionalLong count = OptionalLong.empty();
+        for (String line : commandText(command).split("\\R")) {
+            String normalized = line.trim()
+                .replaceAll("^\\|", "")
+                .replaceAll("\\|$", "")
+                .trim();
+            if (normalized.matches("\\d+")) {
+                count = OptionalLong.of(Long.parseLong(normalized));
+            }
+        }
+        return count;
+    }
+
     private static String commandText(CommandResult command) {
         return command.stdout() + "\n" + command.stderr();
     }

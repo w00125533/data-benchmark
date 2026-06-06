@@ -274,6 +274,33 @@ class SparkIcebergClientTest {
     }
 
     @Test
+    void validateCountUsesScalarSparkCountAndReportsMismatch() {
+        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(
+            List.of(),
+            0,
+            """
+            count(1)
+            4
+            Time taken: 0.100 seconds, Fetched 1 row(s)
+            """,
+            "",
+            0.1
+        ));
+
+        EngineRunResult result = new SparkIcebergClient(runner)
+            .validateCount("spark_native_parquet", 5L);
+
+        assertThat(result.engine()).isEqualTo("spark");
+        assertThat(result.tableShape()).isEqualTo("spark_native_parquet");
+        assertThat(result.stage()).isEqualTo(EngineStage.SPARK_NATIVE_PARQUET_VALIDATE.name());
+        assertThat(result.rows()).isEqualTo(4L);
+        assertThat(result.success()).isFalse();
+        assertThat(result.error()).contains("row count mismatch").contains("expected=5").contains("actual=4");
+        assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
+            .isEqualTo("SELECT COUNT(*) FROM spark_catalog.benchmark_native.cell_kpi_1min");
+    }
+
+    @Test
     void tpchLoadCreatesAndInsertsEachTable() {
         FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "ok", "", 1.25));
         Path workspace = tempDir.resolve("workspace");

@@ -134,6 +134,36 @@ class HiveClientTest {
     }
 
     @Test
+    void validateCountUsesScalarHiveCountAndReportsMismatch() {
+        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(
+            List.of(),
+            0,
+            """
+            +------+
+            | _c0  |
+            +------+
+            | 4    |
+            +------+
+            1 rows selected (0.100 seconds)
+            """,
+            "",
+            0.1
+        ));
+
+        EngineRunResult result = new HiveClient(runner, tempDir, Duration.ofMinutes(1))
+            .validateCount(5L);
+
+        assertThat(result.engine()).isEqualTo("hive");
+        assertThat(result.tableShape()).isEqualTo("hive_hdfs_parquet");
+        assertThat(result.stage()).isEqualTo(EngineStage.HIVE_HDFS_PARQUET_VALIDATE.name());
+        assertThat(result.rows()).isEqualTo(4L);
+        assertThat(result.success()).isFalse();
+        assertThat(result.error()).contains("row count mismatch").contains("expected=5").contains("actual=4");
+        assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
+            .isEqualTo("SELECT COUNT(*) FROM hive_hdfs_parquet.cell_kpi_1min");
+    }
+
+    @Test
     void inContainerModeRunsBeelineDirectlyWithoutDockerCompose() {
         FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "ok", "", 1.25));
 

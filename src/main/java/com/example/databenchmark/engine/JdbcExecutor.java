@@ -65,6 +65,17 @@ public class JdbcExecutor {
         }
     }
 
+    public long queryLong(String sql) throws SQLException {
+        try (Connection connection = openConnection();
+             Statement statement = connection.createStatement();
+             ResultSet resultSet = statement.executeQuery(sql)) {
+            if (!resultSet.next()) {
+                throw new SQLException("Query returned no rows");
+            }
+            return resultSet.getLong(1);
+        }
+    }
+
     public StarRocksBrokerLoad.LoadState latestLoadState(String database, String label) throws SQLException {
         String escapedLabel = escapeSqlLiteral(label);
         String sql = """
