@@ -11,11 +11,21 @@ class SqlTemplatesTest {
         String sql = SqlTemplates.sparkCreateIcebergTable();
 
         assertThat(sql).contains("CREATE TABLE IF NOT EXISTS iceberg_catalog.iceberg_db.cell_kpi_1min");
+        assertThat(sql).contains("DROP TABLE IF EXISTS iceberg_catalog.iceberg_db.cell_kpi_1min;");
         assertThat(sql).contains("USING iceberg");
         assertThat(sql).contains("PARTITIONED BY (days(event_time))");
+        assertThat(sql).contains("LOCATION 'hdfs://hdfs-namenode:8020/warehouse/iceberg/iceberg_db/cell_kpi_1min_default'");
         assertThat(sql).contains("event_time TIMESTAMP");
         assertThat(sql).contains("energy_kwh DOUBLE");
         assertThat(sql).doesNotContain("s3").doesNotContain("minio");
+    }
+
+    @Test
+    void sparkIcebergDdlUsesSanitizedRunIdInTableLocation() {
+        String sql = SqlTemplates.sparkCreateIcebergTable("run:1/abc");
+
+        assertThat(sql)
+            .contains("LOCATION 'hdfs://hdfs-namenode:8020/warehouse/iceberg/iceberg_db/cell_kpi_1min_run_1_abc'");
     }
 
     @Test
@@ -24,7 +34,10 @@ class SqlTemplatesTest {
 
         assertThat(sql).contains("path 'hdfs://host/a''b/part.parquet'");
         assertThat(sql).contains("INSERT INTO iceberg_catalog.iceberg_db.cell_kpi_1min");
-        assertThat(sql).contains("SELECT * FROM generated_kpi");
+        assertThat(sql).contains("SELECT event_time, cell_id, province");
+        assertThat(sql).contains("energy_kwh FROM generated_kpi");
+        assertThat(sql).doesNotContain("SELECT *");
+        assertThat(sql).doesNotContain("event_date FROM generated_kpi");
     }
 
     @Test

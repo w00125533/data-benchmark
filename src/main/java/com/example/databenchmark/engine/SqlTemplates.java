@@ -11,17 +11,30 @@ public final class SqlTemplates {
     private SqlTemplates() {}
 
     public static String sparkCreateIcebergTable() {
+        return sparkCreateIcebergTable("default");
+    }
+
+    public static String sparkCreateIcebergTable(String runId) {
         return """
             CREATE DATABASE IF NOT EXISTS iceberg_catalog.iceberg_db
             LOCATION '%s/iceberg_db';
+
+            DROP TABLE IF EXISTS %s;
 
             CREATE TABLE IF NOT EXISTS %s (
             %s
             )
             USING iceberg
             PARTITIONED BY (days(event_time))
-            LOCATION '%s/iceberg_db/cell_kpi_1min';
-            """.formatted(HDFS_WAREHOUSE, ICEBERG_TABLE, sparkColumns(), HDFS_WAREHOUSE);
+            LOCATION '%s/iceberg_db/cell_kpi_1min_%s';
+            """.formatted(
+                HDFS_WAREHOUSE,
+                ICEBERG_TABLE,
+                ICEBERG_TABLE,
+                sparkColumns(),
+                HDFS_WAREHOUSE,
+                sanitizeLocationSuffix(runId)
+            );
     }
 
     public static String sparkInsertFromParquet(String parquetPath) {
@@ -31,8 +44,8 @@ public final class SqlTemplates {
             OPTIONS (path '%s');
 
             INSERT INTO %s
-            SELECT * FROM generated_kpi;
-            """.formatted(escapeSqlLiteral(parquetPath), ICEBERG_TABLE);
+            SELECT %s FROM generated_kpi;
+            """.formatted(escapeSqlLiteral(parquetPath), ICEBERG_TABLE, kpiColumnNames());
     }
 
     public static String starRocksCreateInternalTable() {
@@ -176,5 +189,10 @@ public final class SqlTemplates {
 
     private static String escapeSqlIdentifierPart(String value) {
         return value.replaceAll("[^A-Za-z0-9_]", "_");
+    }
+
+    private static String sanitizeLocationSuffix(String value) {
+        String sanitized = value == null ? "" : value.replaceAll("[^A-Za-z0-9_-]", "_");
+        return sanitized.isBlank() ? "default" : sanitized;
     }
 }
