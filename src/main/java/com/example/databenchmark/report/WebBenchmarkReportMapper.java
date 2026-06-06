@@ -11,6 +11,7 @@ import java.util.Map;
 public class WebBenchmarkReportMapper {
     private static final int SCHEMA_VERSION = 3;
     private static final List<String> ROUTES = List.of(
+        "spark_native_parquet",
         "spark_iceberg",
         "starrocks_internal",
         "starrocks_external_iceberg",
@@ -249,6 +250,9 @@ public class WebBenchmarkReportMapper {
         String normalized = value.toLowerCase(Locale.ROOT);
         if (ROUTES.contains(normalized)) {
             return normalized;
+        }
+        if (normalized.contains("spark") && normalized.contains("native") && normalized.contains("parquet")) {
+            return "spark_native_parquet";
         }
         if (normalized.contains("spark") && normalized.contains("iceberg")) {
             return "spark_iceberg";

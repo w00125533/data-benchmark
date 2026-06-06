@@ -55,6 +55,17 @@ export const sampleReport: WebBenchmarkReport = {
       querySet: 'smoke',
       queryName: 'q03_shipping_priority',
       routes: {
+        spark_native_parquet: {
+          status: 'SKIPPED',
+          coldMs: 0,
+          warmMs: 0,
+          hotMs: 0,
+          coldStatus: 'SKIPPED',
+          warmStatus: 'SKIPPED',
+          hotStatus: 'SKIPPED',
+          rows: 0,
+          error: '',
+        },
         spark_iceberg: {
           status: 'SUCCESS',
           coldMs: 2450,
@@ -109,6 +120,17 @@ export const sampleReport: WebBenchmarkReport = {
       querySet: 'daily',
       queryName: 'top_region_sales',
       routes: {
+        spark_native_parquet: {
+          status: 'SKIPPED',
+          coldMs: 0,
+          warmMs: 0,
+          hotMs: 0,
+          coldStatus: 'SKIPPED',
+          warmStatus: 'SKIPPED',
+          hotStatus: 'SKIPPED',
+          rows: 0,
+          error: '',
+        },
         spark_iceberg: {
           status: 'SUCCESS',
           coldMs: 1330,

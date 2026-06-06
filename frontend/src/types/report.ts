@@ -1,6 +1,7 @@
 export type RunStatus = 'SUCCESS' | 'DEGRADED';
 export type RouteStatus = 'SUCCESS' | 'FAILED' | 'SKIPPED';
 export type RouteKey =
+  | 'spark_native_parquet'
   | 'spark_iceberg'
   | 'starrocks_internal'
   | 'starrocks_external_iceberg'

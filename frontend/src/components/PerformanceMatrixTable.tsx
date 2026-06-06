@@ -3,6 +3,7 @@ import type { ColumnsType } from 'antd/es/table';
 import type { DatasetInfo, PerformanceMatrixRow, RouteKey, RouteResult } from '../types/report';
 
 const routeLabels: Record<RouteKey, string> = {
+  spark_native_parquet: 'Spark Native Parquet',
   spark_iceberg: 'Spark Iceberg',
   starrocks_internal: 'StarRocks Internal',
   starrocks_external_iceberg: 'StarRocks External Iceberg',
@@ -98,6 +99,11 @@ export default function PerformanceMatrixTable({
     },
     { title: 'Query Set', dataIndex: 'querySet', key: 'querySet', width: 120 },
     { title: 'SQL', dataIndex: 'queryName', key: 'queryName', width: 220 },
+    {
+      title: routeLabels.spark_native_parquet,
+      key: 'spark_native_parquet',
+      render: (_, row) => <RouteCell result={row.routes.spark_native_parquet} />,
+    },
     {
       title: routeLabels.spark_iceberg,
       key: 'spark_iceberg',

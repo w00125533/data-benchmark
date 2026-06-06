@@ -56,6 +56,51 @@ class WebBenchmarkReportMapperTest {
     }
 
     @Test
+    void matrixIncludesSparkNativeParquetBeforeSparkIcebergWithoutCollapsingRoutes() {
+        BenchmarkReport report = new BenchmarkReport(
+            "native-route-run",
+            "smoke",
+            "kpi",
+            "smoke",
+            "2026-06-04T00:00:00Z",
+            "2026-06-04T00:00:09Z",
+            10000,
+            1,
+            10000,
+            50,
+            2048,
+            List.of(),
+            List.of(
+                query("spark", "spark_native_parquet", "topn_high_load_cells", "COLD", 950, true),
+                query("spark", "spark_native_parquet", "topn_high_load_cells", "WARM", 740, true),
+                query("spark", "spark_native_parquet", "topn_high_load_cells", "HOT", 610, true),
+                query("spark", "spark_iceberg", "topn_high_load_cells", "COLD", 900, true),
+                query("spark", "spark_iceberg", "topn_high_load_cells", "WARM", 700, true),
+                query("spark", "spark_iceberg", "topn_high_load_cells", "HOT", 650, true)
+            ),
+            false
+        );
+
+        WebBenchmarkReport web = mapper.map(report);
+        WebBenchmarkReport.PerformanceMatrixRow row = web.performanceMatrix().get(0);
+
+        assertThat(web.queries())
+            .extracting(WebBenchmarkReport.QuerySummary::engine)
+            .contains("spark_native_parquet", "spark_iceberg");
+        assertThat(row.routes().keySet())
+            .containsExactly(
+                "spark_native_parquet",
+                "spark_iceberg",
+                "starrocks_internal",
+                "starrocks_external_iceberg",
+                "hive_hdfs_parquet"
+            );
+        assertThat(row.routes().get("spark_native_parquet").hotMs()).isEqualTo(610);
+        assertThat(row.routes().get("spark_iceberg").hotMs()).isEqualTo(650);
+        assertThat(row.bestRoute()).isEqualTo("spark_native_parquet");
+    }
+
+    @Test
     void mapsSuccessfulRunDatasetDetailsAndMatrixRows() {
         BenchmarkReport report = BenchmarkReport.sample("run-web");
 
