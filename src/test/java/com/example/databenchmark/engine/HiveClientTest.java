@@ -34,6 +34,10 @@ class HiveClientTest {
                 "-f", "../shared-data-infra/compose.yaml",
                 "-f", "../shared-data-infra/compose.lakehouse.yaml",
                 "-f", "../shared-data-infra/compose.starrocks.yaml",
+                "--profile", "lakehouse",
+                "--profile", "lakehouse-tools",
+                "--profile", "spark-tools",
+                "--profile", "starrocks",
                 "exec", "-T", "hive-server", "beeline"
             );
         assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
@@ -103,6 +107,30 @@ class HiveClientTest {
         assertThat(runner.commands()).hasSize(1);
         assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
             .isEqualTo(SqlRenderer.render("topn_high_load_cells", "hive_hdfs_parquet"));
+    }
+
+    @Test
+    void runQueryRecordsRowsSelectedByBeeline() {
+        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(
+            List.of(),
+            0,
+            """
+            +--------------+
+            |   cell_id    |
+            +--------------+
+            | CELL-000001  |
+            +--------------+
+            100 rows selected (9.174 seconds)
+            """,
+            "",
+            9.174
+        ));
+
+        EngineRunResult result = new HiveClient(runner, tempDir, Duration.ofMinutes(1))
+            .runQuery("topn_high_load_cells", RoutePhase.HOT);
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.rows()).isEqualTo(100);
     }
 
     @Test

@@ -76,7 +76,7 @@ public class HiveClient {
                 EngineStage.QUERY.name(),
                 queryName,
                 phase.name(),
-                0,
+                CliQueryRows.hive(command),
                 0,
                 command.durationSeconds(),
                 true,
