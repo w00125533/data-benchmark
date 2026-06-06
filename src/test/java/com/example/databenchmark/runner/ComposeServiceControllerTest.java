@@ -98,21 +98,27 @@ class ComposeServiceControllerTest {
             "../shared-data-infra/compose.lakehouse.yaml",
             "../shared-data-infra/compose.starrocks.yaml"
         );
+        assertThat(target.profiles()).containsExactly("lakehouse", "lakehouse-tools", "spark-tools", "starrocks");
         assertThat(target.composeCommand("exec", "-T", "spark", "echo", "ok")).containsExactly(
             "docker", "compose", "-p", "shared-data-infra",
             "-f", "../shared-data-infra/compose.yaml",
             "-f", "../shared-data-infra/compose.lakehouse.yaml",
             "-f", "../shared-data-infra/compose.starrocks.yaml",
+            "--profile", "lakehouse",
+            "--profile", "lakehouse-tools",
+            "--profile", "spark-tools",
+            "--profile", "starrocks",
             "exec", "-T", "spark", "echo", "ok"
         );
     }
 
     @Test
-    void infraComposeTargetParsesSemicolonAndCommaSeparatedFiles() {
+    void infraComposeTargetParsesSemicolonAndCommaSeparatedFilesAndProfiles() {
         InfraComposeTarget target =
             InfraComposeTarget.fromEnvironment(Map.of(
                 "BENCHMARK_INFRA_PROJECT", " infra-project ",
-                "BENCHMARK_INFRA_COMPOSE_FILES", " compose.yaml ; compose.lakehouse.yaml, compose.starrocks.yaml "
+                "BENCHMARK_INFRA_COMPOSE_FILES", " compose.yaml ; compose.lakehouse.yaml, compose.starrocks.yaml ",
+                "BENCHMARK_INFRA_COMPOSE_PROFILES", " lakehouse ; starrocks "
             ));
 
         assertThat(target.project()).isEqualTo("infra-project");
@@ -121,6 +127,7 @@ class ComposeServiceControllerTest {
             "compose.lakehouse.yaml",
             "compose.starrocks.yaml"
         );
+        assertThat(target.profiles()).containsExactly("lakehouse", "starrocks");
     }
 
     @Test
@@ -412,6 +419,12 @@ class ComposeServiceControllerTest {
             command.add("-f");
             command.add(file);
         }
+        command.addAll(List.of(
+            "--profile", "lakehouse",
+            "--profile", "lakehouse-tools",
+            "--profile", "spark-tools",
+            "--profile", "starrocks"
+        ));
         command.addAll(List.of(args));
         return command;
     }

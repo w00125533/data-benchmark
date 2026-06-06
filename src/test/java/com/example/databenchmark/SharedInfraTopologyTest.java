@@ -35,20 +35,29 @@ class SharedInfraTopologyTest {
         Map<String, Object> hdfsInit = service(services, "hdfs-init");
         assertThat(stringList(hdfsInit, "profiles")).contains("lakehouse");
         assertThat(String.join(" ", stringList(hdfsInit, "command")))
-            .contains("hdfs dfs -fs hdfs://hdfs-namenode:8020 -mkdir -p /warehouse/iceberg")
-            .contains("hdfs dfs -fs hdfs://hdfs-namenode:8020 -chmod -R 777 /warehouse");
+            .contains("hdfs dfs -fs hdfs://hdfs-namenode:8020 -mkdir -p /warehouse/iceberg /benchmark")
+            .contains("hdfs dfs -fs hdfs://hdfs-namenode:8020 -chmod 777 /warehouse /warehouse/iceberg /benchmark");
         assertThat(dependencyCondition(hdfsInit, "datanode")).isEqualTo("service_healthy");
+
+        Map<String, Object> hiveMetastore = service(services, "hive-metastore");
+        assertThat(map(hiveMetastore.get("environment")).get("SERVICE_OPTS").toString())
+            .contains("-Dmetastore.metastore.event.db.notification.api.auth=false");
 
         Map<String, Object> hiveServer = service(services, "hive-server");
         assertThat(hiveServer.get("image")).isEqualTo("apache/hive:4.0.0");
         assertThat(stringList(hiveServer, "entrypoint")).containsExactly("bash", "-lc");
         assertThat(map(hiveServer.get("environment")))
             .containsEntry("IS_RESUME", "true")
+            .containsEntry("HADOOP_HEAPSIZE", "2048")
             .containsEntry("SKIP_SCHEMA_INIT", "true")
             .doesNotContainEntry("SERVICE_NAME", "hiveserver2");
+        assertThat(map(hiveServer.get("environment")).get("SERVICE_OPTS").toString())
+            .contains("-Dhive.server2.enable.doAs=false");
         assertThat(String.join("\n", stringList(hiveServer, "command")))
             .contains("exec /opt/hive/bin/hive --skiphadoopversion --skiphbasecp --service hiveserver2")
             .contains("--hiveconf hive.metastore.uris=thrift://hive-metastore:9083")
+            .contains("--hiveconf metastore.metastore.event.db.notification.api.auth=false")
+            .contains("--hiveconf hive.server2.enable.doAs=false")
             .contains("--hiveconf hive.server2.thrift.bind.host=0.0.0.0")
             .contains("--hiveconf hive.server2.thrift.port=10000");
         assertThat(dependencyCondition(hiveServer, "hdfs-init")).isEqualTo("service_completed_successfully");
@@ -58,9 +67,12 @@ class SharedInfraTopologyTest {
         assertThat(spark.get("hostname")).isEqualTo("spark");
         assertThat(spark.get("working_dir")).isEqualTo("/workspace");
         assertThat(stringList(spark, "command")).containsExactly("sleep", "infinity");
+        assertThat(map(spark.get("environment"))).doesNotContainKey("JAVA_TOOL_OPTIONS");
         assertThat(stringList(spark, "volumes"))
             .contains("${BENCHMARK_WORKSPACE:-../data-benchmark}:/workspace");
         assertThat(dependencyCondition(spark, "hdfs-init")).isEqualTo("service_completed_successfully");
+        assertThat(map(map(spark.get("deploy")).get("resources")).get("limits"))
+            .isEqualTo(Map.of("cpus", "16", "memory", "18GB"));
     }
 
     @SuppressWarnings("unchecked")
