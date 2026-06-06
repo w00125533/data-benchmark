@@ -6,6 +6,7 @@ import java.util.Map;
 
 public final class QueryCatalog {
     private static final List<String> ENGINE_KEYS = List.of(
+        "spark_native_parquet",
         "spark_iceberg",
         "starrocks_internal",
         "starrocks_external_iceberg"

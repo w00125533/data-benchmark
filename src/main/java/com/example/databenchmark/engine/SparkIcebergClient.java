@@ -1,6 +1,7 @@
 package com.example.databenchmark.engine;
 
 import com.example.databenchmark.generator.DatasetResult;
+import com.example.databenchmark.query.BenchmarkEngine;
 import com.example.databenchmark.query.QueryCatalog;
 import com.example.databenchmark.runner.InfraComposeTarget;
 import com.example.databenchmark.runner.RoutePhase;
@@ -85,6 +86,30 @@ public class SparkIcebergClient {
         );
     }
 
+    public EngineRunResult loadNativeParquet(DatasetResult dataset, String runId, String profile) {
+        String workspacePath;
+        try {
+            workspacePath = toWorkspacePath(dataset.outputPath());
+        } catch (IllegalArgumentException e) {
+            return failed("spark_native_parquet", EngineStage.SPARK_NATIVE_PARQUET_LOAD.name(), null, e.getMessage());
+        }
+        CommandResult command = runSparkSql(SqlTemplates.sparkCreateNativeParquetTable(workspacePath));
+        if (command.exitCode() != 0) {
+            return failed("spark_native_parquet", EngineStage.SPARK_NATIVE_PARQUET_LOAD.name(), null, command);
+        }
+        return new EngineRunResult(
+            "spark",
+            "spark_native_parquet",
+            EngineStage.SPARK_NATIVE_PARQUET_LOAD.name(),
+            null,
+            dataset.rows(),
+            dataset.bytesWritten(),
+            command.durationSeconds(),
+            true,
+            ""
+        );
+    }
+
     public List<EngineRunResult> runQueries(String runId, String profile) {
         List<EngineRunResult> results = new ArrayList<>();
         for (var query : QueryCatalog.queries()) {
@@ -128,6 +153,25 @@ public class SparkIcebergClient {
             );
         }
         return failed("spark_iceberg", EngineStage.QUERY.name(), queryName, phase, command);
+    }
+
+    public EngineRunResult runNativeQuery(String queryName, RoutePhase phase) {
+        CommandResult command = runSparkSql(QueryCatalog.render(queryName, engine("spark_native_parquet")));
+        if (command.exitCode() == 0) {
+            return new EngineRunResult(
+                "spark",
+                "spark_native_parquet",
+                EngineStage.QUERY.name(),
+                queryName,
+                phase.name(),
+                CliQueryRows.spark(command),
+                0,
+                command.durationSeconds(),
+                true,
+                ""
+            );
+        }
+        return failed("spark_native_parquet", EngineStage.QUERY.name(), queryName, phase, command);
     }
 
     public EngineRunResult loadTpch(TpchDatasetResult dataset, String runId, String profile) {
@@ -306,6 +350,13 @@ public class SparkIcebergClient {
 
     private static String commandError(CommandResult command) {
         return command.stderr().isBlank() ? command.stdout() : command.stderr();
+    }
+
+    private static BenchmarkEngine engine(String name) {
+        return QueryCatalog.engines().stream()
+            .filter(candidate -> candidate.name().equals(name))
+            .findFirst()
+            .orElseThrow(() -> new IllegalArgumentException("Unknown engine: " + name));
     }
 
     private String toWorkspacePath(Path path) {

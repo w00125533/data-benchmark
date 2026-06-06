@@ -48,6 +48,20 @@ public final class SqlTemplates {
             """.formatted(escapeSqlLiteral(parquetPath), ICEBERG_TABLE, kpiColumnNames());
     }
 
+    public static String sparkCreateNativeParquetTable(String parquetRoot) {
+        return """
+            CREATE DATABASE IF NOT EXISTS spark_catalog.benchmark_native;
+
+            DROP TABLE IF EXISTS spark_catalog.benchmark_native.cell_kpi_1min;
+
+            CREATE TABLE spark_catalog.benchmark_native.cell_kpi_1min (
+            %s
+            )
+            USING parquet
+            LOCATION '%s';
+            """.formatted(sparkColumns(), escapeSqlLiteral(parquetRoot));
+    }
+
     public static String starRocksCreateInternalTable() {
         return """
             CREATE DATABASE IF NOT EXISTS sr_internal;

@@ -42,7 +42,7 @@ class QueryCatalogTest {
 
     @Test
     void topnHighLoadCellsAggregatesByCell() {
-        BenchmarkEngine engine = QueryCatalog.engines().get(0);
+        BenchmarkEngine engine = engine("spark_iceberg");
 
         String normalized = normalizeSql(QueryCatalog.render("topn_high_load_cells", engine));
 
@@ -78,6 +78,11 @@ class QueryCatalogTest {
     @Test
     void enginesUseSchemaTableShapesInRequiredOrder() {
         assertThat(QueryCatalog.engines()).containsExactly(
+            new BenchmarkEngine(
+                "spark_native_parquet",
+                "spark_native_parquet",
+                "spark_catalog.benchmark_native.cell_kpi_1min"
+            ),
             new BenchmarkEngine("spark_iceberg", "spark_iceberg", "iceberg_catalog.iceberg_db.cell_kpi_1min"),
             new BenchmarkEngine("starrocks_internal", "starrocks_internal", "sr_internal.cell_kpi_1min"),
             new BenchmarkEngine(
@@ -86,6 +91,14 @@ class QueryCatalogTest {
                 "sr_external_iceberg.iceberg_db.cell_kpi_1min"
             )
         );
+    }
+
+    @Test
+    void rendersSparkNativeParquetQueriesAgainstNativeTable() {
+        String rendered = QueryCatalog.render("topn_high_load_cells", engine("spark_native_parquet"));
+
+        assertThat(rendered).contains("FROM spark_catalog.benchmark_native.cell_kpi_1min");
+        assertThat(rendered).doesNotContain("iceberg_catalog");
     }
 
     @Test
@@ -99,6 +112,13 @@ class QueryCatalogTest {
 
     private String normalizeSql(String sql) {
         return sql.replaceAll("\\s+", " ").trim();
+    }
+
+    private BenchmarkEngine engine(String name) {
+        return QueryCatalog.engines().stream()
+            .filter(candidate -> candidate.name().equals(name))
+            .findFirst()
+            .orElseThrow();
     }
 
     private void assertDimensionLiteralsMatchGeneratedValues(String sql) {

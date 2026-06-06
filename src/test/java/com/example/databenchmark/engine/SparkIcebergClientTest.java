@@ -159,6 +159,38 @@ class SparkIcebergClientTest {
     }
 
     @Test
+    void loadNativeParquetCreatesSparkTableAtGeneratedDatasetRoot() {
+        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "ok", "", 1.25));
+        Path workspace = tempDir.resolve("workspace");
+        DatasetResult dataset = new DatasetResult(
+            workspace.resolve("data/native run"),
+            List.of(workspace.resolve("data/native run/part.parquet")),
+            42,
+            128
+        );
+
+        EngineRunResult result = new SparkIcebergClient(runner, workspace, Duration.ofMinutes(1))
+            .loadNativeParquet(dataset, "run-1", "smoke");
+
+        assertThat(result.engine()).isEqualTo("spark");
+        assertThat(result.tableShape()).isEqualTo("spark_native_parquet");
+        assertThat(result.stage()).isEqualTo(EngineStage.SPARK_NATIVE_PARQUET_LOAD.name());
+        assertThat(result.rows()).isEqualTo(42);
+        assertThat(result.bytes()).isEqualTo(128);
+        assertThat(result.success()).isTrue();
+        assertThat(runner.commands()).hasSize(1);
+        assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
+            .contains("CREATE DATABASE IF NOT EXISTS spark_catalog.benchmark_native")
+            .contains("DROP TABLE IF EXISTS spark_catalog.benchmark_native.cell_kpi_1min")
+            .contains("CREATE TABLE spark_catalog.benchmark_native.cell_kpi_1min")
+            .contains("USING parquet")
+            .contains("LOCATION '/workspace/data/native run'")
+            .doesNotContain("INSERT INTO")
+            .doesNotContain("USING iceberg")
+            .doesNotContain("iceberg_catalog");
+    }
+
+    @Test
     void runQueriesUsesSparkSqlForEveryCatalogQuery() {
         FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "rows", "", 0.5));
 
@@ -211,6 +243,34 @@ class SparkIcebergClientTest {
 
         assertThat(result.success()).isTrue();
         assertThat(result.rows()).isEqualTo(100);
+    }
+
+    @Test
+    void runNativeQueryRendersNativeTableAndPreservesPhase() {
+        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(
+            List.of(),
+            0,
+            "Time taken: 1.000 seconds, Fetched 7 row(s)",
+            "",
+            1.0
+        ));
+
+        EngineRunResult result = new SparkIcebergClient(runner)
+            .runNativeQuery("topn_high_load_cells", RoutePhase.WARM);
+
+        assertThat(result.engine()).isEqualTo("spark");
+        assertThat(result.tableShape()).isEqualTo("spark_native_parquet");
+        assertThat(result.stage()).isEqualTo(EngineStage.QUERY.name());
+        assertThat(result.queryName()).isEqualTo("topn_high_load_cells");
+        assertThat(result.phase()).isEqualTo(RoutePhase.WARM.name());
+        assertThat(result.rows()).isEqualTo(7);
+        assertThat(result.success()).isTrue();
+        assertThat(runner.commands()).hasSize(1);
+        assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
+            .isEqualTo(SqlRenderer.render("topn_high_load_cells", "spark_native_parquet"))
+            .contains("spark_catalog.benchmark_native.cell_kpi_1min")
+            .doesNotContain("iceberg_catalog")
+            .doesNotContain("COUNT(*)");
     }
 
     @Test
