@@ -165,6 +165,7 @@ public class ComposeBenchmarkRunner {
 
             if (dataset != null) {
                 boolean hdfsOutput = isHdfsDatasetOutput(config);
+                String hiveRoot = hiveParquetRoot(config);
                 if (!hdfsOutput) {
                     try {
                         csvPath = csvExporter.export(dataset, starRocksCsvOutput(config, dataset));
@@ -173,15 +174,14 @@ public class ComposeBenchmarkRunner {
                     }
                 }
                 loadResults.add(loadSpark(dataset, actualRunId, config.profile()));
-                loadResults.add(loadStarRocksInternal(dataset, actualRunId, config.profile()));
-                loadResults.add(refreshStarRocksExternal(actualRunId, config.profile()));
-                String hiveRoot = hiveParquetRoot(config);
                 EngineRunResult hivePublish = hdfsOutput
                     ? successfulExistingHiveDataset(dataset)
                     : publishHiveDataset(dataset, hiveRoot);
                 if (!hdfsOutput) {
                     loadResults.add(hivePublish);
                 }
+                loadResults.add(loadStarRocksInternal(dataset, Path.of(hiveRoot), actualRunId, config.profile()));
+                loadResults.add(refreshStarRocksExternal(actualRunId, config.profile()));
                 EngineRunResult hiveLoad = createHiveExternalTable(hiveRoot);
                 loadResults.add(hiveLoad);
                 queryResults.addAll(runKpiRouteQueries(config, hiveRouteFailure(hivePublish, hiveLoad)));
@@ -381,8 +381,8 @@ public class ComposeBenchmarkRunner {
         }
     }
 
-    private EngineRunResult loadStarRocksInternal(DatasetResult dataset, String runId, String profile) {
-        if (dataset == null || dataset.outputPath() == null) {
+    private EngineRunResult loadStarRocksInternal(DatasetResult dataset, Path parquetRoot, String runId, String profile) {
+        if (dataset == null || parquetRoot == null) {
             return failedLoad(
                 "starrocks",
                 "starrocks_internal",
@@ -392,7 +392,7 @@ public class ComposeBenchmarkRunner {
         }
         try {
             serviceController.waitUntilReady(BenchmarkRoute.STARROCKS_INTERNAL);
-            return starRocksClient.loadInternal(dataset.outputPath(), runId, profile, dataset.rows(), dataset.bytesWritten());
+            return starRocksClient.loadInternal(parquetRoot, runId, profile, dataset.rows(), dataset.bytesWritten());
         } catch (Exception exception) {
             return failed("starrocks", "starrocks_internal", EngineStage.STARROCKS_INTERNAL_LOAD.name(), exception);
         }

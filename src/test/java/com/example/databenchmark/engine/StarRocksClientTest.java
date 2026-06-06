@@ -126,7 +126,7 @@ class StarRocksClientTest {
         assertThat(jdbc.sql()).contains(SqlTemplates.starRocksTruncateInternalTable());
         assertThat(jdbc.sql()).anySatisfy(sql -> assertThat(sql)
             .contains("LOAD LABEL sr_internal.kpi_run_1_")
-            .contains("DATA INFILE(\"hdfs://hdfs-namenode:8020/generated/*.parquet\")"));
+            .contains("DATA INFILE(\"hdfs://hdfs-namenode:8020/generated/*/*.parquet\")"));
         assertThat(streamLoad.request()).isNull();
     }
 
@@ -144,7 +144,7 @@ class StarRocksClientTest {
         assertThat(result.bytes()).isEqualTo(2048L);
         assertThat(jdbc.sql()).anySatisfy(sql -> assertThat(sql)
             .contains("LOAD LABEL sr_internal.")
-            .contains("DATA INFILE(\"hdfs://hdfs-namenode:8020/benchmark/kpi-smoke/generated/*.parquet\")")
+            .contains("DATA INFILE(\"hdfs://hdfs-namenode:8020/benchmark/kpi-smoke/generated/*/*.parquet\")")
             .contains("FORMAT AS \"parquet\"")
             .contains("INTO TABLE cell_kpi_1min"));
         assertThat(jdbc.sql()).noneMatch(sql -> sql.contains("_stream_load"));

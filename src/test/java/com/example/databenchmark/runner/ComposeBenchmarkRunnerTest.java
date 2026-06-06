@@ -231,11 +231,11 @@ class ComposeBenchmarkRunnerTest {
             "generate dataset",
             "export CSV",
             "Spark load",
+            "Hive HDFS publish /data/generated",
             "ready STARROCKS_INTERNAL",
-            "StarRocks internal load from parquet " + dataset.outputPath().toString().replace('\\', '/') + " rows=5 bytes=123",
+            "StarRocks internal load from parquet /data/generated rows=5 bytes=123",
             "ready STARROCKS_EXTERNAL_ICEBERG",
             "StarRocks external refresh",
-            "Hive HDFS publish /data/generated",
             "ready HIVE_HDFS_PARQUET",
             "Hive external table /data/generated",
             "restart SPARK_ICEBERG",
@@ -255,9 +255,9 @@ class ComposeBenchmarkRunnerTest {
             .containsExactly(
                 EngineStage.GENERATE.name(),
                 EngineStage.SPARK_ICEBERG_LOAD.name(),
+                "HIVE_HDFS_PARQUET_PUBLISH",
                 EngineStage.STARROCKS_INTERNAL_LOAD.name(),
                 EngineStage.STARROCKS_EXTERNAL_REFRESH.name(),
-                "HIVE_HDFS_PARQUET_PUBLISH",
                 "HIVE_HDFS_PARQUET_LOAD"
             );
         assertThat(reportWriter.report.querySummaries())
@@ -265,7 +265,7 @@ class ComposeBenchmarkRunnerTest {
     }
 
     @Test
-    void composeRunnerPassesDatasetParquetPathToStarRocksInternalLoad() throws Exception {
+    void composeRunnerPublishesLocalOutputBeforeStarRocksInternalLoad() throws Exception {
         List<String> calls = new ArrayList<>();
         DatasetResult dataset = new DatasetResult(tempDir.resolve("data/generated"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
         CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
@@ -287,7 +287,13 @@ class ComposeBenchmarkRunnerTest {
         runner.run(BenchmarkConfig.defaultSmoke(), tempDir.resolve("reports"), "compose-test");
 
         assertThat(calls)
-            .contains("StarRocks internal load from parquet " + dataset.outputPath().toString().replace('\\', '/') + " rows=5 bytes=123")
+            .containsSubsequence(
+                "Hive HDFS publish /data/generated",
+                "StarRocks internal load from parquet /data/generated rows=5 bytes=123"
+            )
+            .contains("StarRocks internal load from parquet /data/generated rows=5 bytes=123")
+            .noneMatch(call -> call.contains("StarRocks internal load from parquet ")
+                && call.contains(dataset.outputPath().toString().replace('\\', '/')))
             .noneMatch(call -> call.contains("StarRocks internal load from parquet ")
                 && call.contains("csv/cell_kpi_1min.csv"));
     }
@@ -321,10 +327,10 @@ class ComposeBenchmarkRunnerTest {
         assertThat(result.success()).isFalse();
         assertThat(calls).containsSubsequence(
             "Spark load",
+            "Hive HDFS publish /data/generated",
             "ready STARROCKS_INTERNAL",
             "ready STARROCKS_EXTERNAL_ICEBERG",
             "StarRocks external refresh",
-            "Hive HDFS publish /data/generated",
             "ready HIVE_HDFS_PARQUET",
             "Hive external table /data/generated"
         );
@@ -381,9 +387,9 @@ class ComposeBenchmarkRunnerTest {
             "generate dataset",
             "export CSV",
             "Spark load",
-            "StarRocks internal load from parquet " + dataset.outputPath().toString().replace('\\', '/') + " rows=5 bytes=123",
-            "StarRocks external refresh",
             "Hive HDFS publish /data/generated",
+            "StarRocks internal load from parquet /data/generated rows=5 bytes=123",
+            "StarRocks external refresh",
             "Hive external table /data/generated",
             "restart SPARK_ICEBERG",
             "ready SPARK_ICEBERG",
@@ -421,16 +427,16 @@ class ComposeBenchmarkRunnerTest {
         );
 
         ComposeBenchmarkRunner.ComposeRunResult result = runner.run(
-            BenchmarkConfig.defaultSmoke().withOverrides(null, null, null, "hdfs://hdfs-namenode:8020/data/generated", null),
+            BenchmarkConfig.defaultSmoke().withOverrides(null, null, null, "hdfs://hdfs-namenode:8020/benchmark/kpi-smoke/generated", null),
             tempDir.resolve("reports"),
             "compose-test"
         );
 
         assertThat(result.success()).isTrue();
-        assertThat(calls).doesNotContain("Hive HDFS publish /data/generated");
+        assertThat(calls).noneMatch(call -> call.startsWith("Hive HDFS publish "));
         assertThat(calls).contains(
-            "StarRocks internal load from parquet " + dataset.outputPath().toString().replace('\\', '/') + " rows=5 bytes=123",
-            "Hive external table /data/generated",
+            "StarRocks internal load from parquet /benchmark/kpi-smoke/generated rows=5 bytes=123",
+            "Hive external table /benchmark/kpi-smoke/generated",
             "restart STARROCKS_INTERNAL",
             "ready STARROCKS_INTERNAL",
             "StarRocks starrocks_internal " + queryName + " COLD",

@@ -24,7 +24,7 @@ public final class StarRocksBrokerLoad {
     }
 
     private static String appendParquetGlob(String path) {
-        return path.endsWith("/") ? path + "*.parquet" : path + "/*.parquet";
+        return path.endsWith("/") ? path + "*/*.parquet" : path + "/*/*.parquet";
     }
 
     public record LoadState(String state, long sinkRows, String errorMessage) {
