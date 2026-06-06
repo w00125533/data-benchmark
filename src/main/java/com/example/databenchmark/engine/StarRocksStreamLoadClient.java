@@ -18,6 +18,7 @@ public class StarRocksStreamLoadClient {
     private static final URI DEFAULT_URL =
         URI.create("http://localhost:8040/api/sr_internal/cell_kpi_1min/_stream_load");
     private static final String STREAM_LOAD_URL_ENV = "STARROCKS_STREAM_LOAD_URL";
+    private static final String STREAM_LOAD_BASE_URL_ENV = "STARROCKS_STREAM_LOAD_BASE_URL";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final HttpClient httpClient;
@@ -95,7 +96,27 @@ public class StarRocksStreamLoadClient {
     }
 
     private static URI defaultUrl() {
-        return URI.create(System.getenv().getOrDefault(STREAM_LOAD_URL_ENV, DEFAULT_URL.toString()));
+        return defaultUrl(System.getenv());
+    }
+
+    static URI defaultUrl(Map<String, String> environment) {
+        String explicitUrl = environment.get(STREAM_LOAD_URL_ENV);
+        if (explicitUrl != null && !explicitUrl.isBlank()) {
+            return URI.create(explicitUrl);
+        }
+        String baseUrl = environment.get(STREAM_LOAD_BASE_URL_ENV);
+        if (baseUrl != null && !baseUrl.isBlank()) {
+            return URI.create(trimTrailingSlash(baseUrl) + "/api/sr_internal/cell_kpi_1min/_stream_load");
+        }
+        return DEFAULT_URL;
+    }
+
+    private static String trimTrailingSlash(String value) {
+        String trimmed = value.trim();
+        while (trimmed.endsWith("/")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        return trimmed;
     }
 
     public record StreamLoadRequest(URI url, Map<String, String> headers, Path csv) {}

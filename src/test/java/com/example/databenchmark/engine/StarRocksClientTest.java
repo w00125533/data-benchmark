@@ -98,6 +98,35 @@ class StarRocksClientTest {
     }
 
     @Test
+    void streamLoadBaseUrlBuildsComposeReachableDefaultUrl() {
+        URI url = StarRocksStreamLoadClient.defaultUrl(Map.of(
+            "STARROCKS_STREAM_LOAD_BASE_URL", "http://starrocks-be:8040/"
+        ));
+        CapturingStreamLoadClient streamLoad = new CapturingStreamLoadClient(
+            HttpClient.newHttpClient(),
+            url,
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        );
+
+        streamLoad.loadCsv(Path.of("lineitem.csv"), "sr_internal_tpch", "lineitem", "label");
+
+        assertThat(url)
+            .isEqualTo(URI.create("http://starrocks-be:8040/api/sr_internal/cell_kpi_1min/_stream_load"));
+        assertThat(streamLoad.request().url())
+            .isEqualTo(URI.create("http://starrocks-be:8040/api/sr_internal_tpch/lineitem/_stream_load"));
+    }
+
+    @Test
+    void explicitStreamLoadUrlOverridesBaseUrl() {
+        URI url = StarRocksStreamLoadClient.defaultUrl(Map.of(
+            "STARROCKS_STREAM_LOAD_URL", "http://custom-be:8040/api/db/table/_stream_load",
+            "STARROCKS_STREAM_LOAD_BASE_URL", "http://starrocks-be:8040"
+        ));
+
+        assertThat(url).isEqualTo(URI.create("http://custom-be:8040/api/db/table/_stream_load"));
+    }
+
+    @Test
     void streamLoadBuildsPerTableUrlWithoutExplicitPort() {
         CapturingStreamLoadClient streamLoad = new CapturingStreamLoadClient(
             HttpClient.newHttpClient(),
