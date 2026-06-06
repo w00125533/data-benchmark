@@ -9,7 +9,7 @@ dataset:
   days: 1
   columns: 50
   startTime: "2026-01-01T00:00:00"
-  output: "data/generated"
+  output: "hdfs://hdfs-namenode:8020/benchmark/compose-smoke/generated"
   rowCap: 10000
   spark:
     master: "local[*]"

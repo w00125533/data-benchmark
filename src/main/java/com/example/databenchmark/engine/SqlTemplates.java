@@ -128,7 +128,9 @@ public final class SqlTemplates {
         return """
             CREATE DATABASE IF NOT EXISTS hive_hdfs_parquet;
 
-            CREATE EXTERNAL TABLE IF NOT EXISTS hive_hdfs_parquet.cell_kpi_1min (
+            DROP TABLE IF EXISTS hive_hdfs_parquet.cell_kpi_1min;
+
+            CREATE EXTERNAL TABLE hive_hdfs_parquet.cell_kpi_1min (
             %s
             )
             PARTITIONED BY (event_date STRING)

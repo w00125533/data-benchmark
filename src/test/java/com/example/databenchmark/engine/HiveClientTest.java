@@ -41,7 +41,8 @@ class HiveClientTest {
                 "exec", "-T", "hive-server", "beeline"
             );
         assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
-            .contains("CREATE EXTERNAL TABLE IF NOT EXISTS hive_hdfs_parquet.cell_kpi_1min")
+            .contains("DROP TABLE IF EXISTS hive_hdfs_parquet.cell_kpi_1min")
+            .contains("CREATE EXTERNAL TABLE hive_hdfs_parquet.cell_kpi_1min")
             .contains("PARTITIONED BY (event_date STRING)")
             .contains("STORED AS PARQUET")
             .contains("LOCATION 'hdfs://hdfs-namenode:8020/data/generated'")

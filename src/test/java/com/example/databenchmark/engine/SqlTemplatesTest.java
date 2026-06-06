@@ -89,7 +89,8 @@ class SqlTemplatesTest {
     void hiveExternalParquetDdlDiscoversEventDatePartitions() {
         String sql = SqlTemplates.hiveCreateExternalParquetTable("hdfs://hdfs-namenode:8020/data/generated");
 
-        assertThat(sql).contains("CREATE EXTERNAL TABLE IF NOT EXISTS hive_hdfs_parquet.cell_kpi_1min");
+        assertThat(sql).contains("DROP TABLE IF EXISTS hive_hdfs_parquet.cell_kpi_1min");
+        assertThat(sql).contains("CREATE EXTERNAL TABLE hive_hdfs_parquet.cell_kpi_1min");
         assertThat(sql).contains("PARTITIONED BY (event_date STRING)");
         assertThat(sql).contains("LOCATION 'hdfs://hdfs-namenode:8020/data/generated'");
         assertThat(sql).contains("MSCK REPAIR TABLE hive_hdfs_parquet.cell_kpi_1min");
