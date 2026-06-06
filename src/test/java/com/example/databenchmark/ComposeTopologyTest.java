@@ -53,7 +53,7 @@ class ComposeTopologyTest {
                 "${BENCHMARK_INFRA_COMPOSE_FILES:-/shared-data-infra/compose.yaml;/shared-data-infra/compose.lakehouse.yaml;/shared-data-infra/compose.starrocks.yaml}")
             .containsEntry("STARROCKS_JDBC_URL",
                 "jdbc:mysql://starrocks-fe:9030/?useSSL=false&allowPublicKeyRetrieval=true&allowMultiQueries=true")
-            .containsEntry("STARROCKS_STREAM_LOAD_URL", "http://starrocks-be:8040/api/sr_internal/cell_kpi_1min/_stream_load");
+            .doesNotContainKey("STARROCKS_STREAM_LOAD_URL");
         assertThat(stringList(runner, "command"))
             .containsExactly("java", "-jar", "target/data-benchmark-0.1.0-SNAPSHOT.jar",
                 "run", "--mode", "compose", "--run-id", "compose-smoke");

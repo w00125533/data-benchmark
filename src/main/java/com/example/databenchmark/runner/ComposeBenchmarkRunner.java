@@ -8,7 +8,6 @@ import com.example.databenchmark.engine.EngineStage;
 import com.example.databenchmark.engine.HiveClient;
 import com.example.databenchmark.engine.SparkIcebergClient;
 import com.example.databenchmark.engine.StarRocksClient;
-import com.example.databenchmark.engine.StarRocksCsvExporter;
 import com.example.databenchmark.generator.DatasetResult;
 import com.example.databenchmark.generator.SparkSubmitKpiDataGenerator;
 import com.example.databenchmark.query.QueryCatalog;
@@ -30,7 +29,6 @@ public class ComposeBenchmarkRunner {
     private static final String DEFAULT_HIVE_HDFS_ROOT = "/data/generated";
 
     private final DatasetGenerator generator;
-    private final CsvExporter csvExporter;
     private final TpchGenerator tpchGenerator;
     private final TpchCsvExport tpchCsvExport;
     private final SparkClient sparkClient;
@@ -44,7 +42,6 @@ public class ComposeBenchmarkRunner {
     public ComposeBenchmarkRunner() {
         this(
             new SparkSubmitKpiDataGenerator(new CommandRunner())::generate,
-            new StarRocksCsvExporter()::export,
             new TpchDataGenerator()::generate,
             new TpchCsvExporter()::export,
             new SparkClientAdapter(new SparkIcebergClient()),
@@ -59,7 +56,6 @@ public class ComposeBenchmarkRunner {
 
     ComposeBenchmarkRunner(
         DatasetGenerator generator,
-        CsvExporter csvExporter,
         TpchGenerator tpchGenerator,
         TpchCsvExport tpchCsvExport,
         SparkClient sparkClient,
@@ -68,7 +64,6 @@ public class ComposeBenchmarkRunner {
     ) {
         this(
             generator,
-            csvExporter,
             tpchGenerator,
             tpchCsvExport,
             sparkClient,
@@ -83,7 +78,6 @@ public class ComposeBenchmarkRunner {
 
     ComposeBenchmarkRunner(
         DatasetGenerator generator,
-        CsvExporter csvExporter,
         TpchGenerator tpchGenerator,
         TpchCsvExport tpchCsvExport,
         SparkClient sparkClient,
@@ -93,7 +87,6 @@ public class ComposeBenchmarkRunner {
     ) {
         this(
             generator,
-            csvExporter,
             tpchGenerator,
             tpchCsvExport,
             sparkClient,
@@ -104,6 +97,55 @@ public class ComposeBenchmarkRunner {
             reportWriter,
             metricsRecorder
         );
+    }
+
+    ComposeBenchmarkRunner(
+        DatasetGenerator generator,
+        TpchGenerator tpchGenerator,
+        TpchCsvExport tpchCsvExport,
+        SparkClient sparkClient,
+        StarRocksClientFacade starRocksClient,
+        HdfsDatasetPublisher hdfsDatasetPublisher,
+        HiveClientFacade hiveClient,
+        ServiceController serviceController,
+        ReportWriter reportWriter,
+        MetricsRecorder metricsRecorder
+    ) {
+        this.generator = generator;
+        this.tpchGenerator = tpchGenerator;
+        this.tpchCsvExport = tpchCsvExport;
+        this.sparkClient = sparkClient;
+        this.starRocksClient = starRocksClient;
+        this.hdfsDatasetPublisher = hdfsDatasetPublisher;
+        this.hiveClient = hiveClient;
+        this.serviceController = serviceController;
+        this.reportWriter = reportWriter;
+        this.metricsRecorder = metricsRecorder;
+    }
+
+    ComposeBenchmarkRunner(
+        DatasetGenerator generator,
+        CsvExporter csvExporter,
+        TpchGenerator tpchGenerator,
+        TpchCsvExport tpchCsvExport,
+        SparkClient sparkClient,
+        StarRocksClientFacade starRocksClient,
+        ReportWriter reportWriter
+    ) {
+        this(generator, tpchGenerator, tpchCsvExport, sparkClient, starRocksClient, reportWriter);
+    }
+
+    ComposeBenchmarkRunner(
+        DatasetGenerator generator,
+        CsvExporter csvExporter,
+        TpchGenerator tpchGenerator,
+        TpchCsvExport tpchCsvExport,
+        SparkClient sparkClient,
+        StarRocksClientFacade starRocksClient,
+        ReportWriter reportWriter,
+        MetricsRecorder metricsRecorder
+    ) {
+        this(generator, tpchGenerator, tpchCsvExport, sparkClient, starRocksClient, reportWriter, metricsRecorder);
     }
 
     ComposeBenchmarkRunner(
@@ -119,17 +161,18 @@ public class ComposeBenchmarkRunner {
         ReportWriter reportWriter,
         MetricsRecorder metricsRecorder
     ) {
-        this.generator = generator;
-        this.csvExporter = csvExporter;
-        this.tpchGenerator = tpchGenerator;
-        this.tpchCsvExport = tpchCsvExport;
-        this.sparkClient = sparkClient;
-        this.starRocksClient = starRocksClient;
-        this.hdfsDatasetPublisher = hdfsDatasetPublisher;
-        this.hiveClient = hiveClient;
-        this.serviceController = serviceController;
-        this.reportWriter = reportWriter;
-        this.metricsRecorder = metricsRecorder;
+        this(
+            generator,
+            tpchGenerator,
+            tpchCsvExport,
+            sparkClient,
+            starRocksClient,
+            hdfsDatasetPublisher,
+            hiveClient,
+            serviceController,
+            reportWriter,
+            metricsRecorder
+        );
     }
 
     public ComposeRunResult run(BenchmarkConfig config, Path reportRoot, String runId) throws Exception {
@@ -676,14 +719,6 @@ public class ComposeBenchmarkRunner {
             return DEFAULT_HIVE_HDFS_ROOT;
         }
         return normalizeHdfsPath("/" + configuredOutput);
-    }
-
-    private Path starRocksCsvOutput(BenchmarkConfig config, DatasetResult dataset) {
-        String configuredOutput = config.dataset().output().replace('\\', '/');
-        if (configuredOutput.startsWith("hdfs://")) {
-            return dataset.outputPath().resolve("starrocks-csv");
-        }
-        return Path.of(config.dataset().output()).resolve("starrocks-csv");
     }
 
     private EngineRunResult successfulExistingHiveDataset(DatasetResult dataset) {

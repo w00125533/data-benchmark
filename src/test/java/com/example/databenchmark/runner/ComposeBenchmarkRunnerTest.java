@@ -206,7 +206,6 @@ class ComposeBenchmarkRunnerTest {
                 calls.add("generate dataset");
                 return dataset;
             },
-            failingCsvExporter(),
             failingTpchGenerator(),
             failingTpchCsvExport(),
             new FakeSparkClient(calls),
