@@ -173,9 +173,7 @@ public class ComposeBenchmarkRunner {
                     }
                 }
                 loadResults.add(loadSpark(dataset, actualRunId, config.profile()));
-                if (!hdfsOutput) {
-                    loadResults.add(loadStarRocksInternal(dataset, actualRunId, config.profile()));
-                }
+                loadResults.add(loadStarRocksInternal(dataset, actualRunId, config.profile()));
                 loadResults.add(refreshStarRocksExternal(actualRunId, config.profile()));
                 String hiveRoot = hiveParquetRoot(config);
                 EngineRunResult hivePublish = hdfsOutput
@@ -186,7 +184,7 @@ public class ComposeBenchmarkRunner {
                 }
                 EngineRunResult hiveLoad = createHiveExternalTable(hiveRoot);
                 loadResults.add(hiveLoad);
-                queryResults.addAll(runKpiRouteQueries(config, hiveRouteFailure(hivePublish, hiveLoad), !hdfsOutput));
+                queryResults.addAll(runKpiRouteQueries(config, hiveRouteFailure(hivePublish, hiveLoad)));
             }
 
             recordMetrics(
@@ -427,21 +425,10 @@ public class ComposeBenchmarkRunner {
     }
 
     private List<EngineRunResult> runKpiRouteQueries(BenchmarkConfig config, String hiveRouteFailure) {
-        return runKpiRouteQueries(config, hiveRouteFailure, true);
-    }
-
-    private List<EngineRunResult> runKpiRouteQueries(
-        BenchmarkConfig config,
-        String hiveRouteFailure,
-        boolean includeStarRocksInternal
-    ) {
         List<EngineRunResult> results = new ArrayList<>();
         for (var query : selectedKpiQueries(config)) {
             String queryName = query.name();
             for (BenchmarkRoute route : BenchmarkRoute.values()) {
-                if (!includeStarRocksInternal && route == BenchmarkRoute.STARROCKS_INTERNAL) {
-                    continue;
-                }
                 if (route == BenchmarkRoute.HIVE_HDFS_PARQUET && hiveRouteFailure != null) {
                     results.addAll(failedRoutePhases(route, queryName, hiveRouteFailure));
                     continue;

@@ -402,6 +402,7 @@ class ComposeBenchmarkRunnerTest {
     @Test
     void composeRunnerUsesHdfsDatasetOutputDirectlyForHiveExternalTable() throws Exception {
         List<String> calls = new ArrayList<>();
+        String queryName = QueryCatalog.queries().get(0).name();
         DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
         CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
 
@@ -427,7 +428,15 @@ class ComposeBenchmarkRunnerTest {
 
         assertThat(result.success()).isTrue();
         assertThat(calls).doesNotContain("Hive HDFS publish /data/generated");
-        assertThat(calls).contains("Hive external table /data/generated");
+        assertThat(calls).contains(
+            "StarRocks internal load from parquet " + dataset.outputPath().toString().replace('\\', '/') + " rows=5 bytes=123",
+            "Hive external table /data/generated",
+            "restart STARROCKS_INTERNAL",
+            "ready STARROCKS_INTERNAL",
+            "StarRocks starrocks_internal " + queryName + " COLD",
+            "StarRocks starrocks_internal " + queryName + " WARM",
+            "StarRocks starrocks_internal " + queryName + " HOT"
+        );
     }
 
     @Test
