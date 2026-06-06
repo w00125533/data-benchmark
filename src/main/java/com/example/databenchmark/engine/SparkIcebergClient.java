@@ -16,11 +16,23 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class SparkIcebergClient {
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(10);
+    private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(90);
     private static final String SPARK_SQL = "/opt/spark/bin/spark-sql";
+    private static final String HDFS_DEFAULT_FS = "hdfs://hdfs-namenode:8020";
     private static final String ICEBERG_RUNTIME = "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1";
     private static final String IVY_CACHE_CONF = "spark.jars.ivy=/tmp/.ivy2";
     private static final String ICEBERG_VECTORIZATION_CONF = "spark.sql.iceberg.vectorization.enabled=false";
+    private static final List<String> LARGE_DATA_SPARK_SQL_OPTIONS = List.of(
+        "--master", "local[6]",
+        "--driver-memory", "10g",
+        "--conf", "spark.driver.maxResultSize=2g",
+        "--conf", "spark.sql.shuffle.partitions=512",
+        "--conf", "spark.default.parallelism=512",
+        "--conf", "spark.sql.files.maxPartitionBytes=67108864",
+        "--conf", "spark.sql.parquet.enableVectorizedReader=false",
+        "--conf", "spark.sql.parquet.columnarReaderBatchSize=1024",
+        "--conf", "spark.sql.adaptive.enabled=true"
+    );
 
     private final CommandRunner commandRunner;
     private final Path workingDirectory;
@@ -53,7 +65,7 @@ public class SparkIcebergClient {
         } catch (IllegalArgumentException e) {
             return failed("spark_iceberg", EngineStage.SPARK_ICEBERG_LOAD.name(), null, e.getMessage());
         }
-        String sql = SqlTemplates.sparkCreateIcebergTable()
+        String sql = SqlTemplates.sparkCreateIcebergTable(runId)
             + "\n"
             + SqlTemplates.sparkInsertFromParquet(workspacePath);
         CommandResult command = runSparkSql(sql);
@@ -86,7 +98,7 @@ public class SparkIcebergClient {
                     "spark_iceberg",
                     EngineStage.QUERY.name(),
                     query.name(),
-                    0,
+                    CliQueryRows.spark(command),
                     0,
                     command.durationSeconds(),
                     true,
@@ -108,7 +120,7 @@ public class SparkIcebergClient {
                 EngineStage.QUERY.name(),
                 queryName,
                 phase.name(),
-                0,
+                CliQueryRows.spark(command),
                 0,
                 command.durationSeconds(),
                 true,
@@ -167,12 +179,12 @@ public class SparkIcebergClient {
                 results.add(new EngineRunResult(
                     "spark",
                     "tpch_iceberg",
-                    EngineStage.QUERY.name(),
-                    query.name(),
-                    0,
-                    0,
-                    command.durationSeconds(),
-                    true,
+                        EngineStage.QUERY.name(),
+                        query.name(),
+                        CliQueryRows.spark(command),
+                        0,
+                        command.durationSeconds(),
+                        true,
                     ""
                 ));
             } else {
@@ -191,8 +203,9 @@ public class SparkIcebergClient {
     }
 
     private List<String> sparkSqlCommand(String sql) {
-        List<String> sparkSql = List.of(
-            SPARK_SQL,
+        List<String> sparkSql = new ArrayList<>(List.of(SPARK_SQL));
+        sparkSql.addAll(LARGE_DATA_SPARK_SQL_OPTIONS);
+        sparkSql.addAll(List.of(
             "--conf", IVY_CACHE_CONF,
             "--packages", ICEBERG_RUNTIME,
             "--conf", "spark.sql.catalog.iceberg_catalog=org.apache.iceberg.spark.SparkCatalog",
@@ -201,12 +214,15 @@ public class SparkIcebergClient {
             "--conf", "spark.sql.catalog.iceberg_catalog.warehouse=hdfs://hdfs-namenode:8020/warehouse/iceberg",
             "--conf", ICEBERG_VECTORIZATION_CONF,
             "-e", sql
-        );
+        ));
         if (inContainer) {
             return sparkSql;
         }
-        return InfraComposeTarget.fromEnvironment(System.getenv()).composeCommand(
-            "exec", "-T", "spark", SPARK_SQL,
+        List<String> composeSparkSql = new ArrayList<>(InfraComposeTarget.fromEnvironment(System.getenv()).composeCommand(
+            "exec", "-T", "spark", SPARK_SQL
+        ));
+        composeSparkSql.addAll(LARGE_DATA_SPARK_SQL_OPTIONS);
+        composeSparkSql.addAll(List.of(
             "--conf", IVY_CACHE_CONF,
             "--packages", ICEBERG_RUNTIME,
             "--conf", "spark.sql.catalog.iceberg_catalog=org.apache.iceberg.spark.SparkCatalog",
@@ -215,7 +231,8 @@ public class SparkIcebergClient {
             "--conf", "spark.sql.catalog.iceberg_catalog.warehouse=hdfs://hdfs-namenode:8020/warehouse/iceberg",
             "--conf", ICEBERG_VECTORIZATION_CONF,
             "-e", sql
-        );
+        ));
+        return composeSparkSql;
     }
 
     private static EngineRunResult failed(String tableShape, String stage, String queryName, CommandResult command) {
@@ -292,9 +309,16 @@ public class SparkIcebergClient {
     }
 
     private String toWorkspacePath(Path path) {
+        String normalized = path.toString().replace('\\', '/');
+        if (normalized.startsWith("hdfs://")) {
+            return normalized;
+        }
         Path workspace = workingDirectory.toAbsolutePath().normalize();
         Path output = path.toAbsolutePath().normalize();
         if (!output.startsWith(workspace)) {
+            if (normalized.startsWith("/")) {
+                return HDFS_DEFAULT_FS + normalized;
+            }
             throw new IllegalArgumentException("Dataset output path is outside workspace: " + output);
         }
         String relative = workspace.relativize(output).toString().replace('\\', '/');

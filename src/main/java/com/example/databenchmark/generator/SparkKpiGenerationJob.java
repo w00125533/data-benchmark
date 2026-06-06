@@ -5,16 +5,20 @@ import static org.apache.spark.sql.functions.expr;
 
 import com.example.databenchmark.hadoop.HadoopLocalConfiguration;
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.List;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 
 public class SparkKpiGenerationJob {
+    private static final String HDFS_DEFAULT_FS = "hdfs://hdfs-namenode:8020";
+
     public DatasetResult run(KpiGenerationConfig generation) throws IOException {
         Path outputPath = generation.outputPath();
         HadoopLocalConfiguration.create();
@@ -29,6 +33,7 @@ public class SparkKpiGenerationJob {
             .config("spark.hadoop.mapreduce.fileoutputcommitter.algorithm.version", "2")
             .config("spark.hadoop.mapreduce.fileoutputcommitter.marksuccessfuljobs", "false")
             .config("spark.driver.bindAddress", "127.0.0.1")
+            .config("spark.driver.host", "127.0.0.1")
             .getOrCreate();
 
         try {
@@ -36,9 +41,13 @@ public class SparkKpiGenerationJob {
             rows.write()
                 .mode(generation.outputMode())
                 .partitionBy("event_date")
-                .parquet(outputPath.toString());
+                .parquet(generation.output());
         } finally {
             spark.stop();
+        }
+
+        if (isHdfsOutput(generation.output())) {
+            return new DatasetResult(outputPath, List.of(), generation.targetRows(), hdfsBytesWritten(generation.output()));
         }
 
         List<Path> parquetFiles = parquetFiles(outputPath);
@@ -50,6 +59,11 @@ public class SparkKpiGenerationJob {
             bytesWritten += Files.size(file);
         }
         return new DatasetResult(outputPath, parquetFiles, generation.targetRows(), bytesWritten);
+    }
+
+    private static boolean isHdfsOutput(String output) {
+        String normalized = output.replace('\\', '/');
+        return normalized.startsWith("/") || normalized.startsWith("hdfs://");
     }
 
     private Dataset<Row> buildRows(SparkSession spark, KpiGenerationConfig generation) {
@@ -162,6 +176,26 @@ public class SparkKpiGenerationJob {
 
     private static String fractionSql(long seed, int offset) {
         return "(pmod(xxhash64(id, " + (seed + offset) + "L), 1000000) / 1000000.0)";
+    }
+
+    private static long hdfsBytesWritten(String output) {
+        try {
+            org.apache.hadoop.conf.Configuration configuration = HadoopLocalConfiguration.create();
+            URI fileSystemUri = URI.create(output.replace('\\', '/').startsWith("hdfs://") ? output : HDFS_DEFAULT_FS);
+            try (FileSystem fileSystem = FileSystem.get(fileSystemUri, configuration)) {
+                return fileSystem.getContentSummary(new org.apache.hadoop.fs.Path(hdfsPath(output))).getLength();
+            }
+        } catch (IOException | IllegalArgumentException exception) {
+            return 0L;
+        }
+    }
+
+    private static String hdfsPath(String output) {
+        String normalized = output.replace('\\', '/');
+        if (normalized.startsWith("hdfs://")) {
+            return URI.create(normalized).getPath();
+        }
+        return normalized;
     }
 
     private static List<Path> parquetFiles(Path outputPath) throws IOException {

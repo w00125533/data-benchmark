@@ -39,7 +39,20 @@ class SparkIcebergClientTest {
             "-f", "../shared-data-infra/compose.yaml",
             "-f", "../shared-data-infra/compose.lakehouse.yaml",
             "-f", "../shared-data-infra/compose.starrocks.yaml",
+            "--profile", "lakehouse",
+            "--profile", "lakehouse-tools",
+            "--profile", "spark-tools",
+            "--profile", "starrocks",
             "exec", "-T", "spark", "/opt/spark/bin/spark-sql",
+            "--master", "local[6]",
+            "--driver-memory", "10g",
+            "--conf", "spark.driver.maxResultSize=2g",
+            "--conf", "spark.sql.shuffle.partitions=512",
+            "--conf", "spark.default.parallelism=512",
+            "--conf", "spark.sql.files.maxPartitionBytes=67108864",
+            "--conf", "spark.sql.parquet.enableVectorizedReader=false",
+            "--conf", "spark.sql.parquet.columnarReaderBatchSize=1024",
+            "--conf", "spark.sql.adaptive.enabled=true",
             "--conf", "spark.jars.ivy=/tmp/.ivy2",
             "--packages", "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1",
             "--conf", "spark.sql.catalog.iceberg_catalog=org.apache.iceberg.spark.SparkCatalog",
@@ -47,7 +60,9 @@ class SparkIcebergClientTest {
             "--conf", "spark.sql.catalog.iceberg_catalog.uri=thrift://hive-metastore:9083",
             "--conf", "spark.sql.catalog.iceberg_catalog.warehouse=hdfs://hdfs-namenode:8020/warehouse/iceberg",
             "--conf", "spark.sql.iceberg.vectorization.enabled=false",
-            "-e", SqlTemplates.sparkCreateIcebergTable() + "\n" + SqlTemplates.sparkInsertFromParquet("/workspace/data/run-1/part.parquet")
+            "-e", SqlTemplates.sparkCreateIcebergTable("run-1")
+                + "\n"
+                + SqlTemplates.sparkInsertFromParquet("/workspace/data/run-1/part.parquet")
         );
     }
 
@@ -72,6 +87,9 @@ class SparkIcebergClientTest {
             .doesNotContain("docker", "compose", "exec");
         assertThat(command)
             .contains("spark.jars.ivy=/tmp/.ivy2")
+            .contains("local[6]")
+            .contains("spark.sql.files.maxPartitionBytes=67108864")
+            .contains("spark.sql.parquet.enableVectorizedReader=false")
             .contains("spark.sql.catalog.iceberg_catalog.uri=thrift://hive-metastore:9083")
             .contains("spark.sql.catalog.iceberg_catalog.warehouse=hdfs://hdfs-namenode:8020/warehouse/iceberg")
             .contains("spark.sql.iceberg.vectorization.enabled=false")
@@ -110,6 +128,37 @@ class SparkIcebergClientTest {
     }
 
     @Test
+    void loadUsesAbsolutePathAsHdfsDatasetRoot() {
+        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "ok", "", 1.25));
+        Path workspace = tempDir.resolve("workspace");
+
+        EngineRunResult result = new SparkIcebergClient(runner, workspace, Duration.ofMinutes(1))
+            .load(new DatasetResult(Path.of("/benchmark/kpi-1b/generated"), List.of(), 100, 4096), "run-1", "smoke");
+
+        assertThat(result.success()).isTrue();
+        assertThat(runner.commands()).hasSize(1);
+        assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
+            .contains("path 'hdfs://hdfs-namenode:8020/benchmark/kpi-1b/generated'");
+    }
+
+    @Test
+    void loadUsesHdfsUriConfigOutputAsHdfsDatasetRoot() {
+        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "ok", "", 1.25));
+        Path workspace = tempDir.resolve("workspace");
+        Path safeHdfsPath = com.example.databenchmark.generator.KpiGenerationConfig.from(
+            com.example.databenchmark.config.BenchmarkConfig.defaultSmoke()
+                .withOverrides(10, 1, null, "hdfs://hdfs-namenode:8020/benchmark/kpi-1b/generated", 100L)
+        ).outputPath();
+
+        EngineRunResult result = new SparkIcebergClient(runner, workspace, Duration.ofMinutes(1))
+            .load(new DatasetResult(safeHdfsPath, List.of(), 100, 4096), "run-1", "smoke");
+
+        assertThat(result.success()).isTrue();
+        assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
+            .contains("path 'hdfs://hdfs-namenode:8020/benchmark/kpi-1b/generated'");
+    }
+
+    @Test
     void runQueriesUsesSparkSqlForEveryCatalogQuery() {
         FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "rows", "", 0.5));
 
@@ -141,6 +190,27 @@ class SparkIcebergClientTest {
         assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
             .isEqualTo(SqlRenderer.render("topn_high_load_cells", "spark_iceberg"))
             .doesNotContain("COUNT(*)");
+    }
+
+    @Test
+    void runQueryRecordsRowsFetchedBySparkSql() {
+        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(
+            List.of(),
+            0,
+            """
+            CELL-000001\t2026-01-01 00:00:00
+            CELL-000002\t2026-01-01 00:01:00
+            Time taken: 4.321 seconds, Fetched 100 row(s)
+            """,
+            "",
+            4.321
+        ));
+
+        EngineRunResult result = new SparkIcebergClient(runner)
+            .runQuery("topn_high_load_cells", RoutePhase.HOT);
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.rows()).isEqualTo(100);
     }
 
     @Test

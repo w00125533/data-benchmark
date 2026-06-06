@@ -1,6 +1,7 @@
 package com.example.databenchmark.generator;
 
 import com.example.databenchmark.config.BenchmarkConfig;
+import java.net.URI;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 
@@ -69,6 +70,18 @@ public record KpiGenerationConfig(
     }
 
     public Path outputPath() {
-        return Path.of(benchmarkConfig.dataset().output());
+        String output = output();
+        if (isHdfsUri(output)) {
+            return Path.of(URI.create(output).getPath());
+        }
+        return Path.of(output);
+    }
+
+    public String output() {
+        return benchmarkConfig.dataset().output();
+    }
+
+    private static boolean isHdfsUri(String output) {
+        return output.replace('\\', '/').startsWith("hdfs://");
     }
 }

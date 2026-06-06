@@ -29,6 +29,17 @@ class KpiGenerationConfigTest {
     }
 
     @Test
+    void hdfsUriOutputDoesNotThrowAndKeepsSafeMetadataPath() {
+        BenchmarkConfig config = BenchmarkConfig.defaultSmoke()
+            .withOverrides(10, 1, null, "hdfs://hdfs-namenode:8020/benchmark/kpi-1b/generated", 100L);
+
+        KpiGenerationConfig generation = KpiGenerationConfig.from(config);
+
+        assertThat(generation.output()).isEqualTo("hdfs://hdfs-namenode:8020/benchmark/kpi-1b/generated");
+        assertThat(generation.outputPath().toString().replace('\\', '/')).isEqualTo("/benchmark/kpi-1b/generated");
+    }
+
+    @Test
     void rejectsInvalidCells() {
         BenchmarkConfig invalid = new BenchmarkConfig(
             "bad",

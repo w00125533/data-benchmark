@@ -13,35 +13,67 @@ import java.util.List;
 
 public class SparkSubmitKpiDataGenerator implements KpiDatasetGenerator {
     private static final String RUNNER_JAR = "target/data-benchmark-0.1.0-SNAPSHOT.jar";
+    private static final String HDFS_DEFAULT_FS = "hdfs://hdfs-namenode:8020";
 
     private final CommandRunner commandRunner;
     private final Path workingDirectory;
     private final Duration timeout;
+    private final boolean reuseExistingDataset;
 
     public SparkSubmitKpiDataGenerator(CommandRunner commandRunner) {
         this(commandRunner, Path.of("."), Duration.ofHours(12));
     }
 
     SparkSubmitKpiDataGenerator(CommandRunner commandRunner, Path workingDirectory, Duration timeout) {
+        this(commandRunner, workingDirectory, timeout, reuseExistingDatasetFromEnvironment());
+    }
+
+    SparkSubmitKpiDataGenerator(
+        CommandRunner commandRunner,
+        Path workingDirectory,
+        Duration timeout,
+        boolean reuseExistingDataset
+    ) {
         this.commandRunner = commandRunner;
         this.workingDirectory = workingDirectory;
         this.timeout = timeout;
+        this.reuseExistingDataset = reuseExistingDataset;
     }
 
     @Override
     public DatasetResult generate(BenchmarkConfig config) throws Exception {
         KpiGenerationConfig generation = KpiGenerationConfig.from(config);
+        if (reuseExistingDataset && isHdfsOutput(config.dataset().output())) {
+            long bytesWritten = hdfsBytesWritten(config.dataset().output());
+            return new DatasetResult(generation.outputPath(), List.of(), generation.targetRows(), bytesWritten);
+        }
+
         Path configPath = writeEffectiveConfig(config);
         String configArgument = workingDirectory.relativize(configPath).toString().replace('\\', '/');
         List<String> command = InfraComposeTarget.fromEnvironment(System.getenv()).composeCommand(
             "exec", "-T", "spark",
-            "java", "-jar", RUNNER_JAR,
+            "/opt/spark/bin/spark-submit",
+            "--class", "com.example.databenchmark.BenchmarkRunnerApp",
+            "--master", generation.master(),
+            "--driver-memory", "8g",
+            "--conf", "spark.driver.maxResultSize=2g",
+            "--conf", "spark.driver.host=127.0.0.1",
+            "--conf", "spark.driver.bindAddress=127.0.0.1",
+            "--conf", "spark.sql.shuffle.partitions=" + generation.partitions(),
+            "--conf", "spark.default.parallelism=" + generation.partitions(),
+            "--conf", "spark.hadoop.fs.defaultFS=" + HDFS_DEFAULT_FS,
+            RUNNER_JAR,
             "generate", "--config", configArgument
         );
 
         CommandResult result = commandRunner.run(command, workingDirectory, timeout);
         if (result.exitCode() != 0) {
             throw new IOException("Spark compose KPI generation failed: " + result.stderr());
+        }
+
+        if (isHdfsOutput(config.dataset().output())) {
+            long bytesWritten = hdfsBytesWritten(config.dataset().output());
+            return new DatasetResult(generation.outputPath(), List.of(), generation.targetRows(), bytesWritten);
         }
 
         List<Path> parquetFiles = parquetFiles(generation.outputPath());
@@ -53,6 +85,29 @@ public class SparkSubmitKpiDataGenerator implements KpiDatasetGenerator {
             bytesWritten += Files.size(file);
         }
         return new DatasetResult(generation.outputPath(), parquetFiles, generation.targetRows(), bytesWritten);
+    }
+
+    private long hdfsBytesWritten(String output) throws IOException {
+        String hdfsPath = hdfsPath(output);
+        List<String> command = InfraComposeTarget.fromEnvironment(System.getenv()).composeCommand(
+            "exec", "-T", "spark",
+            "bash", "-lc",
+            "unset JAVA_TOOL_OPTIONS; /opt/spark/bin/spark-class org.apache.hadoop.fs.FsShell "
+                + "-fs " + shellQuote(HDFS_DEFAULT_FS) + " -du -s " + shellQuote(hdfsPath)
+        );
+        CommandResult result;
+        try {
+            result = commandRunner.run(command, workingDirectory, timeout);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted while checking HDFS output size", exception);
+        }
+        if (result.exitCode() != 0) {
+            throw new IOException("Spark compose KPI generation wrote HDFS data but size check failed: "
+                + (result.stderr().isBlank() ? result.stdout() : result.stderr()));
+        }
+        String firstToken = result.stdout().trim().split("\\s+")[0];
+        return Long.parseLong(firstToken);
     }
 
     private Path writeEffectiveConfig(BenchmarkConfig config) throws IOException {
@@ -108,6 +163,27 @@ public class SparkSubmitKpiDataGenerator implements KpiDatasetGenerator {
 
     private static String escape(String value) {
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private static boolean isHdfsOutput(String output) {
+        String normalized = output.replace('\\', '/');
+        return normalized.startsWith("/") || normalized.startsWith("hdfs://");
+    }
+
+    private static String hdfsPath(String output) {
+        String normalized = output.replace('\\', '/');
+        if (normalized.startsWith("hdfs://")) {
+            return java.net.URI.create(normalized).getPath();
+        }
+        return normalized;
+    }
+
+    private static String shellQuote(String value) {
+        return "'" + value.replace("'", "'\"'\"'") + "'";
+    }
+
+    private static boolean reuseExistingDatasetFromEnvironment() {
+        return Boolean.parseBoolean(System.getenv().getOrDefault("BENCHMARK_REUSE_EXISTING_DATASET", "false"));
     }
 
     private static List<Path> parquetFiles(Path outputPath) throws IOException {
