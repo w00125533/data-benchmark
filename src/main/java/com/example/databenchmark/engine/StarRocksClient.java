@@ -2,6 +2,7 @@ package com.example.databenchmark.engine;
 
 import com.example.databenchmark.query.QueryCatalog;
 import com.example.databenchmark.runner.RoutePhase;
+import com.example.databenchmark.schema.KpiTableNaming;
 import com.example.databenchmark.tpch.TpchDatasetResult;
 import com.example.databenchmark.tpch.TpchQueryCatalog;
 import com.example.databenchmark.tpch.TpchSchema;
@@ -33,16 +34,17 @@ public class StarRocksClient {
         double durationSeconds = 0.0;
         String label = StarRocksBrokerLoad.label(runId);
         String parquetGlob = StarRocksBrokerLoad.normalizeHdfsParquetGlob(parquetRoot.toString());
+        String tableName = KpiTableNaming.starRocksInternalTableName(profile);
         try {
-            jdbcExecutor.execute(SqlTemplates.starRocksCreateInternalTable());
+            jdbcExecutor.execute(SqlTemplates.starRocksCreateInternalTable(tableName));
         } catch (SQLException e) {
             return failed("starrocks_internal", EngineStage.STARROCKS_INTERNAL_LOAD.name(), null, elapsedSeconds(started),
                 "create_internal_table failed: " + e.getMessage());
         }
 
         try {
-            jdbcExecutor.execute(SqlTemplates.starRocksTruncateInternalTable());
-            jdbcExecutor.execute(SqlTemplates.starRocksBrokerLoadFromParquet(label, parquetGlob));
+            jdbcExecutor.execute(SqlTemplates.starRocksTruncateInternalTable(tableName));
+            jdbcExecutor.execute(SqlTemplates.starRocksBrokerLoadFromParquet(label, parquetGlob, tableName));
             StarRocksBrokerLoad.LoadState state = waitForBrokerLoad(label);
             durationSeconds = elapsedSeconds(started);
             if (!state.finished()) {
@@ -125,7 +127,7 @@ public class StarRocksClient {
 
     public List<EngineRunResult> runQueries(String runId, String profile) {
         List<EngineRunResult> results = new ArrayList<>();
-        results.addAll(runQueriesFor("starrocks_internal"));
+        results.addAll(runQueriesFor("starrocks_internal", profile));
         results.addAll(runQueriesFor("starrocks_external_iceberg"));
         return results;
     }
@@ -252,9 +254,13 @@ public class StarRocksClient {
     }
 
     private List<EngineRunResult> runQueriesFor(String tableShape) {
+        return runQueriesFor(tableShape, null);
+    }
+
+    private List<EngineRunResult> runQueriesFor(String tableShape, String profile) {
         List<EngineRunResult> results = new ArrayList<>();
         for (var query : QueryCatalog.queries()) {
-            results.add(runQueryFor(tableShape, query.name(), RoutePhase.HOT));
+            results.add(runQueryFor(tableShape, query.name(), RoutePhase.HOT, profile));
         }
         return results;
     }
@@ -278,8 +284,16 @@ public class StarRocksClient {
     }
 
     public EngineRunResult runQueryFor(String tableShape, String queryName, RoutePhase phase) {
+        return runQueryFor(tableShape, queryName, phase, null);
+    }
+
+    public EngineRunResult runQueryFor(String tableShape, String queryName, RoutePhase phase, String profile) {
         try {
-            JdbcExecutionResult result = jdbcExecutor.query(SqlRenderer.render(queryName, tableShape));
+            JdbcExecutionResult result = jdbcExecutor.query(SqlRenderer.render(
+                queryName,
+                tableShape,
+                tableShapes(tableShape, profile)
+            ));
             return new EngineRunResult(
                 "starrocks",
                 tableShape,
@@ -298,12 +312,17 @@ public class StarRocksClient {
     }
 
     public EngineRunResult validateCount(String tableShape, long expectedRows) {
-        String tableName = com.example.databenchmark.schema.KpiSchema.tableShapes().get(tableShape);
+        return validateCount(tableShape, expectedRows, null);
+    }
+
+    public EngineRunResult validateCount(String tableShape, long expectedRows, String profile) {
+        String tableName = tableShapes(tableShape, profile).get(tableShape);
         if (tableName == null) {
             return failed(tableShape, validateStage(tableShape), null, 0.0, "Unknown engine key: " + tableShape);
         }
         try {
-            long actualRows = jdbcExecutor.queryLong("SELECT COUNT(*) FROM " + tableName);
+            JdbcExecutionResult result = jdbcExecutor.queryLongResult("SELECT COUNT(*) FROM " + tableName);
+            long actualRows = result.rows();
             boolean success = actualRows == expectedRows;
             return new EngineRunResult(
                 "starrocks",
@@ -312,7 +331,7 @@ public class StarRocksClient {
                 null,
                 actualRows,
                 0,
-                0.0,
+                result.durationSeconds(),
                 success,
                 success ? "" : "row count mismatch for %s: expected=%d actual=%d".formatted(tableShape, expectedRows, actualRows)
             );
@@ -394,6 +413,12 @@ public class StarRocksClient {
         return "starrocks_external_iceberg".equals(tableShape)
             ? EngineStage.STARROCKS_EXTERNAL_VALIDATE.name()
             : EngineStage.STARROCKS_INTERNAL_VALIDATE.name();
+    }
+
+    private static Map<String, String> tableShapes(String tableShape, String profile) {
+        return "starrocks_internal".equals(tableShape)
+            ? KpiTableNaming.tableShapesForProfile(profile)
+            : com.example.databenchmark.schema.KpiSchema.tableShapes();
     }
 
     private static boolean looksLikeCsvPath(Path path) {

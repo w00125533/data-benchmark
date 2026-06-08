@@ -77,6 +77,8 @@ The generator writes deterministic, partitioned Parquet files under `event_date=
 
 Compose benchmark mode uses `../shared-data-infra` for HDFS, Hive Metastore, HDFS warehouse initialization, HiveServer2, Spark, and split StarRocks FE/BE services. The local `docker-compose.yml` keeps only `benchmark-runner`; it joins the external `shared-data-infra` network and controls shared service lifecycle through the Docker socket.
 
+Shared HDFS uses service-owned paths. `data-benchmark` generated parquet lives under `/services/data-benchmark/generated/...`, for example `/services/data-benchmark/generated/kpi/compose-smoke`. Managed Iceberg tables remain under `/warehouse/iceberg/...`. The legacy `/data/generated` and `/benchmark/...` paths are not used by new compose runs.
+
 Start the benchmark-compatible shared infrastructure from `../shared-data-infra`:
 
 ```sh

@@ -3,6 +3,7 @@ package com.example.databenchmark.engine;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.databenchmark.schema.KpiTableNaming;
 import org.junit.jupiter.api.Test;
 
 class SqlRendererTest {
@@ -22,6 +23,19 @@ class SqlRendererTest {
         assertThat(starRocksSql)
             .contains("CAST('2026-01-01 00:00:00' AS DATETIME)")
             .doesNotContain("TIMESTAMP '");
+    }
+
+    @Test
+    void rendersProfileSpecificStarRocksInternalTableWhenProvided() {
+        String sql = SqlRenderer.render(
+            "single_cell_day_trend",
+            "starrocks_internal",
+            KpiTableNaming.tableShapesForProfile("compose-smoke")
+        );
+
+        assertThat(sql)
+            .contains("sr_internal.cell_kpi_1min_smoke")
+            .doesNotContain("sr_internal.cell_kpi_1min ");
     }
 
     @Test

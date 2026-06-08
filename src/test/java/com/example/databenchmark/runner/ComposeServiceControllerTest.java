@@ -133,14 +133,14 @@ class ComposeServiceControllerTest {
     }
 
     @Test
-    void restartStarRocksWaitsForFeMysqlBeforeStartingBackend() throws Exception {
+    void restartStarRocksStartsBackendBeforeWaitingForFeMysql() throws Exception {
         FakeCommandRunner commandRunner = new FakeCommandRunner();
+        commandRunner.enqueueSuccess();
         commandRunner.enqueueSuccess();
         commandRunner.enqueueSuccess();
         commandRunner.enqueueSuccess();
         commandRunner.enqueueFailure("fe mysql booting");
         commandRunner.enqueueSuccess("1\n1");
-        commandRunner.enqueueSuccess();
         ComposeServiceController controller = new ComposeServiceController(
             commandRunner,
             Path.of("."),
@@ -156,11 +156,11 @@ class ComposeServiceControllerTest {
             composeCommand("stop", "starrocks-be"),
             composeCommand("stop", "starrocks-fe"),
             composeCommand("start", "starrocks-fe"),
+            composeCommand("start", "starrocks-be"),
             composeCommand("exec", "-T", "starrocks-fe",
                 "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SELECT 1"),
             composeCommand("exec", "-T", "starrocks-fe",
-                "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SELECT 1"),
-            composeCommand("start", "starrocks-be")
+                "mysql", "-h", "127.0.0.1", "-P", "9030", "-uroot", "-e", "SELECT 1")
         );
     }
 
@@ -344,6 +344,37 @@ class ComposeServiceControllerTest {
             "BackendId\tAlive\tStatus\n10001\ttrue\t"
                 + "{\"lastSuccessReportTabletsTime\":\"2026-06-05 10:01:00\"}"
         );
+        commandRunner.enqueueSuccess("Empty set");
+        ComposeServiceController controller = new ComposeServiceController(
+            commandRunner,
+            Path.of("."),
+            Duration.ofSeconds(30),
+            2,
+            Duration.ZERO,
+            ignored -> { }
+        );
+
+        controller.waitUntilReady(BenchmarkRoute.STARROCKS_INTERNAL);
+
+        assertThat(commandRunner.commands).hasSize(5);
+        assertThat(commandRunner.commands.get(1)).containsSequence("-e", "SHOW PROC '/backends'");
+        assertThat(commandRunner.commands.get(3)).containsSequence("-e", "SHOW PROC '/backends'");
+        assertThat(commandRunner.commands.get(4)).containsSequence("-e", "SHOW BACKEND BLACKLIST");
+    }
+
+    @Test
+    void waitUntilReadyRetriesStarRocksWhenAliveBackendHasNoAvailableCapacity() {
+        FakeCommandRunner commandRunner = new FakeCommandRunner();
+        commandRunner.enqueueSuccess("1\n1");
+        commandRunner.enqueueSuccess("""
+            BackendId\tAlive\tAvailCapacity\tStatus
+            10001\ttrue\t0 B\t{"lastSuccessReportTabletsTime":"2026-06-05 10:01:00"}
+            """);
+        commandRunner.enqueueSuccess("1\n1");
+        commandRunner.enqueueSuccess("""
+            BackendId\tAlive\tAvailCapacity\tStatus
+            10001\ttrue\t663.593 GB\t{"lastSuccessReportTabletsTime":"2026-06-05 10:02:00"}
+            """);
         commandRunner.enqueueSuccess("Empty set");
         ComposeServiceController controller = new ComposeServiceController(
             commandRunner,

@@ -9,7 +9,7 @@ dataset:
   days: 1
   columns: 50
   startTime: "2026-01-01T00:00:00"
-  output: "hdfs://hdfs-namenode:8020/benchmark/compose-smoke/generated"
+  output: "hdfs://hdfs-namenode:8020/services/data-benchmark/generated/kpi/compose-smoke"
   rowCap: 10000
   spark:
     master: "local[*]"
@@ -20,6 +20,8 @@ query:
   coldRuns: 1
   warmRuns: 3
   concurrency: 1
+  names:
+    - date_partition_pruning
 report:
   format: html
   output: "reports/runs"

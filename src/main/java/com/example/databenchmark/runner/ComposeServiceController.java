@@ -91,8 +91,8 @@ public class ComposeServiceController {
             runChecked(route, commands.get(0), "restart");
             runChecked(route, commands.get(1), "restart");
             runChecked(route, commands.get(2), "restart");
-            waitForStarRocksFeMysql(route);
             runChecked(route, commands.get(3), "restart");
+            waitForStarRocksFeMysql(route);
             return;
         }
 
@@ -249,7 +249,8 @@ public class ComposeServiceController {
             return false;
         }
         if (readiness.hasAliveBackend()) {
-            return !readiness.hasStatusJson() || readiness.hasTabletReportTime();
+            return readiness.hasUsableCapacity()
+                && (!readiness.hasStatusJson() || readiness.hasTabletReportTime());
         }
         if (!lowerOutput.matches("(?s).*\\balive\\b\\s*[:=]\\s*true\\b.*")) {
             return false;
@@ -268,16 +269,21 @@ public class ComposeServiceController {
 
             List<Integer> blacklistIndexes = blacklistIndexes(header);
             int statusIndex = indexOfNormalized(header, "status");
+            int availCapacityIndex = indexOfNormalized(header, "availcapacity");
             boolean hasAliveBackend = false;
             boolean hasStatusJson = false;
             boolean hasTabletReportTime = false;
+            boolean hasUsableCapacity = availCapacityIndex < 0;
             for (int rowIndex = headerIndex + 1; rowIndex < rows.size(); rowIndex++) {
                 List<String> row = rows.get(rowIndex);
                 if (hasTrueValue(row, blacklistIndexes)) {
-                    return new BackendReadiness(false, true, false, false);
+                    return new BackendReadiness(false, true, false, false, false);
                 }
                 if (hasValue(row, aliveIndex, "true")) {
                     hasAliveBackend = true;
+                    if (availCapacityIndex >= 0 && capacityBytes(valueAt(row, availCapacityIndex)) > 0) {
+                        hasUsableCapacity = true;
+                    }
                     String status = valueAt(row, statusIndex);
                     if (containsStatusJson(status)) {
                         hasStatusJson = true;
@@ -285,9 +291,9 @@ public class ComposeServiceController {
                     }
                 }
             }
-            return new BackendReadiness(hasAliveBackend, false, hasStatusJson, hasTabletReportTime);
+            return new BackendReadiness(hasAliveBackend, false, hasStatusJson, hasTabletReportTime, hasUsableCapacity);
         }
-        return new BackendReadiness(false, false, false, false);
+        return new BackendReadiness(false, false, false, false, false);
     }
 
     private boolean backendBlacklistIsEmpty(String output) {
@@ -338,6 +344,28 @@ public class ComposeServiceController {
         }
         String reportTime = matcher.group(1).trim();
         return !reportTime.isEmpty() && !reportTime.equalsIgnoreCase("null");
+    }
+
+    private double capacityBytes(String value) {
+        String normalized = nullToEmpty(value).trim().toUpperCase(Locale.ROOT);
+        if (normalized.isEmpty()) {
+            return 0.0;
+        }
+        Matcher matcher = Pattern.compile("([0-9]+(?:\\.[0-9]+)?)\\s*([KMGTPE]?B)?").matcher(normalized);
+        if (!matcher.find()) {
+            return 0.0;
+        }
+        double amount = Double.parseDouble(matcher.group(1));
+        String unit = matcher.group(2) == null ? "B" : matcher.group(2);
+        return amount * switch (unit) {
+            case "KB" -> 1024.0;
+            case "MB" -> 1024.0 * 1024.0;
+            case "GB" -> 1024.0 * 1024.0 * 1024.0;
+            case "TB" -> 1024.0 * 1024.0 * 1024.0 * 1024.0;
+            case "PB" -> 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0;
+            case "EB" -> 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0;
+            default -> 1.0;
+        };
     }
 
     private List<List<String>> parseBackendRows(String output) {
@@ -425,7 +453,8 @@ public class ComposeServiceController {
         boolean hasAliveBackend,
         boolean hasBlacklistedBackend,
         boolean hasStatusJson,
-        boolean hasTabletReportTime
+        boolean hasTabletReportTime,
+        boolean hasUsableCapacity
     ) {}
 
     private void runChecked(BenchmarkRoute route, List<String> command, String action) {

@@ -26,15 +26,23 @@ public final class SqlTemplates {
             )
             USING iceberg
             PARTITIONED BY (days(event_time))
-            LOCATION '%s/iceberg_db/cell_kpi_1min_%s';
+            LOCATION '%s/iceberg_db/cell_kpi_1min';
             """.formatted(
                 HDFS_WAREHOUSE,
                 ICEBERG_TABLE,
                 ICEBERG_TABLE,
                 sparkColumns(),
-                HDFS_WAREHOUSE,
-                sanitizeLocationSuffix(runId)
+                HDFS_WAREHOUSE
             );
+    }
+
+    public static String hiveDropIcebergTableRegistration() {
+        return """
+            CREATE DATABASE IF NOT EXISTS iceberg_db
+            LOCATION '%s/iceberg_db';
+
+            DROP TABLE IF EXISTS iceberg_db.cell_kpi_1min;
+            """.formatted(HDFS_WAREHOUSE);
     }
 
     public static String sparkInsertFromParquet(String parquetPath) {
@@ -63,10 +71,15 @@ public final class SqlTemplates {
     }
 
     public static String starRocksCreateInternalTable() {
+        return starRocksCreateInternalTable("cell_kpi_1min");
+    }
+
+    public static String starRocksCreateInternalTable(String tableName) {
+        String safeTableName = requireSqlIdentifier(tableName);
         return """
             CREATE DATABASE IF NOT EXISTS sr_internal;
 
-            CREATE TABLE IF NOT EXISTS sr_internal.cell_kpi_1min (
+            CREATE TABLE IF NOT EXISTS sr_internal.%s (
             %s
             )
             DUPLICATE KEY(event_time, cell_id)
@@ -74,19 +87,27 @@ public final class SqlTemplates {
             PROPERTIES (
                 "replication_num" = "1"
             );
-            """.formatted(starRocksColumns());
+            """.formatted(safeTableName, starRocksColumns());
     }
 
     public static String starRocksTruncateInternalTable() {
-        return "TRUNCATE TABLE sr_internal.cell_kpi_1min;";
+        return starRocksTruncateInternalTable("cell_kpi_1min");
+    }
+
+    public static String starRocksTruncateInternalTable(String tableName) {
+        return "TRUNCATE TABLE sr_internal.%s;".formatted(requireSqlIdentifier(tableName));
     }
 
     public static String starRocksBrokerLoadFromParquet(String label, String parquetGlob) {
+        return starRocksBrokerLoadFromParquet(label, parquetGlob, "cell_kpi_1min");
+    }
+
+    public static String starRocksBrokerLoadFromParquet(String label, String parquetGlob, String tableName) {
         return """
             LOAD LABEL sr_internal.%s
             (
                 DATA INFILE("%s")
-                INTO TABLE cell_kpi_1min
+                INTO TABLE %s
                 FORMAT AS "parquet"
                 (%s)
             )
@@ -104,6 +125,7 @@ public final class SqlTemplates {
             """.formatted(
                 escapeSqlIdentifierPart(label),
                 escapeDoubleQuotedSqlString(parquetGlob),
+                requireSqlIdentifier(tableName),
                 kpiColumnNames(),
                 StarRocksBrokerLoad.DEFAULT_TIMEOUT.toSeconds()
             );
@@ -207,8 +229,11 @@ public final class SqlTemplates {
         return value.replaceAll("[^A-Za-z0-9_]", "_");
     }
 
-    private static String sanitizeLocationSuffix(String value) {
-        String sanitized = value == null ? "" : value.replaceAll("[^A-Za-z0-9_-]", "_");
-        return sanitized.isBlank() ? "default" : sanitized;
+    private static String requireSqlIdentifier(String value) {
+        if (value == null || !value.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+            throw new IllegalArgumentException("Unsafe SQL identifier: " + value);
+        }
+        return value;
     }
+
 }

@@ -31,12 +31,23 @@ class BenchmarkConfigLoaderTest {
     }
 
     @Test
-    void composeSmokeRunsAllKpiQueriesByDefault() throws Exception {
+    void composeSmokeLimitsKpiQueriesForFastValidation() throws Exception {
         BenchmarkConfig config = new BenchmarkConfigLoader().load(Path.of("configs/benchmark-compose-smoke.yml"));
 
         assertThat(config.suite().name()).isEqualTo("kpi");
         assertThat(config.suite().querySet()).isEqualTo("smoke");
-        assertThat(config.query().names()).isNull();
+        assertThat(config.dataset().output())
+            .isEqualTo("hdfs://hdfs-namenode:8020/services/data-benchmark/generated/kpi/compose-smoke");
+        assertThat(config.query().names()).containsExactly("date_partition_pruning");
+    }
+
+    @Test
+    void largeKpiConfigUsesServicesHdfsNamespace() throws Exception {
+        BenchmarkConfig config = new BenchmarkConfigLoader().load(Path.of("configs/benchmark-kpi-1b.yml"));
+
+        assertThat(config.profile()).isEqualTo("kpi-1b");
+        assertThat(config.dataset().output())
+            .isEqualTo("hdfs://hdfs-namenode:8020/services/data-benchmark/generated/kpi/kpi-1b");
     }
 
     @Test

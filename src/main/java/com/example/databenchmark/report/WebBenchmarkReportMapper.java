@@ -1,12 +1,19 @@
 package com.example.databenchmark.report;
 
+import com.example.databenchmark.engine.SqlRenderer;
 import com.example.databenchmark.runner.RoutePhase;
+import com.example.databenchmark.schema.KpiTableNaming;
+import com.example.databenchmark.tpch.TpchQueryCatalog;
+import com.example.databenchmark.tpch.TpchSchema;
+import com.example.databenchmark.tpch.TpchSqlRenderer;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 public class WebBenchmarkReportMapper {
     private static final int SCHEMA_VERSION = 3;
@@ -41,6 +48,7 @@ public class WebBenchmarkReportMapper {
             ),
             loads(report),
             queries(report),
+            tableRuntimeInfos(report),
             performanceMatrix(report),
             notices(report)
         );
@@ -65,21 +73,65 @@ public class WebBenchmarkReportMapper {
         String datasetId = datasetId(report);
         String datasetName = datasetName(report);
         return report.querySummaries().stream()
-            .map(query -> new WebBenchmarkReport.QuerySummary(
-                datasetId,
-                datasetName,
-                report.querySet(),
-                normalizeRouteOrEngine(query.engine(), query.tableShape()),
-                query.tableShape(),
-                query.queryName(),
-                query.p50Ms(),
-                query.p95Ms(),
-                query.p99Ms(),
-                query.rows(),
-                status(query),
-                query.error()
-            ))
+            .map(query -> {
+                String route = normalizeRouteOrEngine(query.engine(), query.tableShape());
+                return new WebBenchmarkReport.QuerySummary(
+                    datasetId,
+                    datasetName,
+                    report.querySet(),
+                    route,
+                    query.tableShape(),
+                    query.queryName(),
+                    query.phase(),
+                    query.p50Ms(),
+                    query.p95Ms(),
+                    query.p99Ms(),
+                    query.p95Ms(),
+                    query.rows(),
+                    status(query),
+                    query.error()
+                );
+            })
             .toList();
+    }
+
+    private List<WebBenchmarkReport.TableRuntimeInfo> tableRuntimeInfos(BenchmarkReport report) {
+        List<WebBenchmarkReport.TableRuntimeInfo> infos = new ArrayList<>();
+        if (report.tableRuntimeInfos() == null) {
+            return infos;
+        }
+        for (BenchmarkReport.TableRuntimeInfo info : report.tableRuntimeInfos()) {
+            String route = normalizeRoute(info.route(), info.tableShape());
+            if (!route.isEmpty()) {
+                infos.add(toWebTableRuntimeInfo(route, info));
+            }
+        }
+        return infos;
+    }
+
+    private WebBenchmarkReport.TableRuntimeInfo toWebTableRuntimeInfo(String route, BenchmarkReport.TableRuntimeInfo info) {
+        return new WebBenchmarkReport.TableRuntimeInfo(
+            route,
+            info.displayName(),
+            info.tableShape(),
+            info.tableIdentifier(),
+            info.storageType(),
+            info.location(),
+            info.format(),
+            info.columns(),
+            info.partitioning(),
+            info.bucketingOrDistribution(),
+            info.indexes(),
+            info.snapshotOrVersion(),
+            info.fileCount(),
+            info.tabletCount(),
+            info.rowsetCount(),
+            info.segmentCount(),
+            info.totalBytes(),
+            info.rawDetails(),
+            info.success(),
+            info.error()
+        );
     }
 
     private List<WebBenchmarkReport.PerformanceMatrixRow> performanceMatrix(BenchmarkReport report) {
@@ -97,7 +149,7 @@ public class WebBenchmarkReportMapper {
                 .add(query);
         }
         return grouped.entrySet().stream()
-            .map(entry -> matrixRow(entry.getKey(), aggregateRoutes(entry.getValue())))
+            .map(entry -> matrixRow(report.profile(), entry.getKey(), aggregateRoutes(entry.getValue())))
             .toList();
     }
 
@@ -150,9 +202,11 @@ public class WebBenchmarkReportMapper {
     }
 
     private WebBenchmarkReport.PerformanceMatrixRow matrixRow(
+        String profile,
         MatrixKey key,
         Map<String, WebBenchmarkReport.RouteResult> routes
     ) {
+        routes = markRowCountMismatches(routes);
         String bestRoute = "";
         double bestHotMs = 0;
         for (Map.Entry<String, WebBenchmarkReport.RouteResult> entry : routes.entrySet()) {
@@ -170,10 +224,76 @@ public class WebBenchmarkReportMapper {
             key.datasetName(),
             key.querySet(),
             key.queryName(),
+            sqlByRoute(profile, key.datasetId(), key.queryName()),
             routes,
             bestRoute,
             bestHotMs
         );
+    }
+
+    private Map<String, WebBenchmarkReport.RouteResult> markRowCountMismatches(
+        Map<String, WebBenchmarkReport.RouteResult> routes
+    ) {
+        Map<Long, Long> rowFrequencies = new LinkedHashMap<>();
+        for (WebBenchmarkReport.RouteResult result : routes.values()) {
+            if ("SUCCESS".equals(result.status()) && result.rows() > 0) {
+                rowFrequencies.merge(result.rows(), 1L, Long::sum);
+            }
+        }
+        if (rowFrequencies.size() <= 1) {
+            return routes;
+        }
+
+        long expectedRows = rowFrequencies.entrySet().stream()
+            .max(Map.Entry.<Long, Long>comparingByValue().thenComparing(Map.Entry.comparingByKey()))
+            .map(Map.Entry::getKey)
+            .orElse(0L);
+        Map<String, WebBenchmarkReport.RouteResult> checked = new LinkedHashMap<>();
+        for (Map.Entry<String, WebBenchmarkReport.RouteResult> entry : routes.entrySet()) {
+            WebBenchmarkReport.RouteResult result = entry.getValue();
+            if (!"SUCCESS".equals(result.status()) || result.rows() == expectedRows || result.rows() <= 0) {
+                checked.put(entry.getKey(), result);
+                continue;
+            }
+            String error = firstNonBlank(
+                result.error(),
+                "row count differs from comparable routes: expected=" + expectedRows + " actual=" + result.rows()
+            );
+            checked.put(entry.getKey(), new WebBenchmarkReport.RouteResult(
+                "FAILED",
+                result.coldMs(),
+                result.warmMs(),
+                result.hotMs(),
+                "FAILED",
+                "FAILED",
+                "FAILED",
+                result.rows(),
+                error
+            ));
+        }
+        return checked;
+    }
+
+    private Map<String, String> sqlByRoute(String profile, String datasetId, String queryName) {
+        Map<String, String> sqlByRoute = new LinkedHashMap<>();
+        for (String route : ROUTES) {
+            sqlByRoute.put(route, renderSql(profile, datasetId, queryName, route));
+        }
+        return sqlByRoute;
+    }
+
+    private String renderSql(String profile, String datasetId, String queryName, String route) {
+        try {
+            if ("tpch".equals(datasetId)) {
+                return TpchSqlRenderer.render(queryName, route);
+            }
+            if ("kpi".equals(datasetId)) {
+                return SqlRenderer.render(queryName, route, KpiTableNaming.tableShapesForProfile(profile));
+            }
+        } catch (IllegalArgumentException exception) {
+            return "";
+        }
+        return "";
     }
 
     private String status(BenchmarkReport.QuerySummary query) {
@@ -251,6 +371,15 @@ public class WebBenchmarkReportMapper {
         if (ROUTES.contains(normalized)) {
             return normalized;
         }
+        if ("tpch_iceberg".equals(normalized)) {
+            return "spark_iceberg";
+        }
+        if ("tpch_internal".equals(normalized)) {
+            return "starrocks_internal";
+        }
+        if ("tpch_external_iceberg".equals(normalized)) {
+            return "starrocks_external_iceberg";
+        }
         if (normalized.contains("spark") && normalized.contains("native") && normalized.contains("parquet")) {
             return "spark_native_parquet";
         }
@@ -292,12 +421,34 @@ public class WebBenchmarkReportMapper {
 
     private List<String> notices(BenchmarkReport report) {
         List<String> notices = new ArrayList<>();
-        if (!report.fullProfile()) {
-            notices.add("This run is not a 4.032B row full-profile validation.");
+        if (!report.fullProfile() && "kpi".equals(datasetId(report))) {
+            notices.add(reducedKpiDatasetNotice(report));
         }
         if ("tpch".equals(report.suite())) {
             notices.add("TPC-H smoke data is compatible test data, not an official TPC-H benchmark result.");
         }
         return notices;
+    }
+
+    private String reducedKpiDatasetNotice(BenchmarkReport report) {
+        long theoreticalRows = report.cells() > 0 && report.days() > 0
+            ? (long) report.cells() * report.days() * 24L * 60L
+            : 0L;
+        if (theoreticalRows <= 0) {
+            return "Reduced KPI validation dataset: this run generated " + formatRows(report.rows()) + " rows.";
+        }
+        return "Reduced KPI validation dataset: "
+            + formatRows(report.cells()) + " cells * "
+            + formatRows(report.days()) + " " + (report.days() == 1 ? "day" : "days")
+            + " = " + formatRows(theoreticalRows) + " theoretical rows; this run generated "
+            + formatRows(report.rows()) + " rows.";
+    }
+
+    private static String formatRows(long value) {
+        return String.format(Locale.ROOT, "%,d", value);
+    }
+
+    private static String firstNonBlank(String first, String fallback) {
+        return first == null || first.isBlank() ? fallback : first;
     }
 }

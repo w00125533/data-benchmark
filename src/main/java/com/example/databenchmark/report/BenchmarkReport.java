@@ -20,8 +20,44 @@ public record BenchmarkReport(
     long bytesWritten,
     List<LoadSummary> loadSummaries,
     List<QuerySummary> querySummaries,
+    List<TableRuntimeInfo> tableRuntimeInfos,
     boolean fullProfile
 ) {
+    public BenchmarkReport(
+        String runId,
+        String profile,
+        String suite,
+        String querySet,
+        String startedAt,
+        String endedAt,
+        int cells,
+        int days,
+        long rows,
+        int columns,
+        long bytesWritten,
+        List<LoadSummary> loadSummaries,
+        List<QuerySummary> querySummaries,
+        boolean fullProfile
+    ) {
+        this(
+            runId,
+            profile,
+            suite,
+            querySet,
+            startedAt,
+            endedAt,
+            cells,
+            days,
+            rows,
+            columns,
+            bytesWritten,
+            loadSummaries,
+            querySummaries,
+            List.of(),
+            fullProfile
+        );
+    }
+
     public static BenchmarkReport sample(String runId) {
         return new BenchmarkReport(
             runId,
@@ -49,6 +85,7 @@ public record BenchmarkReport(
                 true,
                 ""
             )),
+            List.of(),
             false
         );
     }
@@ -85,6 +122,72 @@ public record BenchmarkReport(
         boolean success,
         String error
     ) {}
+
+    public record TableRuntimeInfo(
+        String route,
+        String displayName,
+        String tableShape,
+        String tableIdentifier,
+        String storageType,
+        String location,
+        String format,
+        int columns,
+        String partitioning,
+        String bucketingOrDistribution,
+        String indexes,
+        String snapshotOrVersion,
+        long fileCount,
+        long tabletCount,
+        long rowsetCount,
+        long segmentCount,
+        long totalBytes,
+        String rawDetails,
+        boolean success,
+        String error
+    ) {
+        public TableRuntimeInfo(
+            String route,
+            String displayName,
+            String tableShape,
+            String tableIdentifier,
+            String storageType,
+            String location,
+            String format,
+            int columns,
+            String partitioning,
+            String bucketingOrDistribution,
+            String indexes,
+            String snapshotOrVersion,
+            long fileCount,
+            long totalBytes,
+            String rawDetails,
+            boolean success,
+            String error
+        ) {
+            this(
+                route,
+                displayName,
+                tableShape,
+                tableIdentifier,
+                storageType,
+                location,
+                format,
+                columns,
+                partitioning,
+                bucketingOrDistribution,
+                indexes,
+                snapshotOrVersion,
+                fileCount,
+                0L,
+                0L,
+                0L,
+                totalBytes,
+                rawDetails,
+                success,
+                error
+            );
+        }
+    }
 
     public record QuerySummary(
         String engine,

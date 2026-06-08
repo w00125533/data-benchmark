@@ -14,18 +14,19 @@ class SqlTemplatesTest {
         assertThat(sql).contains("DROP TABLE IF EXISTS iceberg_catalog.iceberg_db.cell_kpi_1min;");
         assertThat(sql).contains("USING iceberg");
         assertThat(sql).contains("PARTITIONED BY (days(event_time))");
-        assertThat(sql).contains("LOCATION 'hdfs://hdfs-namenode:8020/warehouse/iceberg/iceberg_db/cell_kpi_1min_default'");
+        assertThat(sql).contains("LOCATION 'hdfs://hdfs-namenode:8020/warehouse/iceberg/iceberg_db/cell_kpi_1min'");
         assertThat(sql).contains("event_time TIMESTAMP");
         assertThat(sql).contains("energy_kwh DOUBLE");
         assertThat(sql).doesNotContain("s3").doesNotContain("minio");
     }
 
     @Test
-    void sparkIcebergDdlUsesSanitizedRunIdInTableLocation() {
+    void sparkIcebergDdlUsesStableTableLocationForRepeatableRuns() {
         String sql = SqlTemplates.sparkCreateIcebergTable("run:1/abc");
 
         assertThat(sql)
-            .contains("LOCATION 'hdfs://hdfs-namenode:8020/warehouse/iceberg/iceberg_db/cell_kpi_1min_run_1_abc'");
+            .contains("LOCATION 'hdfs://hdfs-namenode:8020/warehouse/iceberg/iceberg_db/cell_kpi_1min'");
+        assertThat(sql).doesNotContain("cell_kpi_1min_run_1_abc");
     }
 
     @Test
@@ -58,14 +59,24 @@ class SqlTemplatesTest {
     }
 
     @Test
+    void starrocksInternalDdlAndBrokerLoadCanTargetProfileTable() {
+        assertThat(SqlTemplates.starRocksCreateInternalTable("cell_kpi_1min_smoke"))
+            .contains("CREATE TABLE IF NOT EXISTS sr_internal.cell_kpi_1min_smoke");
+        assertThat(SqlTemplates.starRocksTruncateInternalTable("cell_kpi_1min_smoke"))
+            .isEqualTo("TRUNCATE TABLE sr_internal.cell_kpi_1min_smoke;");
+        assertThat(SqlTemplates.starRocksBrokerLoadFromParquet("run-1", "hdfs://root/*/*.parquet", "cell_kpi_1min_smoke"))
+            .contains("INTO TABLE cell_kpi_1min_smoke");
+    }
+
+    @Test
     void starRocksBrokerLoadEscapesDoubleQuotedDataInfilePath() {
         String sql = SqlTemplates.starRocksBrokerLoadFromParquet(
             "run-1",
-            "hdfs://hdfs-namenode:8020/benchmark/kpi\"smoke\\generated/*/*.parquet"
+            "hdfs://hdfs-namenode:8020/services/data-benchmark/generated/kpi\"smoke/*/*.parquet"
         );
 
         assertThat(sql)
-            .contains("DATA INFILE(\"hdfs://hdfs-namenode:8020/benchmark/kpi\\\"smoke\\\\generated/*/*.parquet\")");
+            .contains("DATA INFILE(\"hdfs://hdfs-namenode:8020/services/data-benchmark/generated/kpi\\\"smoke/*/*.parquet\")");
     }
 
     @Test
@@ -87,12 +98,12 @@ class SqlTemplatesTest {
 
     @Test
     void hiveExternalParquetDdlDiscoversEventDatePartitions() {
-        String sql = SqlTemplates.hiveCreateExternalParquetTable("hdfs://hdfs-namenode:8020/data/generated");
+        String sql = SqlTemplates.hiveCreateExternalParquetTable("hdfs://hdfs-namenode:8020/services/data-benchmark/generated/kpi/default");
 
         assertThat(sql).contains("DROP TABLE IF EXISTS hive_hdfs_parquet.cell_kpi_1min");
         assertThat(sql).contains("CREATE EXTERNAL TABLE hive_hdfs_parquet.cell_kpi_1min");
         assertThat(sql).contains("PARTITIONED BY (event_date STRING)");
-        assertThat(sql).contains("LOCATION 'hdfs://hdfs-namenode:8020/data/generated'");
+        assertThat(sql).contains("LOCATION 'hdfs://hdfs-namenode:8020/services/data-benchmark/generated/kpi/default'");
         assertThat(sql).contains("MSCK REPAIR TABLE hive_hdfs_parquet.cell_kpi_1min");
     }
 }

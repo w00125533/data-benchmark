@@ -18,7 +18,7 @@ class HiveClientTest {
     @Test
     void createExternalTableRunsHiveDdlForHdfsParquetLocation() {
         FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "ok", "", 1.25));
-        Path parquetRoot = Path.of("/data/generated");
+        Path parquetRoot = Path.of("/services/data-benchmark/generated/kpi/default");
 
         EngineRunResult result = new HiveClient(runner, tempDir, Duration.ofMinutes(1))
             .createExternalTable(parquetRoot);
@@ -45,7 +45,7 @@ class HiveClientTest {
             .contains("CREATE EXTERNAL TABLE hive_hdfs_parquet.cell_kpi_1min")
             .contains("PARTITIONED BY (event_date STRING)")
             .contains("STORED AS PARQUET")
-            .contains("LOCATION 'hdfs://hdfs-namenode:8020/data/generated'")
+            .contains("LOCATION 'hdfs://hdfs-namenode:8020/services/data-benchmark/generated/kpi/default'")
             .contains("MSCK REPAIR TABLE hive_hdfs_parquet.cell_kpi_1min");
     }
 
@@ -54,12 +54,12 @@ class HiveClientTest {
         FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "ok", "", 1.25));
 
         EngineRunResult result = new HiveClient(runner, tempDir, Duration.ofMinutes(1))
-            .createExternalTable(pathString("hdfs://hdfs-namenode:8020/data/generated"));
+            .createExternalTable(pathString("hdfs://hdfs-namenode:8020/services/data-benchmark/generated/kpi/default"));
 
         assertThat(result.success()).isTrue();
         assertThat(runner.commands()).hasSize(1);
         assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
-            .contains("LOCATION 'hdfs://hdfs-namenode:8020/data/generated'");
+            .contains("LOCATION 'hdfs://hdfs-namenode:8020/services/data-benchmark/generated/kpi/default'");
     }
 
     @Test
@@ -169,7 +169,7 @@ class HiveClientTest {
         FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "ok", "", 1.25));
 
         EngineRunResult result = new HiveClient(runner, tempDir, Duration.ofMinutes(1), true)
-            .createExternalTable(Path.of("/data/generated"));
+            .createExternalTable(Path.of("/services/data-benchmark/generated/kpi/default"));
 
         assertThat(result.success()).isTrue();
         assertThat(runner.commands()).hasSize(1);

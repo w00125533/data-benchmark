@@ -9,6 +9,7 @@ public record WebBenchmarkReport(
     DatasetInfo dataset,
     List<LoadSummary> loads,
     List<QuerySummary> queries,
+    List<TableRuntimeInfo> tableRuntimeInfos,
     List<PerformanceMatrixRow> performanceMatrix,
     List<String> notices
 ) {
@@ -50,11 +51,36 @@ public record WebBenchmarkReport(
         String engine,
         String tableShape,
         String queryName,
+        String phase,
         double p50Ms,
         double p95Ms,
         double p99Ms,
+        double durationMs,
         long rows,
         String status,
+        String error
+    ) {}
+
+    public record TableRuntimeInfo(
+        String route,
+        String displayName,
+        String tableShape,
+        String tableIdentifier,
+        String storageType,
+        String location,
+        String format,
+        int columns,
+        String partitioning,
+        String bucketingOrDistribution,
+        String indexes,
+        String snapshotOrVersion,
+        long fileCount,
+        long tabletCount,
+        long rowsetCount,
+        long segmentCount,
+        long totalBytes,
+        String rawDetails,
+        boolean success,
         String error
     ) {}
 
@@ -63,6 +89,7 @@ public record WebBenchmarkReport(
         String datasetName,
         String querySet,
         String queryName,
+        Map<String, String> sqlByRoute,
         Map<String, RouteResult> routes,
         String bestRoute,
         double bestRouteHotMs

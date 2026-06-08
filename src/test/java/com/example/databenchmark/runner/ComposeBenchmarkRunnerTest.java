@@ -10,6 +10,7 @@ import com.example.databenchmark.engine.EngineStage;
 import com.example.databenchmark.generator.DatasetResult;
 import com.example.databenchmark.query.QueryCatalog;
 import com.example.databenchmark.report.BenchmarkReport;
+import com.example.databenchmark.report.TableRuntimeMetadataCollector;
 import com.example.databenchmark.tpch.TestTpchFixtures;
 import com.example.databenchmark.tpch.TpchDatasetResult;
 import java.math.BigDecimal;
@@ -17,6 +18,7 @@ import java.lang.reflect.Constructor;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -82,8 +84,8 @@ class ComposeBenchmarkRunnerTest {
             "Hive query " + queryName + " HOT"
         );
         assertThat(calls).containsSubsequence(
-            "Hive HDFS publish /data/generated",
-            "Hive external table /data/generated"
+            "Hive HDFS publish /services/data-benchmark/generated/kpi/default",
+            "Hive external table /services/data-benchmark/generated/kpi/default"
         );
         assertThat(reportWriter.report.querySummaries())
             .filteredOn(summary -> summary.queryName().equals(queryName))
@@ -231,13 +233,13 @@ class ComposeBenchmarkRunnerTest {
             "generate dataset",
             "Spark native load",
             "Spark load",
-            "Hive HDFS publish /data/generated",
+            "Hive HDFS publish /services/data-benchmark/generated/kpi/default",
             "ready STARROCKS_INTERNAL",
-            "StarRocks internal load from parquet /data/generated rows=5 bytes=123",
+            "StarRocks internal load from parquet /services/data-benchmark/generated/kpi/default rows=5 bytes=123",
             "ready STARROCKS_EXTERNAL_ICEBERG",
             "StarRocks external refresh",
             "ready HIVE_HDFS_PARQUET",
-            "Hive external table /data/generated",
+            "Hive external table /services/data-benchmark/generated/kpi/default",
             "Spark validate spark_native_parquet rows=5",
             "Spark validate spark_iceberg rows=5",
             "StarRocks validate starrocks_internal rows=5",
@@ -335,6 +337,119 @@ class ComposeBenchmarkRunnerTest {
     }
 
     @Test
+    void collectsKpiTableMetadataAfterValidationAndBeforeQueries() throws Exception {
+        List<String> calls = new ArrayList<>();
+        String queryName = QueryCatalog.queries().get(0).name();
+        DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
+        CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
+        RecordingMetadataCollector collector = new RecordingMetadataCollector(calls);
+
+        ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
+            config -> dataset,
+            failingTpchGenerator(),
+            failingTpchCsvExport(),
+            new FakeSparkClient(calls, "spark_native_parquet"),
+            new FakeStarRocksClient(calls, true),
+            new FakeHdfsDatasetPublisher(calls, true),
+            new FakeHiveClient(calls),
+            new FakeServiceController(calls),
+            reportWriter,
+            new CapturingMetricsRecorder(calls, "smoke", "kpi", "smoke"),
+            collector
+        );
+
+        runner.run(BenchmarkConfig.defaultSmoke(), tempDir.resolve("reports"), "compose-test");
+
+        assertThat(calls).containsSubsequence(
+            "Spark validate spark_native_parquet rows=5",
+            "Spark validate spark_iceberg rows=5",
+            "StarRocks validate starrocks_internal rows=5",
+            "StarRocks validate starrocks_external_iceberg rows=5",
+            "Hive validate rows=5",
+            "metadata KPI rows=5 bytes=123 failures=1",
+            "restart SPARK_ICEBERG",
+            "ready SPARK_ICEBERG",
+            "Spark query " + queryName + " COLD"
+        );
+        assertThat(collector.kpiRouteFailures).containsKey(BenchmarkRoute.SPARK_NATIVE_PARQUET);
+    }
+
+    @Test
+    void kpiTableMetadataAppearsInWrittenReport() throws Exception {
+        List<String> calls = new ArrayList<>();
+        DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
+        CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
+        RecordingMetadataCollector collector = new RecordingMetadataCollector(calls);
+
+        ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
+            config -> dataset,
+            failingTpchGenerator(),
+            failingTpchCsvExport(),
+            new FakeSparkClient(calls),
+            new FakeStarRocksClient(calls, true),
+            new FakeHdfsDatasetPublisher(calls, true),
+            new FakeHiveClient(calls),
+            new FakeServiceController(calls),
+            reportWriter,
+            new CapturingMetricsRecorder(calls, "smoke", "kpi", "smoke"),
+            collector
+        );
+
+        runner.run(BenchmarkConfig.defaultSmoke(), tempDir.resolve("reports"), "compose-test");
+
+        assertThat(reportWriter.report.tableRuntimeInfos())
+            .singleElement()
+            .satisfies(info -> {
+                assertThat(info.route()).isEqualTo("spark_iceberg");
+                assertThat(info.tableIdentifier()).isEqualTo("iceberg_catalog.iceberg_db.cell_kpi_1min");
+                assertThat(info.totalBytes()).isEqualTo(123L);
+                assertThat(info.rawDetails()).isEqualTo("raw metadata");
+            });
+    }
+
+    @Test
+    void metadataCollectorFailureDoesNotStopKpiQueriesOrReportWriting() throws Exception {
+        List<String> calls = new ArrayList<>();
+        String queryName = QueryCatalog.queries().get(0).name();
+        DatasetResult dataset = new DatasetResult(tempDir.resolve("data"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
+        CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/compose-test/index.html"));
+
+        ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
+            config -> dataset,
+            failingTpchGenerator(),
+            failingTpchCsvExport(),
+            new FakeSparkClient(calls),
+            new FakeStarRocksClient(calls, true),
+            new FakeHdfsDatasetPublisher(calls, true),
+            new FakeHiveClient(calls),
+            new FakeServiceController(calls),
+            reportWriter,
+            new CapturingMetricsRecorder(calls, "smoke", "kpi", "smoke"),
+            new ThrowingMetadataCollector(calls)
+        );
+
+        runner.run(BenchmarkConfig.defaultSmoke(), tempDir.resolve("reports"), "compose-test");
+
+        assertThat(calls).containsSubsequence(
+            "metadata KPI throws",
+            "restart SPARK_NATIVE_PARQUET",
+            "ready SPARK_NATIVE_PARQUET",
+            "Spark native query " + queryName + " COLD",
+            "write web report"
+        );
+        assertThat(reportWriter.report.querySummaries())
+            .filteredOn(summary -> summary.queryName().equals(queryName))
+            .filteredOn(BenchmarkReport.QuerySummary::success)
+            .isNotEmpty();
+        assertThat(reportWriter.report.tableRuntimeInfos())
+            .isNotEmpty()
+            .allSatisfy(info -> {
+                assertThat(info.success()).isFalse();
+                assertThat(info.error()).contains("metadata collection failed");
+            });
+    }
+
+    @Test
     void composeRunnerPublishesRelativeLocalOutputBeforeStarRocksInternalLoad() throws Exception {
         List<String> calls = new ArrayList<>();
         DatasetResult dataset = new DatasetResult(tempDir.resolve("data/generated"), List.of(tempDir.resolve("part.parquet")), 5L, 123L);
@@ -357,10 +472,10 @@ class ComposeBenchmarkRunnerTest {
 
         assertThat(calls)
             .containsSubsequence(
-                "Hive HDFS publish /data/generated",
-                "StarRocks internal load from parquet /data/generated rows=5 bytes=123"
+                "Hive HDFS publish /services/data-benchmark/generated/kpi/default",
+                "StarRocks internal load from parquet /services/data-benchmark/generated/kpi/default rows=5 bytes=123"
             )
-            .contains("StarRocks internal load from parquet /data/generated rows=5 bytes=123")
+            .contains("StarRocks internal load from parquet /services/data-benchmark/generated/kpi/default rows=5 bytes=123")
             .noneMatch(call -> call.contains("StarRocks internal load from parquet ")
                 && call.contains(dataset.outputPath().toString().replace('\\', '/')))
             .noneMatch(call -> call.contains("StarRocks internal load from parquet ")
@@ -392,14 +507,14 @@ class ComposeBenchmarkRunnerTest {
         );
 
         runner.run(
-            BenchmarkConfig.defaultSmoke().withOverrides(null, null, null, "/benchmark/kpi-smoke/generated", null),
+            BenchmarkConfig.defaultSmoke().withOverrides(null, null, null, "/services/data-benchmark/generated/kpi/kpi-smoke", null),
             tempDir.resolve("reports"),
             "compose-test"
         );
 
         assertThat(calls).containsSubsequence(
-            "Hive HDFS publish /benchmark/kpi-smoke/generated",
-            "StarRocks internal load from parquet /benchmark/kpi-smoke/generated rows=5 bytes=123"
+            "Hive HDFS publish /services/data-benchmark/generated/kpi/kpi-smoke",
+            "StarRocks internal load from parquet /services/data-benchmark/generated/kpi/kpi-smoke rows=5 bytes=123"
         );
     }
 
@@ -431,12 +546,12 @@ class ComposeBenchmarkRunnerTest {
         assertThat(result.success()).isFalse();
         assertThat(calls).containsSubsequence(
             "Spark load",
-            "Hive HDFS publish /data/generated",
+            "Hive HDFS publish /services/data-benchmark/generated/kpi/default",
             "ready STARROCKS_INTERNAL",
             "ready STARROCKS_EXTERNAL_ICEBERG",
             "StarRocks external refresh",
             "ready HIVE_HDFS_PARQUET",
-            "Hive external table /data/generated"
+            "Hive external table /services/data-benchmark/generated/kpi/default"
         );
         assertThat(calls).doesNotContain("StarRocks internal load");
         assertThat(reportWriter.report.status()).isEqualTo("DEGRADED");
@@ -486,10 +601,10 @@ class ComposeBenchmarkRunnerTest {
             "start metrics",
             "generate dataset",
             "Spark load",
-            "Hive HDFS publish /data/generated",
-            "StarRocks internal load from parquet /data/generated rows=5 bytes=123",
+            "Hive HDFS publish /services/data-benchmark/generated/kpi/default",
+            "StarRocks internal load from parquet /services/data-benchmark/generated/kpi/default rows=5 bytes=123",
             "StarRocks external refresh",
-            "Hive external table /data/generated",
+            "Hive external table /services/data-benchmark/generated/kpi/default",
             "restart SPARK_ICEBERG",
             "ready SPARK_ICEBERG",
             "record load:GENERATE",
@@ -526,7 +641,7 @@ class ComposeBenchmarkRunnerTest {
         );
 
         ComposeBenchmarkRunner.ComposeRunResult result = runner.run(
-            BenchmarkConfig.defaultSmoke().withOverrides(null, null, null, "hdfs://hdfs-namenode:8020/benchmark/kpi-smoke/generated", null),
+            BenchmarkConfig.defaultSmoke().withOverrides(null, null, null, "hdfs://hdfs-namenode:8020/services/data-benchmark/generated/kpi/kpi-smoke", null),
             tempDir.resolve("reports"),
             "compose-test"
         );
@@ -534,8 +649,8 @@ class ComposeBenchmarkRunnerTest {
         assertThat(result.success()).isTrue();
         assertThat(calls).noneMatch(call -> call.startsWith("Hive HDFS publish "));
         assertThat(calls).contains(
-            "StarRocks internal load from parquet /benchmark/kpi-smoke/generated rows=5 bytes=123",
-            "Hive external table /benchmark/kpi-smoke/generated",
+            "StarRocks internal load from parquet /services/data-benchmark/generated/kpi/kpi-smoke rows=5 bytes=123",
+            "Hive external table /services/data-benchmark/generated/kpi/kpi-smoke",
             "restart STARROCKS_INTERNAL",
             "ready STARROCKS_INTERNAL",
             "StarRocks starrocks_internal " + queryName + " COLD",
@@ -573,8 +688,8 @@ class ComposeBenchmarkRunnerTest {
         assertThat(result.success()).isFalse();
         assertThat(reportWriter.report.status()).isEqualTo("DEGRADED");
         assertThat(calls).containsSubsequence(
-            "Hive HDFS publish /data/generated",
-            "Hive external table /data/generated"
+            "Hive HDFS publish /services/data-benchmark/generated/kpi/default",
+            "Hive external table /services/data-benchmark/generated/kpi/default"
         );
         assertThat(calls).contains(
             "restart SPARK_ICEBERG",
@@ -633,7 +748,7 @@ class ComposeBenchmarkRunnerTest {
 
         assertThat(result.success()).isFalse();
         assertThat(calls)
-            .contains("Hive HDFS publish /data/generated")
+            .contains("Hive HDFS publish /services/data-benchmark/generated/kpi/default")
             .noneMatch(call -> call.startsWith("StarRocks internal load from parquet "))
             .doesNotContain(
                 "restart STARROCKS_INTERNAL",
@@ -717,7 +832,7 @@ class ComposeBenchmarkRunnerTest {
             123L
         );
 
-        EngineRunResult result = publisher.publish(dataset, "/data/generated");
+        EngineRunResult result = publisher.publish(dataset, "/services/data-benchmark/generated/kpi/default");
 
         assertThat(result.success()).isTrue();
         assertThat(commandRunner.commands()).hasSize(6);
@@ -726,51 +841,51 @@ class ComposeBenchmarkRunnerTest {
             "-v", tempDir.toAbsolutePath().normalize() + ":/workspace",
             "-w", "/workspace",
             "apache/hadoop:3.3.6",
-            "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
-            "-rm", "-r", "-f", "/data/generated"
+            "hdfs", "dfs", "-Ddfs.replication=1", "-fs", "hdfs://hdfs-namenode:8020",
+            "-rm", "-r", "-f", "/services/data-benchmark/generated/kpi/default"
         );
         assertThat(commandRunner.commands().get(1)).containsExactly(
             "docker", "run", "--rm", "--network", "shared-data-infra",
             "-v", tempDir.toAbsolutePath().normalize() + ":/workspace",
             "-w", "/workspace",
             "apache/hadoop:3.3.6",
-            "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
-            "-mkdir", "-p", "/data/generated"
+            "hdfs", "dfs", "-Ddfs.replication=1", "-fs", "hdfs://hdfs-namenode:8020",
+            "-mkdir", "-p", "/services/data-benchmark/generated/kpi/default"
         );
         assertThat(commandRunner.commands().get(2)).containsExactly(
             "docker", "run", "--rm", "--network", "shared-data-infra",
             "-v", tempDir.toAbsolutePath().normalize() + ":/workspace",
             "-w", "/workspace",
             "apache/hadoop:3.3.6",
-            "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
-            "-mkdir", "-p", "/data/generated/event_date=2026-01-01"
+            "hdfs", "dfs", "-Ddfs.replication=1", "-fs", "hdfs://hdfs-namenode:8020",
+            "-mkdir", "-p", "/services/data-benchmark/generated/kpi/default/event_date=2026-01-01"
         );
         assertThat(commandRunner.commands().get(3)).containsExactly(
             "docker", "run", "--rm", "--network", "shared-data-infra",
             "-v", tempDir.toAbsolutePath().normalize() + ":/workspace",
             "-w", "/workspace",
             "apache/hadoop:3.3.6",
-            "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
-            "-put", "-f", "/workspace/data/generated/event_date=2026-01-01/part-00000.parquet", "/data/generated/event_date=2026-01-01"
+            "hdfs", "dfs", "-Ddfs.replication=1", "-fs", "hdfs://hdfs-namenode:8020",
+            "-put", "-f", "/workspace/data/generated/event_date=2026-01-01/part-00000.parquet", "/services/data-benchmark/generated/kpi/default/event_date=2026-01-01"
         );
         assertThat(commandRunner.commands().get(4)).containsExactly(
             "docker", "run", "--rm", "--network", "shared-data-infra",
             "-v", tempDir.toAbsolutePath().normalize() + ":/workspace",
             "-w", "/workspace",
             "apache/hadoop:3.3.6",
-            "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
-            "-mkdir", "-p", "/data/generated/event_date=2026-01-02"
+            "hdfs", "dfs", "-Ddfs.replication=1", "-fs", "hdfs://hdfs-namenode:8020",
+            "-mkdir", "-p", "/services/data-benchmark/generated/kpi/default/event_date=2026-01-02"
         );
         assertThat(commandRunner.commands().get(5)).containsExactly(
             "docker", "run", "--rm", "--network", "shared-data-infra",
             "-v", tempDir.toAbsolutePath().normalize() + ":/workspace",
             "-w", "/workspace",
             "apache/hadoop:3.3.6",
-            "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
-            "-put", "-f", "/workspace/data/generated/event_date=2026-01-02/part-00000.parquet", "/data/generated/event_date=2026-01-02"
+            "hdfs", "dfs", "-Ddfs.replication=1", "-fs", "hdfs://hdfs-namenode:8020",
+            "-put", "-f", "/workspace/data/generated/event_date=2026-01-02/part-00000.parquet", "/services/data-benchmark/generated/kpi/default/event_date=2026-01-02"
         );
         assertThat(commandRunner.commands()).noneSatisfy(command ->
-            assertThat(command).containsSequence("-put", "-f", "/workspace/data/generated", "/data/generated"));
+            assertThat(command).containsSequence("-put", "-f", "/workspace/data/generated", "/services/data-benchmark/generated/kpi/default"));
     }
 
     @Test
@@ -791,28 +906,28 @@ class ComposeBenchmarkRunnerTest {
             123L
         );
 
-        EngineRunResult result = publisher.publish(dataset, "/data/generated");
+        EngineRunResult result = publisher.publish(dataset, "/services/data-benchmark/generated/kpi/default");
 
         assertThat(result.success()).isTrue();
         assertThat(commandRunner.commands()).hasSize(4);
         assertThat(commandRunner.commands().get(0)).containsExactly(
-            "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
-            "-rm", "-r", "-f", "/data/generated"
+            "hdfs", "dfs", "-Ddfs.replication=1", "-fs", "hdfs://hdfs-namenode:8020",
+            "-rm", "-r", "-f", "/services/data-benchmark/generated/kpi/default"
         );
         assertThat(commandRunner.commands().get(1)).containsExactly(
-            "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
-            "-mkdir", "-p", "/data/generated"
+            "hdfs", "dfs", "-Ddfs.replication=1", "-fs", "hdfs://hdfs-namenode:8020",
+            "-mkdir", "-p", "/services/data-benchmark/generated/kpi/default"
         );
         assertThat(commandRunner.commands().get(2)).containsExactly(
-            "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
-            "-mkdir", "-p", "/data/generated/event_date=2026-01-01"
+            "hdfs", "dfs", "-Ddfs.replication=1", "-fs", "hdfs://hdfs-namenode:8020",
+            "-mkdir", "-p", "/services/data-benchmark/generated/kpi/default/event_date=2026-01-01"
         );
         assertThat(commandRunner.commands().get(3)).containsExactly(
-            "hdfs", "dfs", "-fs", "hdfs://hdfs-namenode:8020",
-            "-put", "-f", "/workspace/data/generated/event_date=2026-01-01/part-00000.parquet", "/data/generated/event_date=2026-01-01"
+            "hdfs", "dfs", "-Ddfs.replication=1", "-fs", "hdfs://hdfs-namenode:8020",
+            "-put", "-f", "/workspace/data/generated/event_date=2026-01-01/part-00000.parquet", "/services/data-benchmark/generated/kpi/default/event_date=2026-01-01"
         );
         assertThat(commandRunner.commands()).noneSatisfy(command ->
-            assertThat(command).containsSequence("-put", "-f", "/workspace/data/generated", "/data/generated"));
+            assertThat(command).containsSequence("-put", "-f", "/workspace/data/generated", "/services/data-benchmark/generated/kpi/default"));
     }
 
     @Test
@@ -898,6 +1013,95 @@ class ComposeBenchmarkRunnerTest {
         assertThat(reportWriter.report.querySummaries())
             .extracting(BenchmarkReport.QuerySummary::phase)
             .containsExactly(RoutePhase.COLD.name(), RoutePhase.WARM.name(), RoutePhase.HOT.name());
+    }
+
+    @Test
+    void collectsTpchTableMetadataBeforeTpchQueries() throws Exception {
+        List<String> calls = new ArrayList<>();
+        TpchDatasetResult tpchDataset = TestTpchFixtures.dataset(tempDir.resolve("data/tpch/tpch-unit"));
+        Map<String, Path> csvFiles = new LinkedHashMap<>(TestTpchFixtures.csvFiles(tpchDataset));
+        CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/tpch-compose/index.html"));
+        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls, "tpch-smoke", "tpch", "smoke");
+        BenchmarkConfig config = new BenchmarkConfig(
+            "tpch-smoke",
+            20260602L,
+            new BenchmarkConfig.SuiteConfig("tpch", new BigDecimal("0.01"), "smoke"),
+            BenchmarkConfig.defaultSmoke().dataset(),
+            BenchmarkConfig.defaultSmoke().query(),
+            BenchmarkConfig.defaultSmoke().report()
+        );
+        RecordingMetadataCollector collector = new RecordingMetadataCollector(calls);
+
+        ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
+            failingDatasetGenerator(),
+            (configArg, runId) -> tpchDataset,
+            datasetArg -> csvFiles,
+            new FakeSparkClient(calls),
+            new FakeStarRocksClient(calls, true),
+            reportWriter,
+            metricsRecorder,
+            collector
+        );
+
+        runner.run(config, tempDir.resolve("reports"), "compose-test");
+
+        assertThat(calls).containsSubsequence(
+            "Spark TPC-H load",
+            "StarRocks TPC-H internal load",
+            "StarRocks TPC-H external refresh",
+            "metadata TPC-H rows=" + tpchDataset.rows() + " bytes=" + tpchDataset.bytesWritten(),
+            "Spark TPC-H queries",
+            "StarRocks TPC-H queries"
+        );
+        assertThat(reportWriter.report.tableRuntimeInfos())
+            .singleElement()
+            .satisfies(info -> {
+                assertThat(info.route()).isEqualTo("spark_iceberg");
+                assertThat(info.tableIdentifier()).isEqualTo("iceberg_catalog.tpch.lineitem");
+            });
+    }
+
+    @Test
+    void metadataCollectorFailureDoesNotStopTpchQueriesOrReportWriting() throws Exception {
+        List<String> calls = new ArrayList<>();
+        TpchDatasetResult tpchDataset = TestTpchFixtures.dataset(tempDir.resolve("data/tpch/tpch-unit"));
+        Map<String, Path> csvFiles = new LinkedHashMap<>(TestTpchFixtures.csvFiles(tpchDataset));
+        CapturingReportWriter reportWriter = new CapturingReportWriter(calls, tempDir.resolve("reports/tpch-compose/index.html"));
+        CapturingMetricsRecorder metricsRecorder = new CapturingMetricsRecorder(calls, "tpch-smoke", "tpch", "smoke");
+        BenchmarkConfig config = new BenchmarkConfig(
+            "tpch-smoke",
+            20260602L,
+            new BenchmarkConfig.SuiteConfig("tpch", new BigDecimal("0.01"), "smoke"),
+            BenchmarkConfig.defaultSmoke().dataset(),
+            BenchmarkConfig.defaultSmoke().query(),
+            BenchmarkConfig.defaultSmoke().report()
+        );
+
+        ComposeBenchmarkRunner runner = new ComposeBenchmarkRunner(
+            failingDatasetGenerator(),
+            (configArg, runId) -> tpchDataset,
+            datasetArg -> csvFiles,
+            new FakeSparkClient(calls),
+            new FakeStarRocksClient(calls, true),
+            reportWriter,
+            metricsRecorder,
+            new ThrowingMetadataCollector(calls)
+        );
+
+        runner.run(config, tempDir.resolve("reports"), "compose-test");
+
+        assertThat(calls).containsSubsequence(
+            "metadata TPC-H throws",
+            "Spark TPC-H queries",
+            "StarRocks TPC-H queries",
+            "write web report"
+        );
+        assertThat(reportWriter.report.tableRuntimeInfos())
+            .isNotEmpty()
+            .allSatisfy(info -> {
+                assertThat(info.success()).isFalse();
+                assertThat(info.error()).contains("metadata collection failed");
+            });
     }
 
     @Test
@@ -1059,6 +1263,78 @@ class ComposeBenchmarkRunnerTest {
         var method = type.getDeclaredMethod("dockerNetworkFromEnvironment", Map.class);
         method.setAccessible(true);
         return (String) method.invoke(null, environment);
+    }
+
+    private static BenchmarkReport.TableRuntimeInfo tableInfo(String route, String tableIdentifier, long bytes) {
+        return new BenchmarkReport.TableRuntimeInfo(
+            route,
+            "Spark Iceberg",
+            route,
+            tableIdentifier,
+            "Iceberg",
+            "",
+            "Parquet",
+            50,
+            "days(event_time)",
+            "",
+            "",
+            "",
+            0L,
+            bytes,
+            "raw metadata",
+            true,
+            ""
+        );
+    }
+
+    private static final class RecordingMetadataCollector implements TableRuntimeMetadataCollector {
+        private final List<String> calls;
+        private Map<BenchmarkRoute, String> kpiRouteFailures = Map.of();
+
+        private RecordingMetadataCollector(List<String> calls) {
+            this.calls = calls;
+        }
+
+        @Override
+        public List<BenchmarkReport.TableRuntimeInfo> collectKpi(
+            Map<BenchmarkRoute, String> routeFailures,
+            long rows,
+            long bytes
+        ) {
+            kpiRouteFailures = new EnumMap<>(routeFailures);
+            calls.add("metadata KPI rows=" + rows + " bytes=" + bytes + " failures=" + routeFailures.size());
+            return List.of(tableInfo("spark_iceberg", "iceberg_catalog.iceberg_db.cell_kpi_1min", bytes));
+        }
+
+        @Override
+        public List<BenchmarkReport.TableRuntimeInfo> collectTpch(long rows, long bytes) {
+            calls.add("metadata TPC-H rows=" + rows + " bytes=" + bytes);
+            return List.of(tableInfo("spark_iceberg", "iceberg_catalog.tpch.lineitem", bytes));
+        }
+    }
+
+    private static final class ThrowingMetadataCollector implements TableRuntimeMetadataCollector {
+        private final List<String> calls;
+
+        private ThrowingMetadataCollector(List<String> calls) {
+            this.calls = calls;
+        }
+
+        @Override
+        public List<BenchmarkReport.TableRuntimeInfo> collectKpi(
+            Map<BenchmarkRoute, String> routeFailures,
+            long rows,
+            long bytes
+        ) {
+            calls.add("metadata KPI throws");
+            throw new IllegalStateException("metadata collection failed");
+        }
+
+        @Override
+        public List<BenchmarkReport.TableRuntimeInfo> collectTpch(long rows, long bytes) {
+            calls.add("metadata TPC-H throws");
+            throw new IllegalStateException("metadata collection failed");
+        }
     }
 
     private static final class FakeSparkClient implements ComposeBenchmarkRunner.SparkClient {

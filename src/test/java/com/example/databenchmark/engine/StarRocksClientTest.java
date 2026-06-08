@@ -151,8 +151,8 @@ class StarRocksClientTest {
         EngineRunResult result = new StarRocksClient(jdbc, streamLoad).loadInternal(Path.of("generated"), "run-1", "smoke");
 
         assertThat(result.success()).isTrue();
-        assertThat(jdbc.sql()).contains(SqlTemplates.starRocksCreateInternalTable());
-        assertThat(jdbc.sql()).contains(SqlTemplates.starRocksTruncateInternalTable());
+        assertThat(jdbc.sql()).contains(SqlTemplates.starRocksCreateInternalTable("cell_kpi_1min_smoke"));
+        assertThat(jdbc.sql()).contains(SqlTemplates.starRocksTruncateInternalTable("cell_kpi_1min_smoke"));
         assertThat(jdbc.sql()).anySatisfy(sql -> assertThat(sql)
             .contains("LOAD LABEL sr_internal.kpi_run_1_")
             .contains("DATA INFILE(\"hdfs://hdfs-namenode:8020/generated/*/*.parquet\")"));
@@ -166,16 +166,16 @@ class StarRocksClientTest {
 
         EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
             new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
-        )).loadInternal(Path.of("/benchmark/kpi-smoke/generated"), "run-1", "smoke", 100L, 2048L);
+        )).loadInternal(Path.of("/services/data-benchmark/generated/kpi/kpi-smoke"), "run-1", "smoke", 100L, 2048L);
 
         assertThat(result.success()).isTrue();
         assertThat(result.rows()).isEqualTo(100L);
         assertThat(result.bytes()).isEqualTo(2048L);
         assertThat(jdbc.sql()).anySatisfy(sql -> assertThat(sql)
             .contains("LOAD LABEL sr_internal.")
-            .contains("DATA INFILE(\"hdfs://hdfs-namenode:8020/benchmark/kpi-smoke/generated/*/*.parquet\")")
+            .contains("DATA INFILE(\"hdfs://hdfs-namenode:8020/services/data-benchmark/generated/kpi/kpi-smoke/*/*.parquet\")")
             .contains("FORMAT AS \"parquet\"")
-            .contains("INTO TABLE cell_kpi_1min"));
+            .contains("INTO TABLE cell_kpi_1min_smoke"));
         assertThat(jdbc.sql()).noneMatch(sql -> sql.contains("_stream_load"));
     }
 
@@ -186,7 +186,7 @@ class StarRocksClientTest {
 
         EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
             new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
-        )).loadInternal(Path.of("/benchmark/kpi-smoke/generated"), "run-1", "smoke", 100L, 2048L);
+        )).loadInternal(Path.of("/services/data-benchmark/generated/kpi/kpi-smoke"), "run-1", "smoke", 100L, 2048L);
 
         assertThat(result.success()).isFalse();
         assertThat(result.error()).contains("broker_load failed");
@@ -330,7 +330,7 @@ class StarRocksClientTest {
         )).runQueries("run-1", "smoke");
 
         assertThat(results).hasSize(20).allSatisfy(result -> assertThat(result.success()).isTrue());
-        assertThat(jdbc.sql()).anySatisfy(sql -> assertThat(sql).contains("sr_internal.cell_kpi_1min"));
+        assertThat(jdbc.sql()).anySatisfy(sql -> assertThat(sql).contains("sr_internal.cell_kpi_1min_smoke"));
         assertThat(jdbc.sql()).anySatisfy(sql -> assertThat(sql).contains("sr_external_iceberg.iceberg_db.cell_kpi_1min"));
     }
 
@@ -404,6 +404,32 @@ class StarRocksClientTest {
         assertThat(result.success()).isFalse();
         assertThat(result.error()).contains("row count mismatch").contains("expected=5").contains("actual=4");
         assertThat(jdbc.sql()).containsExactly("SELECT COUNT(*) FROM sr_internal.cell_kpi_1min");
+    }
+
+    @Test
+    void validateCountUsesProfileSpecificInternalTable() {
+        FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
+        jdbc.queryLongResult = 5L;
+
+        EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        )).validateCount("starrocks_internal", 5L, "kpi-1b");
+
+        assertThat(result.success()).isTrue();
+        assertThat(jdbc.sql()).containsExactly("SELECT COUNT(*) FROM sr_internal.cell_kpi_1min_1b");
+    }
+
+    @Test
+    void validateCountRecordsElapsedTime() {
+        FakeJdbcExecutor jdbc = new FakeJdbcExecutor();
+        jdbc.queryLongDelayMillis = 75L;
+
+        EngineRunResult result = new StarRocksClient(jdbc, new CapturingStreamLoadClient(
+            new StarRocksStreamLoadClient.StreamLoadResult(200, "{\"Status\":\"Success\"}", 0.25)
+        )).validateCount("starrocks_internal", 3L);
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.durationSeconds()).isGreaterThanOrEqualTo(0.05);
     }
 
     @Test
@@ -482,6 +508,7 @@ class StarRocksClientTest {
         private String failOnSql;
         private String failOnSqlContaining;
         private long queryLongResult = 3L;
+        private long queryLongDelayMillis;
 
         @Override
         public JdbcExecutionResult execute(String sql) throws SQLException {
@@ -505,12 +532,26 @@ class StarRocksClientTest {
 
         @Override
         public long queryLong(String sql) throws SQLException {
+            return queryLongResult(sql).rows();
+        }
+
+        @Override
+        public JdbcExecutionResult queryLongResult(String sql) throws SQLException {
+            long started = System.nanoTime();
             this.sql.add(sql);
+            if (queryLongDelayMillis > 0) {
+                try {
+                    Thread.sleep(queryLongDelayMillis);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new SQLException("interrupted while delaying queryLong", e);
+                }
+            }
             if (failure != null && (failOnSql == null || failOnSql.equals(sql))
                 && (failOnSqlContaining == null || sql.contains(failOnSqlContaining))) {
                 throw failure;
             }
-            return queryLongResult;
+            return new JdbcExecutionResult(queryLongResult, (System.nanoTime() - started) / 1_000_000_000.0);
         }
 
         @Override

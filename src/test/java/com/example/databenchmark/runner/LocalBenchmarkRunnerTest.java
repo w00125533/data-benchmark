@@ -47,7 +47,9 @@ class LocalBenchmarkRunnerTest {
         assertThat(html).contains("\"queryName\" : \"catalog_render_check\"");
         assertThat(html).contains("\"performanceMatrix\"");
         assertThat(html).contains("\"performanceMatrix\" : [ ]");
-        assertThat(html).contains("This run is not a 4.032B row full-profile validation.");
+        assertThat(html).contains(
+            "Reduced KPI validation dataset: 2 cells * 1 day = 2,880 theoretical rows; this run generated 8 rows."
+        );
     }
 
     @Test

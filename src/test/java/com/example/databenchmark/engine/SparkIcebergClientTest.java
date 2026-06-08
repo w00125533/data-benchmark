@@ -19,7 +19,10 @@ class SparkIcebergClientTest {
 
     @Test
     void loadBuildsDockerComposeSparkSqlCommandWithHdfsHiveAndSql() {
-        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "ok", "", 1.25));
+        FakeCommandRunner runner = new FakeCommandRunner(List.of(
+            new CommandResult(List.of(), 0, "cleanup ok", "", 0.25),
+            new CommandResult(List.of(), 0, "ok", "", 1.25)
+        ));
         Path workspace = tempDir.resolve("workspace");
         DatasetResult dataset = new DatasetResult(
             workspace.resolve("data/run-1"),
@@ -33,7 +36,21 @@ class SparkIcebergClientTest {
 
         assertThat(result.success()).isTrue();
         assertThat(result.rows()).isEqualTo(42);
-        List<String> command = runner.commands().get(0);
+        assertThat(runner.commands()).hasSize(2);
+        assertThat(runner.commands().get(0)).containsExactly(
+            "docker", "compose", "-p", "shared-data-infra",
+            "-f", "../shared-data-infra/compose.yaml",
+            "-f", "../shared-data-infra/compose.lakehouse.yaml",
+            "-f", "../shared-data-infra/compose.starrocks.yaml",
+            "--profile", "lakehouse",
+            "--profile", "lakehouse-tools",
+            "--profile", "spark-tools",
+            "--profile", "starrocks",
+            "exec", "-T", "hive-server",
+            "beeline", "-u", "jdbc:hive2://hive-server:10000/default",
+            "-e", SqlTemplates.hiveDropIcebergTableRegistration()
+        );
+        List<String> command = runner.commands().get(1);
         assertThat(command).containsExactly(
             "docker", "compose", "-p", "shared-data-infra",
             "-f", "../shared-data-infra/compose.yaml",
@@ -53,6 +70,7 @@ class SparkIcebergClientTest {
             "--conf", "spark.sql.parquet.enableVectorizedReader=false",
             "--conf", "spark.sql.parquet.columnarReaderBatchSize=1024",
             "--conf", "spark.sql.adaptive.enabled=true",
+            "--conf", "spark.hadoop.dfs.replication=1",
             "--conf", "spark.jars.ivy=/tmp/.ivy2",
             "--packages", "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1",
             "--conf", "spark.sql.catalog.iceberg_catalog=org.apache.iceberg.spark.SparkCatalog",
@@ -68,7 +86,10 @@ class SparkIcebergClientTest {
 
     @Test
     void inContainerModeRunsSparkSqlDirectlyWithoutDockerCompose() {
-        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "ok", "", 1.25));
+        FakeCommandRunner runner = new FakeCommandRunner(List.of(
+            new CommandResult(List.of(), 0, "cleanup ok", "", 0.25),
+            new CommandResult(List.of(), 0, "ok", "", 1.25)
+        ));
         Path workspace = tempDir.resolve("workspace");
         DatasetResult dataset = new DatasetResult(
             workspace.resolve("data/run-1"),
@@ -81,13 +102,19 @@ class SparkIcebergClientTest {
             .load(dataset, "run-1", "smoke");
 
         assertThat(result.success()).isTrue();
-        List<String> command = runner.commands().get(0);
+        assertThat(runner.commands().get(0))
+            .containsExactly(
+                "beeline", "-u", "jdbc:hive2://hive-server:10000/default",
+                "-e", SqlTemplates.hiveDropIcebergTableRegistration()
+            );
+        List<String> command = runner.commands().get(1);
         assertThat(command)
             .startsWith("/opt/spark/bin/spark-sql")
             .doesNotContain("docker", "compose", "exec");
         assertThat(command)
             .contains("spark.jars.ivy=/tmp/.ivy2")
             .contains("local[6]")
+            .contains("spark.hadoop.dfs.replication=1")
             .contains("spark.sql.files.maxPartitionBytes=67108864")
             .contains("spark.sql.parquet.enableVectorizedReader=false")
             .contains("spark.sql.catalog.iceberg_catalog.uri=thrift://hive-metastore:9083")
@@ -97,8 +124,32 @@ class SparkIcebergClientTest {
     }
 
     @Test
+    void loadFailsWhenIcebergMetastoreCleanupFails() {
+        FakeCommandRunner runner = new FakeCommandRunner(List.of(
+            new CommandResult(List.of(), 2, "", "cleanup failed", 0.25),
+            new CommandResult(List.of(), 0, "ok", "", 1.25)
+        ));
+        Path workspace = tempDir.resolve("workspace");
+
+        EngineRunResult result = new SparkIcebergClient(runner, workspace, Duration.ofMinutes(1))
+            .load(new DatasetResult(
+                workspace.resolve("data/run-1"),
+                List.of(workspace.resolve("data/run-1/part.parquet")),
+                42,
+                128
+            ), "run-1", "smoke");
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.error()).contains("cleanup failed");
+        assertThat(runner.commands()).hasSize(1);
+    }
+
+    @Test
     void failedSparkCommandBecomesFailedEngineResultWithStderr() {
-        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 2, "", "spark failed", 0.5));
+        FakeCommandRunner runner = new FakeCommandRunner(List.of(
+            new CommandResult(List.of(), 0, "cleanup ok", "", 0.25),
+            new CommandResult(List.of(), 2, "", "spark failed", 0.5)
+        ));
         Path workspace = tempDir.resolve("workspace");
 
         EngineRunResult result = new SparkIcebergClient(runner, workspace, Duration.ofMinutes(1))
@@ -133,12 +184,12 @@ class SparkIcebergClientTest {
         Path workspace = tempDir.resolve("workspace");
 
         EngineRunResult result = new SparkIcebergClient(runner, workspace, Duration.ofMinutes(1))
-            .load(new DatasetResult(Path.of("/benchmark/kpi-1b/generated"), List.of(), 100, 4096), "run-1", "smoke");
+            .load(new DatasetResult(Path.of("/services/data-benchmark/generated/kpi/kpi-1b"), List.of(), 100, 4096), "run-1", "smoke");
 
         assertThat(result.success()).isTrue();
-        assertThat(runner.commands()).hasSize(1);
-        assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
-            .contains("path 'hdfs://hdfs-namenode:8020/benchmark/kpi-1b/generated'");
+        assertThat(runner.commands()).hasSize(2);
+        assertThat(runner.commands().get(1).get(runner.commands().get(1).size() - 1))
+            .contains("path 'hdfs://hdfs-namenode:8020/services/data-benchmark/generated/kpi/kpi-1b'");
     }
 
     @Test
@@ -147,15 +198,15 @@ class SparkIcebergClientTest {
         Path workspace = tempDir.resolve("workspace");
         Path safeHdfsPath = com.example.databenchmark.generator.KpiGenerationConfig.from(
             com.example.databenchmark.config.BenchmarkConfig.defaultSmoke()
-                .withOverrides(10, 1, null, "hdfs://hdfs-namenode:8020/benchmark/kpi-1b/generated", 100L)
+                .withOverrides(10, 1, null, "hdfs://hdfs-namenode:8020/services/data-benchmark/generated/kpi/kpi-1b", 100L)
         ).outputPath();
 
         EngineRunResult result = new SparkIcebergClient(runner, workspace, Duration.ofMinutes(1))
             .load(new DatasetResult(safeHdfsPath, List.of(), 100, 4096), "run-1", "smoke");
 
         assertThat(result.success()).isTrue();
-        assertThat(runner.commands().get(0).get(runner.commands().get(0).size() - 1))
-            .contains("path 'hdfs://hdfs-namenode:8020/benchmark/kpi-1b/generated'");
+        assertThat(runner.commands().get(1).get(runner.commands().get(1).size() - 1))
+            .contains("path 'hdfs://hdfs-namenode:8020/services/data-benchmark/generated/kpi/kpi-1b'");
     }
 
     @Test

@@ -11,6 +11,7 @@ import com.example.databenchmark.tpch.TpchQueryCatalog;
 import com.example.databenchmark.tpch.TpchSchema;
 import com.example.databenchmark.tpch.TpchSqlRenderer;
 import com.example.databenchmark.tpch.TpchSqlTemplates;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -19,6 +20,8 @@ import java.util.List;
 public class SparkIcebergClient {
     private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(90);
     private static final String SPARK_SQL = "/opt/spark/bin/spark-sql";
+    private static final String BEELINE = "beeline";
+    private static final String HIVE_JDBC_URL = "jdbc:hive2://hive-server:10000/default";
     private static final String HDFS_DEFAULT_FS = "hdfs://hdfs-namenode:8020";
     private static final String ICEBERG_RUNTIME = "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1";
     private static final String IVY_CACHE_CONF = "spark.jars.ivy=/tmp/.ivy2";
@@ -66,6 +69,10 @@ public class SparkIcebergClient {
         } catch (IllegalArgumentException e) {
             return failed("spark_iceberg", EngineStage.SPARK_ICEBERG_LOAD.name(), null, e.getMessage());
         }
+        CommandResult cleanup = runHiveSql(SqlTemplates.hiveDropIcebergTableRegistration());
+        if (cleanup.exitCode() != 0) {
+            return failed("spark_iceberg", EngineStage.SPARK_ICEBERG_LOAD.name(), null, cleanup);
+        }
         String sql = SqlTemplates.sparkCreateIcebergTable(runId)
             + "\n"
             + SqlTemplates.sparkInsertFromParquet(workspacePath);
@@ -80,7 +87,7 @@ public class SparkIcebergClient {
             null,
             dataset.rows(),
             dataset.bytesWritten(),
-            command.durationSeconds(),
+            cleanup.durationSeconds() + command.durationSeconds(),
             true,
             ""
         );
@@ -270,10 +277,22 @@ public class SparkIcebergClient {
         }
     }
 
+    private CommandResult runHiveSql(String sql) {
+        try {
+            return commandRunner.run(hiveSqlCommand(sql), workingDirectory, timeout);
+        } catch (IOException e) {
+            return new CommandResult(List.of(), 1, "", e.getMessage(), 0.0);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new CommandResult(List.of(), 1, "", e.getMessage(), 0.0);
+        }
+    }
+
     private List<String> sparkSqlCommand(String sql) {
         List<String> sparkSql = new ArrayList<>(List.of(SPARK_SQL));
         sparkSql.addAll(LARGE_DATA_SPARK_SQL_OPTIONS);
         sparkSql.addAll(List.of(
+            "--conf", HdfsReplication.sparkConf(),
             "--conf", IVY_CACHE_CONF,
             "--packages", ICEBERG_RUNTIME,
             "--conf", "spark.sql.catalog.iceberg_catalog=org.apache.iceberg.spark.SparkCatalog",
@@ -291,6 +310,7 @@ public class SparkIcebergClient {
         ));
         composeSparkSql.addAll(LARGE_DATA_SPARK_SQL_OPTIONS);
         composeSparkSql.addAll(List.of(
+            "--conf", HdfsReplication.sparkConf(),
             "--conf", IVY_CACHE_CONF,
             "--packages", ICEBERG_RUNTIME,
             "--conf", "spark.sql.catalog.iceberg_catalog=org.apache.iceberg.spark.SparkCatalog",
@@ -301,6 +321,18 @@ public class SparkIcebergClient {
             "-e", sql
         ));
         return composeSparkSql;
+    }
+
+    private List<String> hiveSqlCommand(String sql) {
+        List<String> hiveSql = new ArrayList<>(List.of(BEELINE, "-u", HIVE_JDBC_URL, "-e", sql));
+        if (inContainer) {
+            return hiveSql;
+        }
+        List<String> composeHiveSql = new ArrayList<>(InfraComposeTarget.fromEnvironment(System.getenv()).composeCommand(
+            "exec", "-T", "hive-server", BEELINE
+        ));
+        composeHiveSql.addAll(List.of("-u", HIVE_JDBC_URL, "-e", sql));
+        return composeHiveSql;
     }
 
     private static EngineRunResult failed(String tableShape, String stage, String queryName, CommandResult command) {

@@ -4,6 +4,7 @@ import LoadDetailsTable from './components/LoadDetailsTable';
 import PerformanceMatrixTable from './components/PerformanceMatrixTable';
 import QueryDetailsTable from './components/QueryDetailsTable';
 import RunSummary from './components/RunSummary';
+import TableMetadataTable from './components/TableMetadataTable';
 import { loadReport } from './data/reportLoader';
 import type { WebBenchmarkReport } from './types/report';
 
@@ -34,7 +35,7 @@ export default function App() {
     return (
       <Layout style={{ minHeight: '100vh', background: '#f5f7fb' }}>
         <Layout.Content style={{ padding: 24 }}>
-          <Alert type="error" message="报告数据加载失败" description={error} />
+          <Alert type="error" message="Report data failed to load" description={error} />
         </Layout.Content>
       </Layout>
     );
@@ -58,10 +59,10 @@ export default function App() {
             Data Benchmark Report
           </Typography.Title>
           {report.run.status === 'DEGRADED' ? (
-            <Alert type="warning" showIcon message="本次运行存在失败阶段，请查看明细错误。" />
+            <Alert type="warning" showIcon message="This run has failed stages. Check details for errors." />
           ) : null}
           <RunSummary report={report} />
-          <Card size="small" title="性能矩阵">
+          <Card size="small" title="Performance Matrix">
             {report.performanceMatrix.length === 0 ? (
               <Alert
                 type="info"
@@ -73,10 +74,13 @@ export default function App() {
             ) : null}
             <PerformanceMatrixTable rows={report.performanceMatrix} dataset={report.dataset} />
           </Card>
-          <Card size="small" title="Load 明细">
+          <Card size="small" title="Load Details">
             <LoadDetailsTable rows={report.loads} />
           </Card>
-          <Card size="small" title="Query 明细">
+          <Card size="small" title="Table Metadata">
+            <TableMetadataTable rows={report.tableRuntimeInfos} />
+          </Card>
+          <Card size="small" title="Query Details">
             <QueryDetailsTable rows={report.queries} />
           </Card>
         </Space>

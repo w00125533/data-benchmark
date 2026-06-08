@@ -1,5 +1,45 @@
 import type { WebBenchmarkReport } from '../types/report';
 
+const icebergRuntimeInfo = {
+  route: 'spark_iceberg',
+  displayName: 'Spark Iceberg',
+  tableShape: 'iceberg_catalog.tpch',
+  tableIdentifier: 'iceberg_catalog.iceberg_db.cell_kpi_1min',
+  storageType: 'Iceberg',
+  location: 'hdfs://hdfs-namenode:8020/warehouse/iceberg/iceberg_db/cell_kpi_1min_metadata_run',
+  format: 'Parquet',
+  columns: 50,
+  partitioning: 'days(event_time)',
+  bucketingOrDistribution: '',
+  indexes: '',
+  snapshotOrVersion: 'snapshot=12345',
+  fileCount: 128,
+  totalBytes: 987654321,
+  rawDetails: 'DESCRIBE EXTENDED output\nsnapshot=12345',
+  success: true,
+  error: '',
+};
+
+const hiveRuntimeInfo = {
+  route: 'hive_hdfs_parquet',
+  displayName: 'Hive HDFS Parquet',
+  tableShape: 'hive_hdfs_parquet',
+  tableIdentifier: 'hive_db.cell_kpi_1min',
+  storageType: 'Hive External Parquet',
+  location: 'hdfs://hdfs-namenode:8020/warehouse/hive/cell_kpi_1min_metadata_run',
+  format: 'Parquet',
+  columns: 50,
+  partitioning: 'event_date STRING',
+  bucketingOrDistribution: '',
+  indexes: '',
+  snapshotOrVersion: '',
+  fileCount: 96,
+  totalBytes: 765432100,
+  rawDetails: 'SHOW CREATE TABLE output',
+  success: true,
+  error: '',
+};
+
 export const sampleReport: WebBenchmarkReport = {
   schemaVersion: 3,
   run: {
@@ -32,17 +72,52 @@ export const sampleReport: WebBenchmarkReport = {
       error: '',
     },
   ],
+  tableRuntimeInfos: [icebergRuntimeInfo, hiveRuntimeInfo],
   queries: [
     {
       datasetId: 'tpch',
       datasetName: 'TPC-H SF 0.01',
       querySet: 'smoke',
-      engine: 'starrocks_internal',
-      tableShape: 'sr_internal_tpch',
+      engine: 'spark_iceberg',
+      tableShape: 'iceberg_catalog.tpch',
       queryName: 'q01_pricing_summary_report',
+      phase: 'COLD',
       p50Ms: 390,
       p95Ms: 410,
       p99Ms: 455,
+      durationMs: 455,
+      rows: 120,
+      status: 'SUCCESS',
+      error: '',
+    },
+    {
+      datasetId: 'tpch',
+      datasetName: 'TPC-H SF 0.01',
+      querySet: 'smoke',
+      engine: 'spark_iceberg',
+      tableShape: 'iceberg_catalog.tpch',
+      queryName: 'q01_pricing_summary_report',
+      phase: 'WARM',
+      p50Ms: 370,
+      p95Ms: 390,
+      p99Ms: 420,
+      durationMs: 390,
+      rows: 120,
+      status: 'SUCCESS',
+      error: '',
+    },
+    {
+      datasetId: 'tpch',
+      datasetName: 'TPC-H SF 0.01',
+      querySet: 'smoke',
+      engine: 'spark_iceberg',
+      tableShape: 'iceberg_catalog.tpch',
+      queryName: 'q01_pricing_summary_report',
+      phase: 'HOT',
+      p50Ms: 340,
+      p95Ms: 360,
+      p99Ms: 395,
+      durationMs: 360,
       rows: 120,
       status: 'SUCCESS',
       error: '',
@@ -54,6 +129,14 @@ export const sampleReport: WebBenchmarkReport = {
       datasetName: 'TPC-H SF 0.01',
       querySet: 'smoke',
       queryName: 'q03_shipping_priority',
+      sqlByRoute: {
+        spark_native_parquet: 'SELECT *\nFROM parquet_lineitem\nWHERE l_shipdate >= DATE \'1995-03-15\'',
+        spark_iceberg: 'SELECT *\nFROM iceberg_lineitem\nWHERE l_shipdate >= DATE \'1995-03-15\'',
+        starrocks_internal: 'SELECT *\nFROM sr_internal_lineitem\nWHERE l_shipdate >= CAST(\'1995-03-15\' AS DATE)',
+        starrocks_external_iceberg:
+          'SELECT *\nFROM sr_external_iceberg_lineitem\nWHERE l_shipdate >= CAST(\'1995-03-15\' AS DATE)',
+        hive_hdfs_parquet: 'SELECT *\nFROM hive_lineitem\nWHERE l_shipdate >= DATE \'1995-03-15\'',
+      },
       routes: {
         spark_native_parquet: {
           status: 'SKIPPED',
@@ -119,6 +202,7 @@ export const sampleReport: WebBenchmarkReport = {
       datasetName: 'Custom Sales',
       querySet: 'daily',
       queryName: 'top_region_sales',
+      sqlByRoute: {},
       routes: {
         spark_native_parquet: {
           status: 'SKIPPED',

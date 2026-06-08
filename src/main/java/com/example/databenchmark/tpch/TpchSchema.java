@@ -1,14 +1,12 @@
 package com.example.databenchmark.tpch;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 public final class TpchSchema {
-    static final Map<String, String> ENGINE_PREFIXES = Map.of(
-        "spark_iceberg", "iceberg_catalog.tpch.",
-        "starrocks_internal", "sr_internal_tpch.",
-        "starrocks_external_iceberg", "sr_external_iceberg.tpch."
-    );
+    static final Map<String, String> ENGINE_PREFIXES = enginePrefixesInRouteOrder();
 
     private static final List<TpchTable> TABLES = List.of(
         table("region", 5, col("r_regionkey", "long"), col("r_name", "string"), col("r_comment", "string")),
@@ -25,6 +23,10 @@ public final class TpchSchema {
 
     public static List<TpchTable> tables() {
         return TABLES;
+    }
+
+    public static Map<String, String> enginePrefixes() {
+        return ENGINE_PREFIXES;
     }
 
     public static TpchTable table(String name) {
@@ -49,5 +51,13 @@ public final class TpchSchema {
 
     private static TpchColumn col(String name, String logicalType) {
         return new TpchColumn(name, logicalType);
+    }
+
+    private static Map<String, String> enginePrefixesInRouteOrder() {
+        Map<String, String> prefixes = new LinkedHashMap<>();
+        prefixes.put("spark_iceberg", "iceberg_catalog.tpch.");
+        prefixes.put("starrocks_internal", "sr_internal_tpch.");
+        prefixes.put("starrocks_external_iceberg", "sr_external_iceberg.tpch.");
+        return Collections.unmodifiableMap(prefixes);
     }
 }

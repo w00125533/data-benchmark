@@ -3,6 +3,7 @@ package com.example.databenchmark.generator;
 import com.example.databenchmark.config.BenchmarkConfig;
 import com.example.databenchmark.engine.CommandResult;
 import com.example.databenchmark.engine.CommandRunner;
+import com.example.databenchmark.engine.HdfsReplication;
 import com.example.databenchmark.runner.InfraComposeTarget;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -62,6 +63,7 @@ public class SparkSubmitKpiDataGenerator implements KpiDatasetGenerator {
             "--conf", "spark.sql.shuffle.partitions=" + generation.partitions(),
             "--conf", "spark.default.parallelism=" + generation.partitions(),
             "--conf", "spark.hadoop.fs.defaultFS=" + HDFS_DEFAULT_FS,
+            "--conf", HdfsReplication.sparkConf(),
             RUNNER_JAR,
             "generate", "--config", configArgument
         );

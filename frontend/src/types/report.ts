@@ -13,6 +13,7 @@ export interface WebBenchmarkReport {
   dataset: DatasetInfo;
   loads: LoadSummary[];
   queries: QuerySummary[];
+  tableRuntimeInfos?: TableRuntimeInfo[];
   performanceMatrix: PerformanceMatrixRow[];
   notices: string[];
 }
@@ -48,6 +49,29 @@ export interface LoadSummary {
   error: string;
 }
 
+export interface TableRuntimeInfo {
+  route: string;
+  displayName: string;
+  tableShape: string;
+  tableIdentifier: string;
+  storageType: string;
+  location: string;
+  format: string;
+  columns: number;
+  partitioning: string;
+  bucketingOrDistribution: string;
+  indexes: string;
+  snapshotOrVersion: string;
+  fileCount: number;
+  tabletCount?: number;
+  rowsetCount?: number;
+  segmentCount?: number;
+  totalBytes: number;
+  rawDetails: string;
+  success: boolean;
+  error: string;
+}
+
 export interface QuerySummary {
   datasetId: string;
   datasetName: string;
@@ -55,9 +79,11 @@ export interface QuerySummary {
   engine: string;
   tableShape: string;
   queryName: string;
+  phase: string;
   p50Ms: number;
   p95Ms: number;
   p99Ms: number;
+  durationMs: number;
   rows: number;
   status: RouteStatus;
   error: string;
@@ -68,6 +94,7 @@ export interface PerformanceMatrixRow {
   datasetName: string;
   querySet: string;
   queryName: string;
+  sqlByRoute?: Partial<Record<RouteKey, string>>;
   routes: Record<RouteKey, RouteResult>;
   bestRoute: RouteKey | '';
   bestRouteHotMs: number;

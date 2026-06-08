@@ -48,6 +48,7 @@ class SparkSubmitKpiDataGeneratorTest {
             "--conf", "spark.sql.shuffle.partitions=1",
             "--conf", "spark.default.parallelism=1",
             "--conf", "spark.hadoop.fs.defaultFS=hdfs://hdfs-namenode:8020",
+            "--conf", "spark.hadoop.dfs.replication=1",
             "target/data-benchmark-0.1.0-SNAPSHOT.jar",
             "generate", "--config", "target/generated-configs/smoke-spark-generate.yml"
         );
@@ -61,13 +62,13 @@ class SparkSubmitKpiDataGeneratorTest {
     @Test
     void returnsHdfsDatasetAfterSparkSubmitGeneration() throws Exception {
         BenchmarkConfig config = BenchmarkConfig.defaultSmoke()
-            .withOverrides(10, 1, null, "hdfs://hdfs-namenode:8020/benchmark/kpi-1b/generated", 100L);
+            .withOverrides(10, 1, null, "hdfs://hdfs-namenode:8020/services/data-benchmark/generated/kpi/kpi-1b", 100L);
         CapturingCommandRunner commandRunner = new CapturingCommandRunner(null);
 
         DatasetResult result = new SparkSubmitKpiDataGenerator(commandRunner, tempDir, Duration.ofSeconds(30))
             .generate(config);
 
-        assertThat(result.outputPath().toString().replace('\\', '/')).isEqualTo("/benchmark/kpi-1b/generated");
+        assertThat(result.outputPath().toString().replace('\\', '/')).isEqualTo("/services/data-benchmark/generated/kpi/kpi-1b");
         assertThat(result.files()).isEmpty();
         assertThat(result.rows()).isEqualTo(100L);
         assertThat(result.bytesWritten()).isEqualTo(4096L);
@@ -84,33 +85,33 @@ class SparkSubmitKpiDataGeneratorTest {
             "exec", "-T", "spark",
             "bash", "-lc",
             "unset JAVA_TOOL_OPTIONS; /opt/spark/bin/spark-class org.apache.hadoop.fs.FsShell "
-                + "-fs 'hdfs://hdfs-namenode:8020' -du -s '/benchmark/kpi-1b/generated'"
+                + "-fs 'hdfs://hdfs-namenode:8020' -du -s '/services/data-benchmark/generated/kpi/kpi-1b'"
         );
     }
 
     @Test
     void returnsHdfsUriDatasetWithoutLocalParquetWalk() throws Exception {
         BenchmarkConfig config = BenchmarkConfig.defaultSmoke()
-            .withOverrides(10, 1, null, "hdfs://hdfs-namenode:8020/benchmark/kpi-1b/generated", 100L);
+            .withOverrides(10, 1, null, "hdfs://hdfs-namenode:8020/services/data-benchmark/generated/kpi/kpi-1b", 100L);
         CapturingCommandRunner commandRunner = new CapturingCommandRunner(null);
 
         DatasetResult result = new SparkSubmitKpiDataGenerator(commandRunner, tempDir, Duration.ofSeconds(30))
             .generate(config);
 
-        assertThat(result.outputPath().toString().replace('\\', '/')).isEqualTo("/benchmark/kpi-1b/generated");
+        assertThat(result.outputPath().toString().replace('\\', '/')).isEqualTo("/services/data-benchmark/generated/kpi/kpi-1b");
         assertThat(result.files()).isEmpty();
         assertThat(result.rows()).isEqualTo(100L);
         assertThat(result.bytesWritten()).isEqualTo(4096L);
         assertThat(commandRunner.commands).hasSize(2);
         assertThat(commandRunner.commands.get(1).get(commandRunner.commands.get(1).size() - 1))
             .isEqualTo("unset JAVA_TOOL_OPTIONS; /opt/spark/bin/spark-class org.apache.hadoop.fs.FsShell "
-                + "-fs 'hdfs://hdfs-namenode:8020' -du -s '/benchmark/kpi-1b/generated'");
+                + "-fs 'hdfs://hdfs-namenode:8020' -du -s '/services/data-benchmark/generated/kpi/kpi-1b'");
     }
 
     @Test
     void reusesExistingHdfsDatasetWhenExplicitlyEnabled() throws Exception {
         BenchmarkConfig config = BenchmarkConfig.defaultSmoke()
-            .withOverrides(10, 1, null, "hdfs://hdfs-namenode:8020/benchmark/kpi-1b/generated", 100L);
+            .withOverrides(10, 1, null, "hdfs://hdfs-namenode:8020/services/data-benchmark/generated/kpi/kpi-1b", 100L);
         CapturingCommandRunner commandRunner = new CapturingCommandRunner(null);
 
         DatasetResult result = new SparkSubmitKpiDataGenerator(
@@ -120,7 +121,7 @@ class SparkSubmitKpiDataGeneratorTest {
             true
         ).generate(config);
 
-        assertThat(result.outputPath().toString().replace('\\', '/')).isEqualTo("/benchmark/kpi-1b/generated");
+        assertThat(result.outputPath().toString().replace('\\', '/')).isEqualTo("/services/data-benchmark/generated/kpi/kpi-1b");
         assertThat(result.files()).isEmpty();
         assertThat(result.rows()).isEqualTo(100L);
         assertThat(result.bytesWritten()).isEqualTo(4096L);
@@ -161,7 +162,7 @@ class SparkSubmitKpiDataGeneratorTest {
             this.command = command;
             this.commands.add(command);
             if (command.toString().contains("-du")) {
-                return new CommandResult(command, 0, "4096 /benchmark/kpi-1b/generated\n", "", 1.0);
+                return new CommandResult(command, 0, "4096 /services/data-benchmark/generated/kpi/kpi-1b\n", "", 1.0);
             }
             if (output == null) {
                 return new CommandResult(command, 0, "rows=100", "", 1.0);

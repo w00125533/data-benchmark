@@ -5,6 +5,7 @@ import com.example.databenchmark.engine.CommandResult;
 import com.example.databenchmark.engine.CommandRunner;
 import com.example.databenchmark.engine.EngineRunResult;
 import com.example.databenchmark.engine.EngineStage;
+import com.example.databenchmark.engine.HdfsReplication;
 import com.example.databenchmark.engine.HiveClient;
 import com.example.databenchmark.engine.SparkIcebergClient;
 import com.example.databenchmark.engine.StarRocksClient;
@@ -12,6 +13,9 @@ import com.example.databenchmark.generator.DatasetResult;
 import com.example.databenchmark.generator.SparkSubmitKpiDataGenerator;
 import com.example.databenchmark.query.QueryCatalog;
 import com.example.databenchmark.report.BenchmarkReport;
+import com.example.databenchmark.report.ComposeTableRuntimeMetadataCollector;
+import com.example.databenchmark.report.FallbackTableRuntimeMetadataCollector;
+import com.example.databenchmark.report.TableRuntimeMetadataCollector;
 import com.example.databenchmark.report.WebReportWriter;
 import com.example.databenchmark.tpch.TpchCsvExporter;
 import com.example.databenchmark.tpch.TpchDataGenerator;
@@ -26,7 +30,7 @@ import java.util.List;
 import java.util.Map;
 
 public class ComposeBenchmarkRunner {
-    private static final String DEFAULT_HIVE_HDFS_ROOT = "/data/generated";
+    private static final String DEFAULT_HIVE_HDFS_ROOT = "/services/data-benchmark/generated/kpi/default";
 
     private final DatasetGenerator generator;
     private final TpchGenerator tpchGenerator;
@@ -38,6 +42,7 @@ public class ComposeBenchmarkRunner {
     private final ServiceController serviceController;
     private final ReportWriter reportWriter;
     private final MetricsRecorder metricsRecorder;
+    private final TableRuntimeMetadataCollector tableRuntimeMetadataCollector;
 
     public ComposeBenchmarkRunner() {
         this(
@@ -50,7 +55,8 @@ public class ComposeBenchmarkRunner {
             new HiveClientAdapter(new HiveClient()),
             new ServiceControllerAdapter(new ComposeServiceController()),
             new WebReportWriter()::write,
-            MetricsRecorder.noop()
+            MetricsRecorder.noop(),
+            ComposeTableRuntimeMetadataCollector.fromDefaults()
         );
     }
 
@@ -72,7 +78,8 @@ public class ComposeBenchmarkRunner {
             new HiveClientAdapter(new HiveClient()),
             new ServiceControllerAdapter(new ComposeServiceController()),
             reportWriter,
-            MetricsRecorder.noop()
+            MetricsRecorder.noop(),
+            emptyTableRuntimeMetadataCollector()
         );
     }
 
@@ -95,7 +102,33 @@ public class ComposeBenchmarkRunner {
             new HiveClientAdapter(new HiveClient()),
             new ServiceControllerAdapter(new ComposeServiceController()),
             reportWriter,
-            metricsRecorder
+            metricsRecorder,
+            emptyTableRuntimeMetadataCollector()
+        );
+    }
+
+    ComposeBenchmarkRunner(
+        DatasetGenerator generator,
+        TpchGenerator tpchGenerator,
+        TpchCsvExport tpchCsvExport,
+        SparkClient sparkClient,
+        StarRocksClientFacade starRocksClient,
+        ReportWriter reportWriter,
+        MetricsRecorder metricsRecorder,
+        TableRuntimeMetadataCollector tableRuntimeMetadataCollector
+    ) {
+        this(
+            generator,
+            tpchGenerator,
+            tpchCsvExport,
+            sparkClient,
+            starRocksClient,
+            new DefaultHdfsDatasetPublisher(new CommandRunner()),
+            new HiveClientAdapter(new HiveClient()),
+            new ServiceControllerAdapter(new ComposeServiceController()),
+            reportWriter,
+            metricsRecorder,
+            tableRuntimeMetadataCollector
         );
     }
 
@@ -111,6 +144,34 @@ public class ComposeBenchmarkRunner {
         ReportWriter reportWriter,
         MetricsRecorder metricsRecorder
     ) {
+        this(
+            generator,
+            tpchGenerator,
+            tpchCsvExport,
+            sparkClient,
+            starRocksClient,
+            hdfsDatasetPublisher,
+            hiveClient,
+            serviceController,
+            reportWriter,
+            metricsRecorder,
+            emptyTableRuntimeMetadataCollector()
+        );
+    }
+
+    ComposeBenchmarkRunner(
+        DatasetGenerator generator,
+        TpchGenerator tpchGenerator,
+        TpchCsvExport tpchCsvExport,
+        SparkClient sparkClient,
+        StarRocksClientFacade starRocksClient,
+        HdfsDatasetPublisher hdfsDatasetPublisher,
+        HiveClientFacade hiveClient,
+        ServiceController serviceController,
+        ReportWriter reportWriter,
+        MetricsRecorder metricsRecorder,
+        TableRuntimeMetadataCollector tableRuntimeMetadataCollector
+    ) {
         this.generator = generator;
         this.tpchGenerator = tpchGenerator;
         this.tpchCsvExport = tpchCsvExport;
@@ -121,6 +182,25 @@ public class ComposeBenchmarkRunner {
         this.serviceController = serviceController;
         this.reportWriter = reportWriter;
         this.metricsRecorder = metricsRecorder;
+        this.tableRuntimeMetadataCollector = tableRuntimeMetadataCollector;
+    }
+
+    private static TableRuntimeMetadataCollector emptyTableRuntimeMetadataCollector() {
+        return new TableRuntimeMetadataCollector() {
+            @Override
+            public List<BenchmarkReport.TableRuntimeInfo> collectKpi(
+                Map<BenchmarkRoute, String> routeFailures,
+                long rows,
+                long bytes
+            ) {
+                return List.of();
+            }
+
+            @Override
+            public List<BenchmarkReport.TableRuntimeInfo> collectTpch(long rows, long bytes) {
+                return List.of();
+            }
+        };
     }
 
     public ComposeRunResult run(BenchmarkConfig config, Path reportRoot, String runId) throws Exception {
@@ -128,6 +208,7 @@ public class ComposeBenchmarkRunner {
         Instant started = Instant.now();
         List<EngineRunResult> loadResults = new ArrayList<>();
         List<EngineRunResult> queryResults = new ArrayList<>();
+        List<BenchmarkReport.TableRuntimeInfo> tableRuntimeInfos = new ArrayList<>();
         DatasetResult dataset = null;
         Path csvPath = null;
 
@@ -188,9 +269,14 @@ public class ComposeBenchmarkRunner {
                     hivePublish,
                     hiveLoad
                 );
-                List<EngineRunResult> validations = validateKpiRoutes(dataset.rows(), routeFailures);
+                List<EngineRunResult> validations = validateKpiRoutes(dataset.rows(), routeFailures, config.profile());
                 loadResults.addAll(validations);
                 routeFailures.putAll(validationFailures(validations));
+                tableRuntimeInfos.addAll(collectKpiTableRuntimeInfos(
+                    routeFailures,
+                    dataset.rows(),
+                    dataset.bytesWritten()
+                ));
                 queryResults.addAll(runKpiRouteQueries(config, routeFailures));
             }
 
@@ -210,7 +296,8 @@ public class ComposeBenchmarkRunner {
                 dataset == null ? 0L : dataset.rows(),
                 dataset == null ? 0L : dataset.bytesWritten(),
                 loadResults,
-                queryResults
+                queryResults,
+                tableRuntimeInfos
             );
             Path reportPath = reportWriter.write(report, reportRoot);
             return new ComposeRunResult(
@@ -236,6 +323,7 @@ public class ComposeBenchmarkRunner {
     ) throws Exception {
         TpchDatasetResult dataset = null;
         Path csvPath = null;
+        List<BenchmarkReport.TableRuntimeInfo> tableRuntimeInfos = new ArrayList<>();
 
         long generateStarted = System.nanoTime();
         try {
@@ -263,6 +351,7 @@ public class ComposeBenchmarkRunner {
                 loadResults.add(sparkClient.loadTpch(dataset, runId, config.profile()));
                 loadResults.add(starRocksClient.loadTpchInternal(csvFiles, dataset, runId, config.profile()));
                 loadResults.add(starRocksClient.refreshTpchExternalCatalog(runId, config.profile()));
+                tableRuntimeInfos.addAll(collectTpchTableRuntimeInfos(dataset.rows(), dataset.bytesWritten()));
                 queryResults.addAll(sparkClient.runTpchQueries(runId, config.profile(), config.suite().querySet()));
                 queryResults.addAll(starRocksClient.runTpchQueries(runId, config.profile(), config.suite().querySet()));
             } catch (Exception exception) {
@@ -286,7 +375,8 @@ public class ComposeBenchmarkRunner {
             dataset == null ? 0L : dataset.rows(),
             dataset == null ? 0L : dataset.bytesWritten(),
             loadResults,
-            queryResults
+            queryResults,
+            tableRuntimeInfos
         );
         Path reportPath = reportWriter.write(report, reportRoot);
         return new ComposeRunResult(
@@ -307,7 +397,8 @@ public class ComposeBenchmarkRunner {
         long rows,
         long bytes,
         List<EngineRunResult> loadResults,
-        List<EngineRunResult> queryResults
+        List<EngineRunResult> queryResults,
+        List<BenchmarkReport.TableRuntimeInfo> tableRuntimeInfos
     ) {
         return new BenchmarkReport(
             runId,
@@ -323,7 +414,85 @@ public class ComposeBenchmarkRunner {
             bytes,
             loadResults.stream().map(this::toLoadSummary).toList(),
             queryResults.stream().map(this::toQuerySummary).toList(),
+            tableRuntimeInfos == null ? List.of() : List.copyOf(tableRuntimeInfos),
             "full".equals(config.profile())
+        );
+    }
+
+    private List<BenchmarkReport.TableRuntimeInfo> collectKpiTableRuntimeInfos(
+        Map<BenchmarkRoute, String> routeFailures,
+        long rows,
+        long bytes
+    ) {
+        try {
+            List<BenchmarkReport.TableRuntimeInfo> infos = tableRuntimeMetadataCollector.collectKpi(
+                routeFailures,
+                rows,
+                bytes
+            );
+            return infos == null ? List.of() : infos;
+        } catch (Exception exception) {
+            return failedKpiTableRuntimeInfos(routeFailures, rows, bytes, exception);
+        }
+    }
+
+    private List<BenchmarkReport.TableRuntimeInfo> collectTpchTableRuntimeInfos(long rows, long bytes) {
+        try {
+            List<BenchmarkReport.TableRuntimeInfo> infos = tableRuntimeMetadataCollector.collectTpch(rows, bytes);
+            return infos == null ? List.of() : infos;
+        } catch (Exception exception) {
+            return failedTpchTableRuntimeInfos(rows, bytes, exception);
+        }
+    }
+
+    private List<BenchmarkReport.TableRuntimeInfo> failedKpiTableRuntimeInfos(
+        Map<BenchmarkRoute, String> routeFailures,
+        long rows,
+        long bytes,
+        Exception exception
+    ) {
+        try {
+            return new FallbackTableRuntimeMetadataCollector().collectKpi(routeFailures, rows, bytes).stream()
+                .map(info -> failedTableRuntimeInfo(info, exception.getMessage()))
+                .toList();
+        } catch (Exception fallbackException) {
+            return List.of();
+        }
+    }
+
+    private List<BenchmarkReport.TableRuntimeInfo> failedTpchTableRuntimeInfos(
+        long rows,
+        long bytes,
+        Exception exception
+    ) {
+        try {
+            return new FallbackTableRuntimeMetadataCollector().collectTpch(rows, bytes).stream()
+                .map(info -> failedTableRuntimeInfo(info, exception.getMessage()))
+                .toList();
+        } catch (Exception fallbackException) {
+            return List.of();
+        }
+    }
+
+    private BenchmarkReport.TableRuntimeInfo failedTableRuntimeInfo(BenchmarkReport.TableRuntimeInfo info, String error) {
+        return new BenchmarkReport.TableRuntimeInfo(
+            info.route(),
+            info.displayName(),
+            info.tableShape(),
+            info.tableIdentifier(),
+            info.storageType(),
+            info.location(),
+            info.format(),
+            info.columns(),
+            info.partitioning(),
+            info.bucketingOrDistribution(),
+            info.indexes(),
+            info.snapshotOrVersion(),
+            info.fileCount(),
+            info.totalBytes(),
+            info.rawDetails(),
+            false,
+            error == null ? "" : error
         );
     }
 
@@ -482,7 +651,11 @@ public class ComposeBenchmarkRunner {
         return failures;
     }
 
-    private List<EngineRunResult> validateKpiRoutes(long expectedRows, Map<BenchmarkRoute, String> routeFailures) {
+    private List<EngineRunResult> validateKpiRoutes(
+        long expectedRows,
+        Map<BenchmarkRoute, String> routeFailures,
+        String profile
+    ) {
         List<EngineRunResult> results = new ArrayList<>();
         for (BenchmarkRoute route : BenchmarkRoute.values()) {
             String loadFailure = routeFailures.get(route);
@@ -492,7 +665,7 @@ public class ComposeBenchmarkRunner {
                 continue;
             }
             try {
-                results.add(validateKpiRoute(route, expectedRows));
+                results.add(validateKpiRoute(route, expectedRows, profile));
             } catch (Exception exception) {
                 results.add(failed(routeEngine(route), routeTableShape(route), validateStage(route), exception));
             }
@@ -500,11 +673,11 @@ public class ComposeBenchmarkRunner {
         return results;
     }
 
-    private EngineRunResult validateKpiRoute(BenchmarkRoute route, long expectedRows) {
+    private EngineRunResult validateKpiRoute(BenchmarkRoute route, long expectedRows, String profile) {
         return switch (route) {
             case SPARK_NATIVE_PARQUET -> sparkClient.validateCount("spark_native_parquet", expectedRows);
             case SPARK_ICEBERG -> sparkClient.validateCount("spark_iceberg", expectedRows);
-            case STARROCKS_INTERNAL -> starRocksClient.validateCount("starrocks_internal", expectedRows);
+            case STARROCKS_INTERNAL -> starRocksClient.validateCount("starrocks_internal", expectedRows, profile);
             case STARROCKS_EXTERNAL_ICEBERG -> starRocksClient.validateCount("starrocks_external_iceberg", expectedRows);
             case HIVE_HDFS_PARQUET -> hiveClient.validateCount(expectedRows);
         };
@@ -536,7 +709,7 @@ public class ComposeBenchmarkRunner {
                     results.addAll(failedRoutePhases(route, queryName, routeFailure));
                     continue;
                 }
-                results.addAll(runKpiRoutePhases(queryName, route));
+                results.addAll(runKpiRoutePhases(queryName, route, config.profile()));
             }
         }
         return results;
@@ -563,7 +736,7 @@ public class ComposeBenchmarkRunner {
             .toList();
     }
 
-    private List<EngineRunResult> runKpiRoutePhases(String queryName, BenchmarkRoute route) {
+    private List<EngineRunResult> runKpiRoutePhases(String queryName, BenchmarkRoute route, String profile) {
         List<EngineRunResult> results = new ArrayList<>();
         try {
             serviceController.restart(route);
@@ -575,7 +748,7 @@ public class ComposeBenchmarkRunner {
 
         for (RoutePhase phase : RoutePhase.values()) {
             try {
-                results.add(runKpiRouteQuery(route, queryName, phase));
+                results.add(runKpiRouteQuery(route, queryName, phase, profile));
             } catch (Exception exception) {
                 results.add(failedQuery(route, queryName, phase, exception));
             }
@@ -591,11 +764,11 @@ public class ComposeBenchmarkRunner {
         return results;
     }
 
-    private EngineRunResult runKpiRouteQuery(BenchmarkRoute route, String queryName, RoutePhase phase) {
+    private EngineRunResult runKpiRouteQuery(BenchmarkRoute route, String queryName, RoutePhase phase, String profile) {
         return switch (route) {
             case SPARK_NATIVE_PARQUET -> sparkClient.runNativeQuery(queryName, phase);
             case SPARK_ICEBERG -> sparkClient.runQuery(queryName, phase);
-            case STARROCKS_INTERNAL -> starRocksClient.runQueryFor("starrocks_internal", queryName, phase);
+            case STARROCKS_INTERNAL -> starRocksClient.runQueryFor("starrocks_internal", queryName, phase, profile);
             case STARROCKS_EXTERNAL_ICEBERG -> starRocksClient.runQueryFor("starrocks_external_iceberg", queryName, phase);
             case HIVE_HDFS_PARQUET -> hiveClient.runQuery(queryName, phase);
         };
@@ -666,7 +839,7 @@ public class ComposeBenchmarkRunner {
         if (configuredOutput.matches("^[A-Za-z]:/.*")) {
             return DEFAULT_HIVE_HDFS_ROOT;
         }
-        return normalizeHdfsPath("/" + configuredOutput);
+        return DEFAULT_HIVE_HDFS_ROOT;
     }
 
     private EngineRunResult successfulExistingHiveDataset(DatasetResult dataset) {
@@ -773,6 +946,14 @@ public class ComposeBenchmarkRunner {
         EngineRunResult validateCount(String tableShape, long expectedRows);
 
         EngineRunResult runQueryFor(String tableShape, String queryName, RoutePhase phase);
+
+        default EngineRunResult validateCount(String tableShape, long expectedRows, String profile) {
+            return validateCount(tableShape, expectedRows);
+        }
+
+        default EngineRunResult runQueryFor(String tableShape, String queryName, RoutePhase phase, String profile) {
+            return runQueryFor(tableShape, queryName, phase);
+        }
 
         default EngineRunResult loadTpchInternal(
             Map<String, Path> csvFiles,
@@ -905,8 +1086,18 @@ public class ComposeBenchmarkRunner {
         }
 
         @Override
+        public EngineRunResult validateCount(String tableShape, long expectedRows, String profile) {
+            return delegate.validateCount(tableShape, expectedRows, profile);
+        }
+
+        @Override
         public EngineRunResult runQueryFor(String tableShape, String queryName, RoutePhase phase) {
             return delegate.runQueryFor(tableShape, queryName, phase);
+        }
+
+        @Override
+        public EngineRunResult runQueryFor(String tableShape, String queryName, RoutePhase phase, String profile) {
+            return delegate.runQueryFor(tableShape, queryName, phase, profile);
         }
 
         @Override
@@ -1029,7 +1220,7 @@ public class ComposeBenchmarkRunner {
                     HADOOP_IMAGE
                 ));
             }
-            command.addAll(List.of("hdfs", "dfs", "-fs", HDFS_URI));
+            command.addAll(List.of("hdfs", "dfs", HdfsReplication.hadoopGenericOption(), "-fs", HDFS_URI));
             command.addAll(List.of(hdfsArgs));
             return command;
         }

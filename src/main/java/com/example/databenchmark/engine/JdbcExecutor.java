@@ -3,10 +3,13 @@ package com.example.databenchmark.engine;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class JdbcExecutor {
     public static final String DEFAULT_JDBC_URL =
@@ -65,14 +68,41 @@ public class JdbcExecutor {
         }
     }
 
+    public List<Map<String, String>> queryRows(String sql) throws SQLException {
+        try (Connection connection = openConnection();
+             Statement statement = connection.createStatement();
+             ResultSet resultSet = statement.executeQuery(sql)) {
+            ResultSetMetaData metaData = resultSet.getMetaData();
+            int columns = metaData.getColumnCount();
+            List<Map<String, String>> rows = new ArrayList<>();
+            while (resultSet.next()) {
+                Map<String, String> row = new LinkedHashMap<>();
+                for (int index = 1; index <= columns; index++) {
+                    String name = metaData.getColumnLabel(index);
+                    if (name == null || name.isBlank()) {
+                        name = metaData.getColumnName(index);
+                    }
+                    row.put(name, resultSet.getString(index));
+                }
+                rows.add(row);
+            }
+            return rows;
+        }
+    }
+
     public long queryLong(String sql) throws SQLException {
+        return queryLongResult(sql).rows();
+    }
+
+    public JdbcExecutionResult queryLongResult(String sql) throws SQLException {
+        long started = System.nanoTime();
         try (Connection connection = openConnection();
              Statement statement = connection.createStatement();
              ResultSet resultSet = statement.executeQuery(sql)) {
             if (!resultSet.next()) {
                 throw new SQLException("Query returned no rows");
             }
-            return resultSet.getLong(1);
+            return new JdbcExecutionResult(resultSet.getLong(1), elapsedSeconds(started));
         }
     }
 

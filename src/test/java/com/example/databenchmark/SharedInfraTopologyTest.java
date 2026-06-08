@@ -35,8 +35,8 @@ class SharedInfraTopologyTest {
         Map<String, Object> hdfsInit = service(services, "hdfs-init");
         assertThat(stringList(hdfsInit, "profiles")).contains("lakehouse");
         assertThat(String.join(" ", stringList(hdfsInit, "command")))
-            .contains("hdfs dfs -fs hdfs://hdfs-namenode:8020 -mkdir -p /warehouse/iceberg /benchmark")
-            .contains("hdfs dfs -fs hdfs://hdfs-namenode:8020 -chmod 777 /warehouse /warehouse/iceberg /benchmark");
+            .contains("hdfs dfs -fs hdfs://hdfs-namenode:8020 -mkdir -p /warehouse/iceberg /services/data-benchmark/generated")
+            .contains("hdfs dfs -fs hdfs://hdfs-namenode:8020 -chmod 777 /warehouse /warehouse/iceberg /services /services/data-benchmark /services/data-benchmark/generated");
         assertThat(dependencyCondition(hdfsInit, "datanode")).isEqualTo("service_healthy");
 
         Map<String, Object> hiveMetastore = service(services, "hive-metastore");
@@ -101,9 +101,13 @@ class SharedInfraTopologyTest {
         assertThat(be.get("image")).isEqualTo("starrocks/be-ubuntu:3.3-latest");
         assertThat(be.get("hostname")).isEqualTo("starrocks-be-0");
         assertThat(stringList(be, "profiles")).contains("starrocks");
-        assertThat(stringList(be, "command")).containsExactly("/opt/starrocks/be_entrypoint.sh", "starrocks-fe");
+        assertThat(String.join("\n", stringList(be, "command")))
+            .contains("trash_file_expire_time_sec = 1800")
+            .contains("exec /opt/starrocks/be_entrypoint.sh starrocks-fe");
         assertThat(stringList(be, "ports")).contains("${STARROCKS_BE_HTTP_PORT:-8040}:8040");
+        assertThat(stringList(be, "volumes")).contains("starrocks-be-storage:/opt/starrocks/be/storage");
         assertThat(dependencyNames(be)).contains("starrocks-fe");
+        assertThat(map(starrocks.get("volumes"))).containsKey("starrocks-be-storage");
     }
 
     @Test
