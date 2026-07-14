@@ -6,7 +6,7 @@ import java.util.regex.Pattern;
 
 final class CliQueryRows {
     private static final Pattern SPARK_FETCHED_ROWS = Pattern.compile("Fetched\\s+(\\d+)\\s+row\\(s\\)");
-    private static final Pattern HIVE_SELECTED_ROWS = Pattern.compile("(\\d+)\\s+rows?\\s+selected");
+    private static final Pattern HIVE_SELECTED_ROWS = Pattern.compile("([\\d,]+)\\s+rows?\\s+selected");
 
     private CliQueryRows() {}
 
@@ -40,7 +40,7 @@ final class CliQueryRows {
         Matcher matcher = pattern.matcher(text);
         OptionalLong rows = OptionalLong.empty();
         while (matcher.find()) {
-            rows = OptionalLong.of(Long.parseLong(matcher.group(1)));
+            rows = OptionalLong.of(Long.parseLong(matcher.group(1).replace(",", "")));
         }
         return rows;
     }

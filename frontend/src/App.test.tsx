@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import App from './App';
 import { sampleReport } from './data/sampleReport';
@@ -49,8 +49,8 @@ test('renders performance matrix as SQL blocks with split cold warm hot rows and
   expect(screen.getByText('q03_shipping_priority')).toBeInTheDocument();
   expect(screen.getByText('top_region_sales')).toBeInTheDocument();
   expect(screen.getByText('Actual SQL sent by route')).toBeInTheDocument();
-  expect(container.textContent).toContain('FROM sr_internal_lineitem');
   expect(container.querySelector('details.matrix-sql-details')).not.toHaveAttribute('open');
+  expect(container.querySelector('.matrix-route-sql-panel')).toBeNull();
   expect(screen.getByText('dataset TPC-H SF 0.01')).toBeInTheDocument();
   expect(screen.getAllByText('Spark SQL Native Parquet').length).toBeGreaterThan(0);
   expect(screen.getAllByText('StarRocks Internal').length).toBeGreaterThan(0);
@@ -68,6 +68,31 @@ test('renders performance matrix as SQL blocks with split cold warm hot rows and
   expect(screen.getAllByText('Best hot route').length).toBeGreaterThan(0);
   expect(screen.getAllByText('catalog timeout').length).toBeGreaterThan(0);
   expect(screen.getAllByText('SKIPPED').length).toBeGreaterThan(0);
+});
+
+test('toggles actual SQL by horizontal route tabs', async () => {
+  const { container } = render(<App />);
+
+  expect(await screen.findByText('Performance Matrix')).toBeInTheDocument();
+  fireEvent.click(screen.getByText('Actual SQL sent by route'));
+
+  const tabList = container.querySelector('.matrix-sql-tabs');
+  expect(tabList).toBeTruthy();
+  expect(within(tabList as HTMLElement).getAllByRole('tab').length).toBeGreaterThan(1);
+
+  const starRocksTab = within(tabList as HTMLElement).getByRole('tab', { name: 'StarRocks Internal' });
+  expect(starRocksTab).toHaveAttribute('aria-selected', 'false');
+  expect(container.querySelector('.matrix-route-sql-panel')).toBeNull();
+
+  fireEvent.click(starRocksTab);
+
+  expect(starRocksTab).toHaveAttribute('aria-selected', 'true');
+  expect(container.querySelector('.matrix-route-sql-panel')).toHaveTextContent('FROM sr_internal_lineitem');
+
+  fireEvent.click(starRocksTab);
+
+  expect(starRocksTab).toHaveAttribute('aria-selected', 'false');
+  expect(container.querySelector('.matrix-route-sql-panel')).toBeNull();
 });
 
 test('renders distinct cold and hot best routes in matrix phase rows', async () => {

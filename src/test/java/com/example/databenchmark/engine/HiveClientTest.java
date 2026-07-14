@@ -135,6 +135,30 @@ class HiveClientTest {
     }
 
     @Test
+    void runQueryParsesBeelineRowsSelectedWithThousandsSeparators() {
+        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(
+            List.of(),
+            0,
+            """
+            +--------------+
+            |   cell_id    |
+            +--------------+
+            | CELL-000001  |
+            +--------------+
+            1,440 rows selected (5.590 seconds)
+            """,
+            "",
+            5.59
+        ));
+
+        EngineRunResult result = new HiveClient(runner, tempDir, Duration.ofMinutes(1))
+            .runQuery("single_cell_day_trend", RoutePhase.HOT);
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.rows()).isEqualTo(1_440);
+    }
+
+    @Test
     void validateCountUsesScalarHiveCountAndReportsMismatch() {
         FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(
             List.of(),

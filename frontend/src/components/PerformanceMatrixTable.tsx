@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Empty, Tag, Typography } from 'antd';
 import type { DatasetInfo, PerformanceMatrixRow, RouteKey, RouteResult } from '../types/report';
 
@@ -71,10 +72,13 @@ function DatasetSummary({ row, dataset }: { row: PerformanceMatrixRow; dataset: 
 }
 
 function SqlDetails({ row }: { row: PerformanceMatrixRow }) {
+  const [activeRoute, setActiveRoute] = useState<RouteKey | null>(null);
   const sqlByRoute = row.sqlByRoute ?? {};
   const entries = routeKeys
     .map((route) => ({ route, sql: sqlByRoute[route]?.trim() ?? '' }))
     .filter((entry) => entry.sql.length > 0);
+  const activeEntry = entries.find((entry) => entry.route === activeRoute);
+  const panelIdBase = `sql-panel-${row.datasetId}-${row.querySet}-${row.queryName}`.replace(/[^a-zA-Z0-9_-]/g, '-');
 
   if (entries.length === 0) {
     return null;
@@ -83,14 +87,36 @@ function SqlDetails({ row }: { row: PerformanceMatrixRow }) {
   return (
     <details className="matrix-sql-details">
       <summary>Actual SQL sent by route</summary>
-      {entries.map((entry) => (
-        <details className="matrix-route-sql" key={entry.route}>
-          <summary>{routeLabels[entry.route]}</summary>
+      <div className="matrix-sql-tabs" role="tablist" aria-label="Actual SQL routes">
+        {entries.map((entry) => {
+          const active = entry.route === activeRoute;
+          return (
+            <button
+              aria-controls={`${panelIdBase}-${entry.route}`}
+              aria-expanded={active}
+              aria-selected={active}
+              className={active ? 'matrix-sql-tab matrix-sql-tab-active' : 'matrix-sql-tab'}
+              key={entry.route}
+              onClick={() => setActiveRoute(active ? null : entry.route)}
+              role="tab"
+              type="button"
+            >
+              {routeLabels[entry.route]}
+            </button>
+          );
+        })}
+      </div>
+      {activeEntry ? (
+        <div
+          className="matrix-route-sql-panel"
+          id={`${panelIdBase}-${activeEntry.route}`}
+          role="tabpanel"
+        >
           <pre>
-            <code>{entry.sql}</code>
+            <code>{activeEntry.sql}</code>
           </pre>
-        </details>
-      ))}
+        </div>
+      ) : null}
     </details>
   );
 }
@@ -257,18 +283,40 @@ export default function PerformanceMatrixTable({
           color: #374151;
           font-size: 12px;
         }
-        .matrix-sql-details summary,
-        .matrix-route-sql summary {
+        .matrix-sql-details summary {
           cursor: pointer;
           font-weight: 700;
         }
-        .matrix-route-sql {
+        .matrix-sql-tabs {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
           margin-top: 8px;
         }
-        .matrix-route-sql pre {
+        .matrix-sql-tab {
+          border: 1px solid #d1d5db;
+          border-radius: 6px 6px 0 0;
+          background: #f9fafb;
+          color: #374151;
+          cursor: pointer;
+          font-size: 12px;
+          font-weight: 700;
+          line-height: 1.2;
+          padding: 7px 10px;
+        }
+        .matrix-sql-tab:hover {
+          border-color: #9ca3af;
+          color: #111827;
+        }
+        .matrix-sql-tab-active {
+          border-color: #2563eb;
+          background: #eff6ff;
+          color: #1d4ed8;
+        }
+        .matrix-route-sql-panel pre {
           max-width: min(980px, calc(100vw - 120px));
           max-height: 280px;
-          margin: 6px 0 0;
+          margin: 0;
           overflow: auto;
           border: 1px solid #e5e7eb;
           border-radius: 6px;
