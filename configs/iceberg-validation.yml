@@ -1,0 +1,50 @@
+iceberg:
+  version: "1.10.1"
+  catalog: "iceberg_catalog"
+  namespace: "iceberg_validation"
+  warehouse: "hdfs://hdfs-namenode:8020/warehouse/iceberg"
+  formatVersion: 2
+spark:
+  service: "spark"
+  timeoutSeconds: 900
+  packages:
+    - "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.10.1"
+  extensions:
+    - "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
+hdfs:
+  defaultFs: "hdfs://hdfs-namenode:8020"
+  replicationBaseline: 2
+  ecPolicies:
+    - "RS-3-2-1024k"
+    - "RS-6-3-1024k"
+    - "RS-10-4-1024k"
+    - "XOR-2-1-1024k"
+scale:
+  profile: "smoke"
+  rows: 100000
+  partitions: 8
+  smallFileCommits: 100
+  filesPerCommit: 4
+  concurrentWriters: [2, 4, 8]
+scenarios:
+  schemaEvolution:
+    enabled: true
+  erasureCoding:
+    enabled: true
+  erasureCodingConversion:
+    enabled: true
+  concurrentWrite:
+    enabled: true
+  rowLevelMutation:
+    enabled: true
+  acidTransaction:
+    enabled: true
+  incrementalPull:
+    enabled: true
+  timeTravel:
+    enabled: true
+  smallFileCompaction:
+    enabled: true
+report:
+  output: "reports/iceberg-validation"
+  formats: ["json", "markdown"]
