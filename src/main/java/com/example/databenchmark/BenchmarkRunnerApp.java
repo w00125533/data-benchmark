@@ -3,9 +3,14 @@ package com.example.databenchmark;
 import com.example.databenchmark.config.BenchmarkConfig;
 import com.example.databenchmark.generator.DatasetResult;
 import com.example.databenchmark.generator.SparkKpiDataGenerator;
+import com.example.databenchmark.iceberg.IcebergValidateCommand;
+import com.example.databenchmark.iceberg.IcebergValidationConfig;
+import com.example.databenchmark.iceberg.IcebergValidationReport;
+import com.example.databenchmark.iceberg.IcebergValidationRunner;
 import com.example.databenchmark.runner.ComposeBenchmarkRunner;
 import com.example.databenchmark.runner.LocalBenchmarkRunner;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.Callable;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -21,7 +26,8 @@ import picocli.CommandLine.Spec;
     subcommands = {
         BenchmarkRunnerApp.GenerateCommand.class,
         BenchmarkRunnerApp.RunCommand.class,
-        BenchmarkRunnerApp.ReportCommand.class
+        BenchmarkRunnerApp.ReportCommand.class,
+        IcebergValidateCommand.class
     })
 public class BenchmarkRunnerApp implements Callable<Integer> {
     private final RunnerFactory runnerFactory;
@@ -32,6 +38,10 @@ public class BenchmarkRunnerApp implements Callable<Integer> {
 
     BenchmarkRunnerApp(RunnerFactory runnerFactory) {
         this.runnerFactory = runnerFactory;
+    }
+
+    public RunnerFactory runnerFactory() {
+        return runnerFactory;
     }
 
     public static void main(String[] args) {
@@ -141,15 +151,23 @@ public class BenchmarkRunnerApp implements Callable<Integer> {
         }
     }
 
-    interface RunnerFactory {
+    public interface RunnerFactory {
         DatasetResult generateKpi(BenchmarkConfig config) throws Exception;
 
         CliRunResult runLocal(BenchmarkConfig config, Path reportRoot, String runId) throws Exception;
 
         CliRunResult runCompose(BenchmarkConfig config, Path reportRoot, String runId) throws Exception;
+
+        IcebergValidationReport runIcebergValidation(
+            IcebergValidationConfig config,
+            String runId,
+            List<String> scenarios,
+            List<String> cases,
+            boolean keepArtifacts
+        ) throws Exception;
     }
 
-    record CliRunResult(long rows, Path reportPath, boolean success) {}
+    public record CliRunResult(long rows, Path reportPath, boolean success) {}
 
     private static final class DefaultRunnerFactory implements RunnerFactory {
         @Override
@@ -167,6 +185,17 @@ public class BenchmarkRunnerApp implements Callable<Integer> {
         public CliRunResult runCompose(BenchmarkConfig config, Path reportRoot, String runId) throws Exception {
             ComposeBenchmarkRunner.ComposeRunResult result = new ComposeBenchmarkRunner().run(config, reportRoot, runId);
             return new CliRunResult(result.rows(), result.reportPath(), result.success());
+        }
+
+        @Override
+        public IcebergValidationReport runIcebergValidation(
+            IcebergValidationConfig config,
+            String runId,
+            List<String> scenarios,
+            List<String> cases,
+            boolean keepArtifacts
+        ) throws Exception {
+            return new IcebergValidationRunner().run(config, runId, scenarios, cases, keepArtifacts);
         }
     }
 }

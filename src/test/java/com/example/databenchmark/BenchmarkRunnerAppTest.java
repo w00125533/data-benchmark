@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.databenchmark.config.BenchmarkConfig;
 import com.example.databenchmark.generator.DatasetResult;
+import com.example.databenchmark.iceberg.IcebergValidationConfig;
+import com.example.databenchmark.iceberg.IcebergValidationReport;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Files;
@@ -22,7 +24,7 @@ class BenchmarkRunnerAppTest {
     void cliExposesCoreCommandsAndStandardOptions() {
         CommandLine commandLine = new CommandLine(new BenchmarkRunnerApp());
 
-        assertThat(commandLine.getSubcommands().keySet()).contains("generate", "run", "report");
+        assertThat(commandLine.getSubcommands().keySet()).contains("generate", "run", "report", "iceberg-validate");
         assertThat(commandLine.getCommandSpec().optionsMap().keySet()).contains("-h", "--help", "-V", "--version");
         assertThat(commandLine.getCommandSpec().version()).containsExactly("data-benchmark 0.1.0-SNAPSHOT");
     }
@@ -34,6 +36,7 @@ class BenchmarkRunnerAppTest {
         assertThat(usage).contains("generate");
         assertThat(usage).contains("run");
         assertThat(usage).contains("report");
+        assertThat(usage).contains("iceberg-validate");
     }
 
     @Test
@@ -226,6 +229,19 @@ class BenchmarkRunnerAppTest {
             calls.add("generate");
             Path output = Path.of(config.dataset().output());
             return new DatasetResult(output, List.of(output.resolve("part-00000.parquet")), config.dataset().rowCap(), 128L);
+        }
+
+        @Override
+        public IcebergValidationReport runIcebergValidation(
+            IcebergValidationConfig config,
+            String runId,
+            List<String> scenarios,
+            List<String> cases,
+            boolean keepArtifacts
+        ) {
+            calls.add("iceberg:" + runId + ":" + scenarios + ":" + cases + ":" + keepArtifacts);
+            return new IcebergValidationReport(runId, config.iceberg().version(), config.scale().profile(),
+                "SUCCESS", "2026-07-28T00:00:00Z", "2026-07-28T00:00:01Z", List.of());
         }
     }
 
