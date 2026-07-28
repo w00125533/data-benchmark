@@ -94,7 +94,7 @@ class SharedInfraTopologyTest {
             .contains("${STARROCKS_HTTP_PORT:-8030}:8030", "${STARROCKS_MYSQL_PORT:-9030}:9030");
         assertThat(String.join("\n", stringList(fe, "command")))
             .contains("sed -i '/^JAVA_OPTS=/d' /opt/starrocks/fe/conf/fe.conf")
-            .contains("JAVA_OPTS=\"-Dlog4j2.formatMsgNoLookups=true -Xmx1536m -XX:+UseG1GC -Djava.security.policy=/opt/starrocks/fe/conf/udf_security.policy\"")
+            .contains("JAVA_OPTS=\"-Dlog4j2.formatMsgNoLookups=true -Xmx${STARROCKS_FE_JAVA_XMX:-3072m} -XX:+UseG1GC -Djava.security.policy=/opt/starrocks/fe/conf/udf_security.policy\"")
             .contains("exec /opt/starrocks/fe_entrypoint.sh starrocks-fe");
 
         Map<String, Object> be = service(services, "starrocks-be");
