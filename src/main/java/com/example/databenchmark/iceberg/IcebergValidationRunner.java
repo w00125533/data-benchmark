@@ -9,7 +9,7 @@ public class IcebergValidationRunner {
     private final IcebergValidationReportWriter reportWriter;
 
     public IcebergValidationRunner() {
-        this(List.of(), new IcebergValidationReportWriter());
+        this(IcebergScenarioRegistry.defaultScenarios(), new IcebergValidationReportWriter());
     }
 
     public IcebergValidationRunner(List<IcebergValidationScenario> scenarios, IcebergValidationReportWriter reportWriter) {
@@ -36,6 +36,7 @@ public class IcebergValidationRunner {
             keepArtifacts
         );
         List<IcebergValidationResult> results = scenarios.stream()
+            .filter(scenario -> enabled(config, scenario.name()))
             .filter(scenario -> scenarioFilter == null || scenarioFilter.isEmpty() || scenarioFilter.contains(scenario.name()))
             .flatMap(scenario -> scenario.cases(config).stream()
                 .filter(testCase -> caseFilter == null || caseFilter.isEmpty() || caseFilter.contains(testCase.caseId()))
@@ -63,23 +64,12 @@ public class IcebergValidationRunner {
         try {
             return scenario.run(testCase, context);
         } catch (Exception exception) {
-            return new IcebergValidationResult(
-                scenario.name(),
-                testCase.caseId(),
-                testCase.purpose(),
-                testCase.parameters(),
-                List.of(),
-                List.of(),
-                List.of(),
-                java.util.Map.of(),
-                java.util.Map.of(),
-                java.util.Map.of(),
-                IcebergConclusion.FunctionStatus.FAIL,
-                IcebergConclusion.PerformanceStatus.NOT_COMPARABLE,
-                "用例执行失败。",
-                List.of(),
-                List.of(exception.getMessage())
-            );
+            return IcebergScenarioSupport.fail(testCase, context, "用例执行失败。", List.of(), List.of(exception.getMessage()));
         }
+    }
+
+    private static boolean enabled(IcebergValidationConfig config, String scenarioName) {
+        IcebergValidationConfig.ScenarioConfig scenarioConfig = config.scenarios().get(scenarioName);
+        return scenarioConfig == null || scenarioConfig.enabled();
     }
 }

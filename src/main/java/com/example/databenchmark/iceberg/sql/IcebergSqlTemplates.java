@@ -64,7 +64,8 @@ public final class IcebergSqlTemplates {
             ON t.id = s.id
             WHEN MATCHED AND s.op = 'delete' THEN DELETE
             WHEN MATCHED AND s.op = 'update' THEN UPDATE SET region = s.region
-            WHEN NOT MATCHED THEN INSERT *
+            WHEN NOT MATCHED THEN INSERT (id, event_day, region, metric_int, metric_float, amount, payload, tags, attrs)
+              VALUES (s.id, s.event_day, s.region, s.metric_int, s.metric_float, s.amount, s.payload, s.tags, s.attrs)
             """.formatted(table, sourceView);
     }
 
