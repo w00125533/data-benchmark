@@ -188,3 +188,22 @@ NODE
 ```
 
 Expected values for the formal config are `SUCCESS`, `10000000`, and `10`.
+
+## Iceberg Capability Validation
+
+Run the standalone Apache Iceberg validation suite:
+
+```sh
+mvn package
+java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar iceberg-validate --config configs/iceberg-validation.yml --run-id iceberg-validation-smoke
+```
+
+The suite uses Apache Iceberg `1.10.1`, reuses the shared Spark/HDFS/Hive infrastructure from `../shared-data-infra`, and writes JSON plus Markdown reports under `reports/iceberg-validation/<run_id>/`.
+
+Run selected scenarios while developing:
+
+```sh
+java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar iceberg-validate --scenario schemaEvolution --scenario timeTravel --scenario smallFileCompaction --run-id iceberg-validation-smoke
+```
+
+See [docs/iceberg/validation.md](docs/iceberg/validation.md) for scenario coverage, EC policy assumptions such as `RS-10-4-1024k`, and the performance metrics captured by the report.
