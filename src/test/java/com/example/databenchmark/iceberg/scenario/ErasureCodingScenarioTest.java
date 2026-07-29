@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Test;
 class ErasureCodingScenarioTest {
     @Test
     void ecCasesIncludeSingleReplicaBaselineAndPolicyRowsWithoutEcPolicyCount() throws Exception {
-        ErasureCodingScenario scenario = new ErasureCodingScenario();
+        ErasureCodingScenario scenario = new ErasureCodingScenario(new FakeSparkSqlExecutor(), new FakeHdfsCliClient());
         IcebergValidationConfig config = new IcebergValidationConfigLoader().load(Path.of("configs/iceberg-validation.yml"));
         IcebergValidationContext context = new IcebergValidationContext(
             config,
@@ -56,10 +56,13 @@ class ErasureCodingScenarioTest {
         assertThat(singleReplica.metrics()).containsEntry("liveDataNodes", "1");
         assertThat(singleReplica.metrics()).containsEntry("requiredDataNodes", "1");
         assertThat(singleReplica.metrics()).containsEntry("rowCount", "1000");
-        assertThat(singleReplica.metrics()).containsEntry("logicalBytesStatus", "plannedActual");
-        assertThat(singleReplica.metrics()).containsEntry("fileCountStatus", "plannedActual");
-        assertThat(singleReplica.metrics()).containsEntry("hdfsDiskBytesStatus", "plannedActual");
-        assertThat(singleReplica.metrics()).containsEntry("querySecondsStatus", "plannedActual");
+        assertThat(singleReplica.metrics()).containsEntry("logicalBytes", "1024");
+        assertThat(singleReplica.metrics()).containsEntry("hdfsDiskBytes", "2048");
+        assertThat(singleReplica.metrics()).containsEntry("directoryCount", "3");
+        assertThat(singleReplica.metrics()).containsEntry("fileCount", "7");
+        assertThat(singleReplica.metrics()).containsEntry("querySeconds", "0.512");
+        assertThat(singleReplica.metrics()).containsEntry("returnedRows", "1000");
+        assertThat(singleReplica.metrics()).containsEntry("replicationCommandMode", "recursive-wait");
         String singleReplicaLocation = IcebergScenarioSupport.tableLocation(
             context,
             scenario.name(),
@@ -67,7 +70,7 @@ class ErasureCodingScenarioTest {
         );
         assertThat(singleReplica.actionCommands())
             .noneMatch(command -> command.contains("replication-1-baseline"))
-            .anySatisfy(command -> assertThat(command).contains(" -setrep -w 1 " + singleReplicaLocation))
+            .anySatisfy(command -> assertThat(command).contains(" -setrep -R -w 1 " + singleReplicaLocation))
             .anySatisfy(command -> assertThat(command).contains(" -du -s " + singleReplicaLocation))
             .anySatisfy(command -> assertThat(command).contains(" -count " + singleReplicaLocation));
 
@@ -76,6 +79,12 @@ class ErasureCodingScenarioTest {
         assertThat(replication2.metrics()).containsEntry("replication", "2");
         assertThat(replication2.metrics()).containsEntry("underReplicated", "true");
         assertThat(replication2.metrics()).containsEntry("storageMetricType", "actual");
+        assertThat(replication2.metrics()).containsEntry("logicalBytes", "1024");
+        assertThat(replication2.metrics()).containsEntry("hdfsDiskBytes", "2048");
+        assertThat(replication2.metrics()).containsEntry("fileCount", "7");
+        assertThat(replication2.metrics()).containsEntry("querySeconds", "0.512");
+        assertThat(replication2.metrics()).containsEntry("returnedRows", "1000");
+        assertThat(replication2.metrics()).containsEntry("replicationCommandMode", "recursive-no-wait-under-replicated");
         String replication2Location = IcebergScenarioSupport.tableLocation(
             context,
             scenario.name(),
@@ -83,7 +92,7 @@ class ErasureCodingScenarioTest {
         );
         assertThat(replication2.actionCommands())
             .noneMatch(command -> command.contains(replication2Location + "/replication-2-baseline"))
-            .anySatisfy(command -> assertThat(command).contains(" -setrep -w 2 " + replication2Location))
+            .anySatisfy(command -> assertThat(command).contains(" -setrep -R 2 " + replication2Location))
             .anySatisfy(command -> assertThat(command).contains(" -du -s " + replication2Location))
             .anySatisfy(command -> assertThat(command).contains(" -count " + replication2Location));
 
@@ -127,7 +136,7 @@ class ErasureCodingScenarioTest {
     }
 
     @Test
-    void injectedExecutorsDoNotCreateActualEcMetricsOnCurrentPlannerPath() throws Exception {
+    void injectedExecutorsCollectActualReplicationMetricsAndKeepEcPolicyPlannerOnly() throws Exception {
         FakeSparkSqlExecutor sparkSqlExecutor = new FakeSparkSqlExecutor();
         FakeHdfsCliClient hdfsCliClient = new FakeHdfsCliClient();
         ErasureCodingScenario scenario = new ErasureCodingScenario(sparkSqlExecutor, hdfsCliClient);
@@ -143,17 +152,21 @@ class ErasureCodingScenarioTest {
         IcebergValidationResult replication1 = runCase(scenario, config, context, "hdfs-replication-1-actual");
         IcebergValidationResult rs104 = runCase(scenario, config, context, "ec-policy-rs-10-4-1024k");
 
-        assertThat(replication1.metrics()).containsEntry("hdfsDiskBytesStatus", "plannedActual");
-        assertThat(replication1.metrics()).containsEntry("querySecondsStatus", "plannedActual");
-        assertThat(replication1.metrics()).doesNotContainKeys("hdfsDiskBytes", "querySeconds");
-        assertThat(replication1.executionResults()).isEmpty();
+        assertThat(replication1.metrics()).containsEntry("logicalBytes", "1024");
+        assertThat(replication1.metrics()).containsEntry("hdfsDiskBytes", "2048");
+        assertThat(replication1.metrics()).containsEntry("fileCount", "7");
+        assertThat(replication1.metrics()).containsEntry("querySeconds", "0.512");
+        assertThat(replication1.metrics()).containsEntry("returnedRows", "1000");
+        assertThat(replication1.executionResults()).extracting(com.example.databenchmark.iceberg.IcebergExecutionEvidence::label)
+            .contains("create replication baseline table", "set replication 1", "hdfs du", "hdfs count", "replication row count query");
+        assertThat(replication1.evidence()).contains("hdfsDu=1024 2048 /warehouse/path", "hdfsCount=3 7 1024 /warehouse/path", "queryRows=1000");
         assertThat(rs104.metrics()).containsEntry("hdfsDiskBytesStatus", "notRepresentative");
         assertThat(rs104.metrics()).containsEntry("queryPerformanceStatus", "notRepresentative");
         assertThat(rs104.metrics()).containsKey("theoreticalEcDiskBytes");
         assertThat(rs104.metrics()).doesNotContainKeys("hdfsDiskBytes", "querySeconds");
         assertThat(rs104.executionResults()).isEmpty();
-        assertThat(sparkSqlExecutor.calls).isZero();
-        assertThat(hdfsCliClient.calls).isZero();
+        assertThat(sparkSqlExecutor.calls).isEqualTo(2);
+        assertThat(hdfsCliClient.calls).isEqualTo(3);
     }
 
     @Test
@@ -256,7 +269,16 @@ class ErasureCodingScenarioTest {
         @Override
         public CommandResult run(IcebergValidationConfig config, String sql) {
             calls++;
-            return new CommandResult(List.of("spark-sql"), 0, "querySeconds=9.999\n", "", 9.999);
+            return runRaw(config, sql);
+        }
+
+        @Override
+        public CommandResult runRaw(IcebergValidationConfig config, String sql) {
+            calls++;
+            if (sql.contains("COUNT(*)")) {
+                return new CommandResult(List.of("spark-sql"), 0, "1000\n", "", 0.512);
+            }
+            return new CommandResult(List.of("spark-sql"), 0, "OK\n", "", 0.250);
         }
     }
 
@@ -266,7 +288,13 @@ class ErasureCodingScenarioTest {
         @Override
         public CommandResult dfs(IcebergValidationConfig config, List<String> args) {
             calls++;
-            return new CommandResult(List.of("hdfs", "dfs"), 0, "123456 /warehouse/path\n", "", 0.100);
+            if (args.contains("-du")) {
+                return new CommandResult(List.of("hdfs", "dfs"), 0, "1024 2048 /warehouse/path\n", "", 0.100);
+            }
+            if (args.contains("-count")) {
+                return new CommandResult(List.of("hdfs", "dfs"), 0, "3 7 1024 /warehouse/path\n", "", 0.100);
+            }
+            return new CommandResult(List.of("hdfs", "dfs"), 0, "Replication command accepted\n", "", 0.100);
         }
     }
 }

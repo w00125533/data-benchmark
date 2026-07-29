@@ -1,6 +1,8 @@
 package com.example.databenchmark.iceberg.scenario;
 
+import com.example.databenchmark.engine.CommandResult;
 import com.example.databenchmark.iceberg.IcebergConclusion;
+import com.example.databenchmark.iceberg.IcebergExecutionEvidence;
 import com.example.databenchmark.iceberg.IcebergScenarioSupport;
 import com.example.databenchmark.iceberg.IcebergValidationCase;
 import com.example.databenchmark.iceberg.IcebergValidationConfig;
@@ -10,8 +12,11 @@ import com.example.databenchmark.iceberg.exec.SparkSqlExecutor;
 import com.example.databenchmark.iceberg.hdfs.EcPolicySpec;
 import com.example.databenchmark.iceberg.hdfs.HdfsCliClient;
 import com.example.databenchmark.iceberg.hdfs.HdfsEcPolicyClient;
+import com.example.databenchmark.iceberg.hdfs.HdfsUsageCollector;
+import com.example.databenchmark.iceberg.metrics.IcebergMetricCollectors;
 import com.example.databenchmark.iceberg.sql.IcebergSqlTemplates;
 import com.example.databenchmark.iceberg.sql.SparkSqlScriptBuilder;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -82,12 +87,12 @@ public class ErasureCodingScenario extends AbstractIcebergValidationScenario {
         }
         if (testCase.caseId().startsWith("hdfs-replication-")) {
             int replication = Integer.parseInt(testCase.parameters().get("replication"));
-            return plannedReplicationBaseline(testCase, context, table, location, replication);
+            return runReplicationBaseline(testCase, context, table, location, replication);
         }
         return plannedEcPolicy(testCase, context, table, location, testCase.parameters().get("policy"));
     }
 
-    private IcebergValidationResult plannedReplicationBaseline(
+    private IcebergValidationResult runReplicationBaseline(
         IcebergValidationCase testCase,
         IcebergValidationContext context,
         String table,
@@ -105,35 +110,109 @@ public class ErasureCodingScenario extends AbstractIcebergValidationScenario {
         metrics.put("policyMode", replication == 1 ? "hdfs-replication-1-actual" : "hdfs-replication-2-target-baseline");
         metrics.put("replication", Integer.toString(replication));
         metrics.put("rowCount", Long.toString(targetRows));
-        metrics.put("logicalBytesStatus", "plannedActual");
-        metrics.put("fileCountStatus", "plannedActual");
-        metrics.put("hdfsDiskBytesStatus", "plannedActual");
-        metrics.put("querySecondsStatus", "plannedActual");
         metrics.put("storageMetricType", "actual");
         metrics.put("underReplicated", Boolean.toString(replication > 1));
         metrics.put("liveDataNodes", "1");
         metrics.put("requiredDataNodes", "1");
 
         List<String> actions = List.of(
-            "hdfs dfs -fs " + context.config().hdfs().defaultFs() + " -setrep -w "
-                + replication + " " + location,
+            hdfsScript(context.config(), setReplicationArgs(replication, location)),
             "hdfs dfs -fs " + context.config().hdfs().defaultFs() + " -du -s " + location,
             "hdfs dfs -fs " + context.config().hdfs().defaultFs() + " -count " + location,
             "SELECT COUNT(*) FROM " + table
         );
+        List<String> setup = setupCommands(context, table, location, targetRows);
+        String setupScript = setupScript(setup);
+        List<IcebergExecutionEvidence> executionResults = new ArrayList<>();
+        List<String> evidence = new ArrayList<>();
+        evidence.add("table=" + table);
+        evidence.add("location=" + location);
+        evidence.add("setupScript=" + setupScript.strip());
+        try {
+            IcebergExecutionEvidence setupEvidence = runSpark(context.config(), "setup", "create replication baseline table", setupScript);
+            executionResults.add(setupEvidence);
+            requireSuccess(setupEvidence);
+            IcebergExecutionEvidence setReplication = runHdfs(
+                context.config(),
+                "action",
+                "set replication " + replication,
+                setReplicationArgs(replication, location)
+            );
+            executionResults.add(setReplication);
+            requireSuccess(setReplication);
+            IcebergExecutionEvidence du = runHdfs(context.config(), "metric", "hdfs du", List.of("-du", "-s", location));
+            executionResults.add(du);
+            requireSuccess(du);
+            IcebergExecutionEvidence count = runHdfs(context.config(), "metric", "hdfs count", List.of("-count", location));
+            executionResults.add(count);
+            requireSuccess(count);
+            IcebergExecutionEvidence query = runSpark(context.config(), "metric", "replication row count query", "SELECT COUNT(*) FROM " + table);
+            executionResults.add(query);
+            requireSuccess(query);
 
-        return plannedEcResult(
-            testCase,
-            context,
-            table,
-            location,
-            metrics,
-            actions,
-            replication == 1 ? IcebergConclusion.FunctionStatus.PASS : IcebergConclusion.FunctionStatus.DEGRADED,
-            replication == 1
-                ? "Single-replica HDFS baseline is planned for actual collection on the available DataNode."
-                : "Replication=2 baseline is auditable, but it is under-replicated with only one live DataNode."
-        );
+            HdfsUsageCollector.Usage usage = HdfsUsageCollector.parse(du.stdout(), count.stdout());
+            long returnedRows = IcebergMetricCollectors.parseSingleLong(query.stdout());
+            metrics.put("logicalBytes", Long.toString(usage.logicalBytes()));
+            metrics.put("hdfsDiskBytes", Long.toString(usage.diskBytes()));
+            metrics.put("directoryCount", Long.toString(usage.directoryCount()));
+            metrics.put("fileCount", Long.toString(usage.fileCount()));
+            metrics.put("querySeconds", Double.toString(query.durationSeconds()));
+            metrics.put("returnedRows", Long.toString(returnedRows));
+            metrics.put("replicationCommandMode", replication == 1 ? "recursive-wait" : "recursive-no-wait-under-replicated");
+            evidence.add("hdfsDu=" + du.stdout().strip());
+            evidence.add("hdfsCount=" + count.stdout().strip());
+            evidence.add("queryRows=" + returnedRows);
+
+            return new IcebergValidationResult(
+                testCase.scenario(),
+                testCase.caseId(),
+                testCase.purpose(),
+                IcebergScenarioSupport.dataScale(context.config()),
+                setup,
+                actions,
+                List.of("Spark table is created and populated", "HDFS du/count and row-count query are collected from shared infra"),
+                metrics,
+                Map.of("targetRows", Long.toString(targetRows)),
+                Map.of(
+                    "logicalBytes", Long.toString(usage.logicalBytes()),
+                    "hdfsDiskBytes", Long.toString(usage.diskBytes()),
+                    "fileCount", Long.toString(usage.fileCount()),
+                    "returnedRows", Long.toString(returnedRows)
+                ),
+                replication == 1 ? IcebergConclusion.FunctionStatus.PASS : IcebergConclusion.FunctionStatus.DEGRADED,
+                replication == 1 ? IcebergConclusion.PerformanceStatus.ACCEPTABLE : IcebergConclusion.PerformanceStatus.NOT_COMPARABLE,
+                replication == 1
+                    ? "Single-replica HDFS baseline collected actual file count, disk usage, and query latency."
+                    : "Replication=2 target was set without waiting on one DataNode; actual storage/query metrics are collected but under-replicated.",
+                evidence,
+                List.of(),
+                executionResults
+            );
+        } catch (IOException | InterruptedException | RuntimeException exception) {
+            if (exception instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            String error = exception.getMessage() == null ? exception.toString() : exception.getMessage();
+            evidence.add("executionError=" + error);
+            return new IcebergValidationResult(
+                testCase.scenario(),
+                testCase.caseId(),
+                testCase.purpose(),
+                IcebergScenarioSupport.dataScale(context.config()),
+                setup,
+                actions,
+                List.of("HDFS replication baseline should collect du/count and row-count metrics"),
+                metrics,
+                Map.of("targetRows", Long.toString(targetRows)),
+                Map.of(),
+                IcebergConclusion.FunctionStatus.FAIL,
+                IcebergConclusion.PerformanceStatus.NOT_COMPARABLE,
+                "HDFS replication baseline execution failed.",
+                evidence,
+                List.of(error),
+                executionResults
+            );
+        }
     }
 
     private IcebergValidationResult plannedEcPolicy(
@@ -234,6 +313,55 @@ public class ErasureCodingScenario extends AbstractIcebergValidationScenario {
 
     private static String ecPolicyPath(String location, String policy) {
         return location + "/ec-target/" + policy.toLowerCase(Locale.ROOT);
+    }
+
+    private static List<String> setReplicationArgs(int replication, String location) {
+        if (replication == 1) {
+            return List.of("-setrep", "-R", "-w", "1", location);
+        }
+        return List.of("-setrep", "-R", Integer.toString(replication), location);
+    }
+
+    private IcebergExecutionEvidence runSpark(IcebergValidationConfig config, String phase, String label, String sql)
+        throws IOException, InterruptedException {
+        CommandResult result = sparkSqlExecutor.runRaw(config, sql);
+        return new IcebergExecutionEvidence(
+            phase,
+            label,
+            sql,
+            result.exitCode(),
+            result.durationSeconds(),
+            result.stdout(),
+            result.stderr()
+        );
+    }
+
+    private IcebergExecutionEvidence runHdfs(
+        IcebergValidationConfig config,
+        String phase,
+        String label,
+        List<String> args
+    ) throws IOException, InterruptedException {
+        CommandResult result = hdfsCliClient.dfs(config, args);
+        return new IcebergExecutionEvidence(
+            phase,
+            label,
+            hdfsScript(config, args),
+            result.exitCode(),
+            result.durationSeconds(),
+            result.stdout(),
+            result.stderr()
+        );
+    }
+
+    private static void requireSuccess(IcebergExecutionEvidence evidence) {
+        if (evidence.exitCode() != 0) {
+            throw new IllegalStateException("Command failed during " + evidence.label() + ": " + evidence.stderr());
+        }
+    }
+
+    private static String hdfsScript(IcebergValidationConfig config, List<String> args) {
+        return "hdfs dfs -fs " + config.hdfs().defaultFs() + " " + String.join(" ", args);
     }
 
     private List<String> setupCommands(
