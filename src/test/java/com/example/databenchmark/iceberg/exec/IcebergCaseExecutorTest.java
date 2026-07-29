@@ -30,7 +30,7 @@ class IcebergCaseExecutorTest {
 
         assertThat(evidence.phase()).isEqualTo("action");
         assertThat(evidence.label()).isEqualTo("row count");
-        assertThat(evidence.script()).isEqualTo("spark-sql -e SELECT 1");
+        assertThat(evidence.script()).isEqualTo("spark-sql -e \"SELECT 1\"");
         assertThat(evidence.exitCode()).isEqualTo(7);
         assertThat(evidence.durationSeconds()).isEqualTo(0.123);
         assertThat(evidence.stdout()).isEqualTo("count\n1000\n");
@@ -38,6 +38,33 @@ class IcebergCaseExecutorTest {
         assertThat(runner.command).containsExactly("spark-sql", "-e", "SELECT 1");
         assertThat(runner.workingDirectory).isEqualTo(Path.of("."));
         assertThat(runner.timeout).isEqualTo(Duration.ofMinutes(30));
+    }
+
+    @Test
+    void forwardsConfiguredWorkingDirectoryAndTimeout() throws Exception {
+        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "ok", "", 0.1));
+        Path workingDirectory = Path.of("work", "iceberg");
+        Duration timeout = Duration.ofSeconds(45);
+        IcebergCaseExecutor executor = new IcebergCaseExecutor(runner, workingDirectory, timeout);
+
+        executor.record("setup", "create table", List.of("spark-sql", "-e", "SELECT 1"));
+
+        assertThat(runner.workingDirectory).isEqualTo(workingDirectory);
+        assertThat(runner.timeout).isEqualTo(timeout);
+    }
+
+    @Test
+    void quotesCommandArgumentsWithWhitespaceInEvidenceScript() throws Exception {
+        FakeCommandRunner runner = new FakeCommandRunner(new CommandResult(List.of(), 0, "", "", 0.1));
+        IcebergCaseExecutor executor = new IcebergCaseExecutor(runner);
+
+        IcebergExecutionEvidence evidence = executor.record(
+            "action",
+            "count rows",
+            List.of("spark-sql", "-e", "SELECT COUNT(*) FROM t")
+        );
+
+        assertThat(evidence.script()).isEqualTo("spark-sql -e \"SELECT COUNT(*) FROM t\"");
     }
 
     private static final class FakeCommandRunner extends CommandRunner {
