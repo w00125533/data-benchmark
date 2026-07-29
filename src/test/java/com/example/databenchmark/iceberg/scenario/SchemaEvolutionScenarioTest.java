@@ -285,6 +285,14 @@ class SchemaEvolutionScenarioTest {
         assertThat(result.functionStatus()).isEqualTo(com.example.databenchmark.iceberg.IcebergConclusion.FunctionStatus.FAIL);
         assertThat(result.performanceStatus()).isEqualTo(com.example.databenchmark.iceberg.IcebergConclusion.PerformanceStatus.NOT_COMPARABLE);
         assertThat(result.errors()).anySatisfy(error -> assertThat(error).contains("boom"));
+        IcebergExecutionEvidence failedChange = result.executionResults().stream()
+            .filter(executionResult -> executionResult.label().equals("schema change"))
+            .filter(executionResult -> executionResult.exitCode() == -1)
+            .findFirst()
+            .orElseThrow();
+        assertThat(failedChange.script()).startsWith("ALTER TABLE");
+        assertThat(failedChange.stdout()).isEmpty();
+        assertThat(failedChange.stderr()).isEqualTo("boom");
     }
 
     @Test
@@ -472,6 +480,7 @@ class SchemaEvolutionScenarioTest {
                 case NOISY -> """
                     Setting default log level to "WARN".
                     Spark master: local
+                    Hive Session ID = 779e7d32-1ce6-4eb6-bc7f-85aaf7d9fb03
                     +---+
                     | id|
                     +---+
@@ -489,6 +498,7 @@ class SchemaEvolutionScenarioTest {
                 case HEADERLESS -> "2000\n1999\n";
                 case NOISY -> """
                     26/07/29 12:00:00 WARN NativeCodeLoader: Unable to load native-hadoop library
+                    Hive Session ID = 779e7d32-1ce6-4eb6-bc7f-85aaf7d9fb03
                     +----+
                     |  id|
                     +----+

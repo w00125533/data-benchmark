@@ -290,7 +290,14 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
         String label,
         String sql
     ) throws IOException, InterruptedException {
-        IcebergExecutionEvidence evidence = runSpark(config, phase, label, sql);
+        IcebergExecutionEvidence evidence;
+        try {
+            evidence = runSpark(config, phase, label, sql);
+        } catch (IOException | InterruptedException | RuntimeException exception) {
+            String error = exception.getMessage() == null ? exception.toString() : exception.getMessage();
+            executionResults.add(new IcebergExecutionEvidence(phase, label, sql, -1, 0.0, "", error));
+            throw exception;
+        }
         executionResults.add(evidence);
         if (evidence.exitCode() != 0) {
             throw new IllegalStateException("Spark SQL failed during " + label + ": " + evidence.stderr());
@@ -341,6 +348,7 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
             || line.startsWith("To adjust logging level")
             || line.startsWith("Spark session available as")
             || line.startsWith("Spark master:")
+            || line.startsWith("Hive Session ID")
             || line.startsWith("SLF4J:")
             || SPARK_LOG_LEVEL_LINE.matcher(line).matches();
     }
