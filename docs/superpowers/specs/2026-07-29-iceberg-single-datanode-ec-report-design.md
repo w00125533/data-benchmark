@@ -66,7 +66,7 @@
 
 EC section 不再输出单行 `ecPolicyCount=4`，改为多行矩阵：
 
-- `replication=1 actual`
+- `hdfs-replication-1-actual`：HDFS 单副本真实测量行，在 1 个 DataNode 下作为实际可落盘、可查询的磁盘和性能基线。
 - `replication=2 target baseline`
 - `RS-3-2-1024k`
 - `RS-6-3-1024k`
@@ -79,7 +79,7 @@ EC section 不再输出单行 `ecPolicyCount=4`，改为多行矩阵：
 | --- | --- |
 | 用例 | `caseId` 或 policy case id |
 | 验证点说明 | 中文说明，例如“在 1 个 DataNode 下验证 policy 设置能力，并用理论值估算 EC 存储开销” |
-| Policy/模式 | `replication=1 actual`、`replication=2 target`、具体 EC policy |
+| Policy/模式 | `hdfs-replication-1-actual`、`replication=2 target`、具体 EC policy |
 | EC 设置位置 | `hdfs ec -setPolicy -path <path> -policy <policy>` 和实际 `getPolicy` 结果 |
 | DataNode 条件 | `liveDataNodes`、`requiredDataNodes`、`physicalEcWritable` |
 | 相同数据量 | `rowCount`、`logicalBytes`、`checksum` |
@@ -94,7 +94,7 @@ EC section 不再输出单行 `ecPolicyCount=4`，改为多行矩阵：
 
 | 条件 | 功能状态 | 性能状态 | 报告结论 |
 | --- | --- | --- | --- |
-| replication=1 实际写入和查询成功 | PASS | ACCEPTABLE 或 DEGRADED | 真实磁盘和查询性能可用 |
+| HDFS 单副本 `hdfs-replication-1-actual` 实际写入和查询成功 | PASS | ACCEPTABLE 或 DEGRADED | 作为 1 个 DataNode 下真实可测的磁盘占用和查询性能基线 |
 | replication=2 在 1 DN 下写入成功但 under-replicated | DEGRADED | ACCEPTABLE 或 NOT_COMPARABLE | 可作为目标双副本基线，但要标记副本不足 |
 | EC policy set 成功但无法真实形成 block group | DEGRADED | NOT_COMPARABLE | policy-only 成功，磁盘节省仅理论估算 |
 | EC policy set 失败 | SKIPPED 或 FAIL | NOT_COMPARABLE | 展示失败命令、exit code 和错误 |
@@ -145,7 +145,7 @@ policy 参数：
   - 断言 HTML 中出现“验证点说明”，并且返回数据集默认隐藏。
 - EC 测试：
   - 断言不再输出 `ecPolicyCount`。
-  - 断言按 policy 拆行，包含 replication baseline 行。
+  - 断言按 policy 拆行，包含 HDFS 单副本 `hdfs-replication-1-actual` 行和 replication=2 baseline 行。
   - 断言 `setPolicy`、`getPolicy`、`du`、`count` 命令进入执行证据。
   - 断言 1 DataNode 下 EC 行使用 `theoreticalEcDiskBytes`，并标记 `physicalEcWritable=false`。
   - 断言故障容忍 DataNode 不足时没有伪造 `querySecondsAfterFailure`。
@@ -156,7 +156,7 @@ policy 参数：
 ## 验收标准
 
 - Schema 报告能看到历史查询 SQL、当前查询 SQL、ALTER 后新数据插入、查询耗时、返回行数和默认隐藏的数据集样例。
-- EC 报告能看到相同数据量下 replication baseline 和每个 EC policy 的文件数、磁盘占用、查询效率字段。
+- EC 报告能看到相同数据量下 HDFS 单副本、replication=2 baseline 和每个 EC policy 的文件数、磁盘占用、查询效率字段。
 - 1 个 DataNode 下的 EC 磁盘节省只作为理论估算展示，真实 `hdfsDiskBytes` 仅用于实际可执行路径。
 - 纠删码故障容忍场景展示 DataNode 不足的硬约束和跳过原因，不展示伪造的故障后查询性能。
 - 不修改 `data-benchmark/docker-compose.yml` 添加本地 HDFS 等重复基础设施。
