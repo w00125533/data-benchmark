@@ -24,6 +24,35 @@ class EcPolicySpecTest {
     }
 
     @Test
+    void rejectsNegativeLogicalBytes() {
+        EcPolicySpec spec = EcPolicySpec.parse("RS-3-2-1024k");
+
+        assertThatThrownBy(() -> spec.theoreticalDiskBytes(-1))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("logicalBytes must be non-negative");
+    }
+
+    @Test
+    void doesNotOverflowBeforeFloatingPointCalculation() {
+        long logicalBytes = Long.MAX_VALUE / 10;
+
+        long diskBytes = EcPolicySpec.parse("RS-10-4-1024k").theoreticalDiskBytes(logicalBytes);
+
+        assertThat(diskBytes).isGreaterThan(logicalBytes);
+        assertThat(diskBytes).isGreaterThan(0);
+    }
+
+    @Test
+    void rejectsMalformedPolicyPrefixes() {
+        assertThatThrownBy(() -> EcPolicySpec.parse("RS-3-20-1024k"))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Unsupported EC policy");
+        assertThatThrownBy(() -> EcPolicySpec.parse("RS-3-2BAD"))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Unsupported EC policy");
+    }
+
+    @Test
     void rejectsUnsupportedPolicyNames() {
         assertThatThrownBy(() -> EcPolicySpec.parse("CUSTOM-1-1"))
             .isInstanceOf(IllegalArgumentException.class)
