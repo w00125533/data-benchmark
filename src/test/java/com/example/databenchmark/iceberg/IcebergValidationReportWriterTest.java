@@ -26,7 +26,14 @@ class IcebergValidationReportWriterTest {
                 resultWithExecution("schemaEvolution", "schema-add-drop-rename", "verify schema compatibility",
                     List.of("ALTER TABLE iceberg_table ADD COLUMN added_text STRING"),
                     List.of("row count matched"),
-                    Map.of("snapshotCount", "3", "queryMs", "12.5", "schemaChangeTypes", "add,rename,type promotion"),
+                    Map.of(
+                        "schemaChangeType", "add/drop/rename",
+                        "changeCount", "3",
+                        "baselineRows", "1000",
+                        "currentRows", "1000",
+                        "snapshotCount", "4",
+                        "schemaHistoryLength", "4"
+                    ),
                     Map.of("queryMs", "10.0"),
                     Map.of("latencyRatio", "1.25"),
                     "历史数据兼容读取通过，查询延迟为基线 1.25 倍。",
@@ -143,7 +150,14 @@ class IcebergValidationReportWriterTest {
             .contains("<th>Compaction 类型</th>")
             .contains("Schema 长期演进")
             .contains("通过多阶段 Schema 变更")
-            .contains("Schema 变化类型")
+            .contains("<td>schemaChangeType=add/drop/rename<br>changeCount=3<br>ALTER TABLE iceberg_table ADD COLUMN added_text STRING</td>")
+            .contains("<td>baselineRows=1000<br>currentRows=1000<br>snapshotCount=4<br>row count matched</td>")
+            .contains("<td>snapshotCount=4<br>schemaHistoryLength=4</td>")
+            .contains("add/drop/rename")
+            .contains("changeCount=3")
+            .contains("baselineRows=1000")
+            .contains("currentRows=1000")
+            .contains("schemaHistoryLength=4")
             .contains("schema-add-drop-rename")
             .contains("<strong>执行脚本</strong>")
             .contains("<strong>执行结果</strong>")
@@ -164,7 +178,9 @@ class IcebergValidationReportWriterTest {
             .doesNotContain("mutationMetrics=duration,rewriteFiles,deleteFiles,queryMsAfter")
             .doesNotContain("incrementalMetrics=fullScanMs,incrementalMs,savingRatio,snapshotWindow")
             .doesNotContain("timeTravelMetrics=currentQueryMs,historicalQueryMs,planningMs")
-            .doesNotContain("caseImplemented=");
+            .doesNotContain("caseImplemented=")
+            .doesNotContain("Schema 变化类型: primitive,numeric,nested,complex")
+            .doesNotContain("schemaChangeTypes");
     }
 
     private static IcebergValidationResult result(

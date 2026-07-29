@@ -199,10 +199,10 @@ public class IcebergValidationReportWriter {
         return switch (result.scenario()) {
             case "schemaEvolution" -> List.of(
                 code(result.caseId()),
-                metricOrRequirement(result, "schemaChangeTypes"),
-                joinList(result.assertions()),
+                schemaChangeSummary(result),
+                schemaHistoricalReadSummary(result),
                 result.conclusion(),
-                joinMap(result.metrics()),
+                schemaPerformanceMetrics(result),
                 status,
                 evidenceDetails(result)
             );
@@ -307,18 +307,42 @@ public class IcebergValidationReportWriter {
         return builder.toString();
     }
 
-    private static String metricOrRequirement(IcebergValidationResult result, String key) {
-        String value = result.metrics().get(key);
-        return value == null || value.isBlank()
-            ? escapeHtml(scenarioRequirement(result.scenario()))
-            : escapeHtml(labelFor(key) + ": " + value);
+    private static String schemaChangeSummary(IcebergValidationResult result) {
+        String metrics = mapValues(result.metrics(), "schemaChangeType", "changeCount");
+        String ddlSummary = result.actionCommands().stream()
+            .limit(3)
+            .map(IcebergValidationReportWriter::escapeHtml)
+            .collect(Collectors.joining("<br>"));
+        if (ddlSummary.isEmpty()) {
+            return metrics;
+        }
+        if (metrics.isEmpty()) {
+            return ddlSummary;
+        }
+        return metrics + "<br>" + ddlSummary;
     }
 
-    private static String labelFor(String key) {
-        return switch (key) {
-            case "schemaChangeTypes" -> "Schema 变化类型";
-            default -> key;
-        };
+    private static String schemaHistoricalReadSummary(IcebergValidationResult result) {
+        String values = mapValues(result.metrics(), "baselineRows", "currentRows", "snapshotCount");
+        String assertions = joinList(result.assertions());
+        if (assertions.isEmpty()) {
+            return values;
+        }
+        if (values.isEmpty()) {
+            return assertions;
+        }
+        return values + "<br>" + assertions;
+    }
+
+    private static String schemaPerformanceMetrics(IcebergValidationResult result) {
+        return mapValues(
+            result.metrics(),
+            "currentQuerySeconds",
+            "historicalQuerySeconds",
+            "snapshotCount",
+            "schemaHistoryLength",
+            "metadataJsonCount"
+        );
     }
 
     private static String metricOrEmpty(IcebergValidationResult result, String... keys) {
