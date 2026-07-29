@@ -77,78 +77,70 @@ public class IcebergValidationReportWriter {
                 + " / " + count(statusCounts, IcebergConclusion.FunctionStatus.DEGRADED));
         builder.append("</tbody></table></div></section>");
 
-        builder.append("""
-            <section>
-              <h2>验证项总览</h2>
-              <div class="table-wrap">
-              <table>
-                <thead><tr>
-                  <th>场景</th><th>用例</th><th>验证目标</th><th>关键需求要素</th>
-                  <th>功能状态</th><th>性能状态</th><th>性能指标</th><th>基线</th><th>对比</th><th>性能结论</th>
-                </tr></thead>
-                <tbody>
-            """);
-        for (IcebergValidationResult result : report.results()) {
-            builder.append("<tr>")
-                .append(cell(scenarioDisplayName(result.scenario())))
-                .append(cell(code(result.caseId())))
-                .append(cell(result.purpose()))
-                .append(cell(requirementElements(result)))
-                .append(cell("<span class=\"status-" + result.functionStatus() + "\">" + result.functionStatus() + "</span>"))
-                .append(cell(result.performanceStatus().toString()))
-                .append(cell(joinMap(result.metrics())))
-                .append(cell(joinMap(result.baseline())))
-                .append(cell(joinMap(result.comparison())))
-                .append(cell(result.conclusion()))
-                .append("</tr>");
+        for (ScenarioSection section : scenarioSections()) {
+            appendScenarioSection(builder, section, report.results());
+        }
+        appendEvidenceSection(builder, report.results());
+        builder.append("</main></body></html>");
+        return builder.toString();
+    }
+
+    private static void appendScenarioSection(StringBuilder builder, ScenarioSection section, List<IcebergValidationResult> results) {
+        List<IcebergValidationResult> sectionResults = results.stream()
+            .filter(result -> section.scenario().equals(result.scenario()))
+            .toList();
+        if (sectionResults.isEmpty()) {
+            return;
+        }
+        builder.append("<section><h2>").append(escapeHtml(section.title())).append("</h2>");
+        builder.append("<div class=\"table-wrap\"><table><thead><tr>");
+        for (String header : section.headers()) {
+            builder.append("<th>").append(escapeHtml(header)).append("</th>");
+        }
+        builder.append("</tr></thead><tbody>");
+        for (IcebergValidationResult result : sectionResults) {
+            builder.append("<tr>");
+            for (String value : scenarioCells(result)) {
+                builder.append(cell(value));
+            }
+            builder.append("</tr>");
         }
         builder.append("</tbody></table></div></section>");
+    }
 
-        builder.append("""
-            <section>
-              <h2>需求要素矩阵</h2>
-              <div class="table-wrap">
-              <table>
-                <thead><tr>
-                  <th>场景</th><th>用例</th><th>需求分析关键要素</th><th>断言</th><th>指标项</th><th>基线与对比</th>
-                </tr></thead>
-                <tbody>
-            """);
-        for (IcebergValidationResult result : report.results()) {
-            builder.append("<tr>")
-                .append(cell(scenarioDisplayName(result.scenario())))
-                .append(cell(code(result.caseId())))
-                .append(cell(requirementElements(result)))
-                .append(cell(joinList(result.assertions())))
-                .append(cell(joinMap(result.metrics())))
-                .append(cell("Baseline: " + joinMap(result.baseline()) + "<br>Comparison: " + joinMap(result.comparison())))
-                .append("</tr>");
-        }
-        builder.append("</tbody></table></div></section>");
-
+    private static void appendEvidenceSection(StringBuilder builder, List<IcebergValidationResult> results) {
         builder.append("""
             <section>
               <h2>执行脚本与证据</h2>
-              <div class="table-wrap">
-              <table>
-                <thead><tr>
-                  <th>场景</th><th>用例</th><th>Setup Commands</th><th>Action Commands</th><th>Evidence</th><th>Errors</th>
-                </tr></thead>
-                <tbody>
             """);
-        for (IcebergValidationResult result : report.results()) {
-            builder.append("<tr>")
-                .append(cell(scenarioDisplayName(result.scenario())))
-                .append(cell(code(result.caseId())))
-                .append(cell(pre(result.setupCommands())))
-                .append(cell(pre(result.actionCommands())))
-                .append(cell(pre(result.evidence())))
-                .append(cell(pre(result.errors())))
-                .append("</tr>");
+        for (ScenarioSection section : scenarioSections()) {
+            List<IcebergValidationResult> sectionResults = results.stream()
+                .filter(result -> section.scenario().equals(result.scenario()))
+                .toList();
+            if (sectionResults.isEmpty()) {
+                continue;
+            }
+            builder.append("<h3>").append(escapeHtml(section.title())).append("</h3>");
+            builder.append("""
+                <div class="table-wrap">
+                <table>
+                  <thead><tr>
+                    <th>用例</th><th>Setup Commands</th><th>Action Commands</th><th>Evidence</th><th>Errors</th>
+                  </tr></thead>
+                  <tbody>
+                """);
+            for (IcebergValidationResult result : sectionResults) {
+                builder.append("<tr>")
+                    .append(cell(code(result.caseId())))
+                    .append(cell(pre(result.setupCommands())))
+                    .append(cell(pre(result.actionCommands())))
+                    .append(cell(pre(result.evidence())))
+                    .append(cell(pre(result.errors())))
+                    .append("</tr>");
+            }
+            builder.append("</tbody></table></div>");
         }
-        builder.append("</tbody></table></div></section>");
-        builder.append("</main></body></html>");
-        return builder.toString();
+        builder.append("</section>");
     }
 
     private static void appendKeyValue(StringBuilder builder, String key, String value) {
@@ -189,6 +181,125 @@ public class IcebergValidationReportWriter {
         };
     }
 
+    private static List<ScenarioSection> scenarioSections() {
+        return List.of(
+            new ScenarioSection("schemaEvolution", "Schema 长期演进",
+                List.of("用例", "Schema 变化", "历史数据读取断言", "兼容性结论", "性能指标", "证据", "状态")),
+            new ScenarioSection("erasureCoding", "HDFS 纠删码",
+                List.of("用例", "EC Policy", "replication 基线", "DataNode 要求", "文件数统计", "HDFS 磁盘占用", "故障注入/Skip 原因", "结论", "状态")),
+            new ScenarioSection("erasureCodingConversion", "EC/replication 转换",
+                List.of("用例", "转换方向", "转换方式", "转换前后文件/磁盘", "转换耗时/吞吐", "查询对比", "结论", "状态")),
+            new ScenarioSection("concurrentWrite", "多进程并发写入",
+                List.of("用例", "Writer 数", "写入模式", "冲突类型", "成功/失败提交", "隔离断言", "性能指标", "结论", "状态")),
+            new ScenarioSection("rowLevelMutation", "行级更新删除",
+                List.of("用例", "操作类型", "影响范围", "delete/rewrite 文件指标", "历史快照断言", "查询性能", "结论", "状态")),
+            new ScenarioSection("acidTransaction", "ACID 事务保证",
+                List.of("用例", "故障/冲突类型", "快照原子性断言", "读隔离断言", "错误/Skip 原因", "结论", "状态")),
+            new ScenarioSection("incrementalPull", "增量拉取",
+                List.of("用例", "Snapshot Window", "数据变更类型", "增量/全量对比", "过期快照行为", "结论", "状态")),
+            new ScenarioSection("timeTravel", "时间旅行",
+                List.of("用例", "访问方式", "目标快照/时间", "Schema 兼容断言", "过期行为", "性能指标", "结论", "状态")),
+            new ScenarioSection("smallFileCompaction", "小文件 Compaction",
+                List.of("用例", "Snapshot 数", "小文件构造", "Compaction 类型", "前后文件/manifest/snapshot 指标", "查询对比", "结论", "状态"))
+        );
+    }
+
+    private static List<String> scenarioCells(IcebergValidationResult result) {
+        String status = statusCell(result);
+        return switch (result.scenario()) {
+            case "schemaEvolution" -> List.of(
+                code(result.caseId()),
+                metricOrRequirement(result, "schemaChangeTypes"),
+                joinList(result.assertions()),
+                result.conclusion(),
+                joinMap(result.metrics()),
+                joinList(result.evidence()),
+                status
+            );
+            case "erasureCoding" -> List.of(
+                code(result.caseId()),
+                firstPresent(result, "policy", "ecPolicies", "RS-10-4-1024k"),
+                "replicationBaseline=" + firstPresent(result, "replicationBaseline", "replicationBaseline", "2"),
+                firstPresent(result, "requiredDataNodes", null, ""),
+                firstPresent(result, "fileCount", null, joinMap(result.comparison())),
+                firstPresent(result, "hdfsDiskBytes", null, diskMetrics(result)),
+                skipReason(result),
+                result.conclusion(),
+                status
+            );
+            case "erasureCodingConversion" -> List.of(
+                code(result.caseId()),
+                conversionDirection(result),
+                conversionMode(result),
+                joinBaselineAndComparison(result),
+                metricOrEmpty(result, "conversionSeconds", "throughputMbPerSecond", "conversionMetrics"),
+                queryMetrics(result),
+                result.conclusion(),
+                status
+            );
+            case "concurrentWrite" -> List.of(
+                code(result.caseId()),
+                metricOrEmpty(result, "writerGroups"),
+                writeMode(result),
+                conflictType(result),
+                metricOrEmpty(result, "successfulCommits", "failedCommits", "writerGroups"),
+                joinList(result.assertions()),
+                joinMap(result.metrics()),
+                result.conclusion(),
+                status
+            );
+            case "rowLevelMutation" -> List.of(
+                code(result.caseId()),
+                mutationOperation(result),
+                result.purpose(),
+                metricOrEmpty(result, "deleteFiles", "rewriteFiles", "mutationMetrics"),
+                joinList(result.assertions()),
+                metricOrEmpty(result, "queryMsAfter", "mutationMetrics"),
+                result.conclusion(),
+                status
+            );
+            case "acidTransaction" -> List.of(
+                code(result.caseId()),
+                acidType(result),
+                atomicAssertion(result),
+                isolationAssertion(result),
+                skipReason(result),
+                result.conclusion(),
+                status
+            );
+            case "incrementalPull" -> List.of(
+                code(result.caseId()),
+                metricOrEmpty(result, "snapshotWindow", "incrementalMetrics"),
+                incrementalChangeType(result),
+                joinBaselineAndComparison(result),
+                expiredSnapshotBehavior(result),
+                result.conclusion(),
+                status
+            );
+            case "timeTravel" -> List.of(
+                code(result.caseId()),
+                timeTravelSelector(result),
+                joinList(result.evidence()),
+                joinList(result.assertions()),
+                expiredSnapshotBehavior(result),
+                joinMap(result.metrics()),
+                result.conclusion(),
+                status
+            );
+            case "smallFileCompaction" -> List.of(
+                code(result.caseId()),
+                metricOrEmpty(result, "targetSnapshots", "smallFileCommits"),
+                metricOrEmpty(result, "filesPerCommit"),
+                compactionType(result),
+                joinBaselineAndComparison(result) + "<br>" + joinMap(result.metrics()),
+                queryMetrics(result),
+                result.conclusion(),
+                status
+            );
+            default -> List.of(code(result.caseId()), result.conclusion(), status);
+        };
+    }
+
     private static String requirementElements(IcebergValidationResult result) {
         StringBuilder builder = new StringBuilder();
         builder.append(escapeHtml(scenarioRequirement(result.scenario())));
@@ -196,6 +307,215 @@ public class IcebergValidationReportWriter {
             builder.append("<br>").append(joinMap(result.dataScale()));
         }
         return builder.toString();
+    }
+
+    private static String metricOrRequirement(IcebergValidationResult result, String key) {
+        String value = result.metrics().get(key);
+        return value == null || value.isBlank()
+            ? escapeHtml(scenarioRequirement(result.scenario()))
+            : escapeHtml(labelFor(key) + ": " + value);
+    }
+
+    private static String labelFor(String key) {
+        return switch (key) {
+            case "schemaChangeTypes" -> "Schema 变化类型";
+            default -> key;
+        };
+    }
+
+    private static String metricOrEmpty(IcebergValidationResult result, String... keys) {
+        return mapValues(result.metrics(), keys);
+    }
+
+    private static String mapValues(Map<String, String> values, String... keys) {
+        StringBuilder builder = new StringBuilder();
+        for (String key : keys) {
+            if (key == null) {
+                continue;
+            }
+            String value = values.get(key);
+            if (value != null && !value.isBlank()) {
+                if (!builder.isEmpty()) {
+                    builder.append("<br>");
+                }
+                builder.append(escapeHtml(key)).append("=").append(escapeHtml(value));
+            }
+        }
+        return builder.toString();
+    }
+
+    private static String firstPresent(IcebergValidationResult result, String evidencePrefix, String metricKey, String fallback) {
+        if (evidencePrefix != null) {
+            for (String evidence : result.evidence()) {
+                if (evidence.startsWith(evidencePrefix + "=")) {
+                    return escapeHtml(evidence.substring((evidencePrefix + "=").length()));
+                }
+            }
+        }
+        if (metricKey != null && result.metrics().containsKey(metricKey)) {
+            return escapeHtml(result.metrics().get(metricKey));
+        }
+        return fallback == null ? "" : escapeHtml(fallback);
+    }
+
+    private static String joinBaselineAndComparison(IcebergValidationResult result) {
+        String baseline = joinMap(result.baseline());
+        String comparison = joinMap(result.comparison());
+        if (baseline.isEmpty()) {
+            return comparison;
+        }
+        if (comparison.isEmpty()) {
+            return baseline;
+        }
+        return "Before/Baseline: " + baseline + "<br>After/Comparison: " + comparison;
+    }
+
+    private static String queryMetrics(IcebergValidationResult result) {
+        String values = metricOrEmpty(result, "queryMsBefore", "queryMsAfter", "readLatencyRatio", "currentQueryMs", "historicalQueryMs");
+        return values.isEmpty() ? joinMap(result.comparison()) : values;
+    }
+
+    private static String diskMetrics(IcebergValidationResult result) {
+        String values = metricOrEmpty(result, "hdfsDiskBytes", "diskBytesBefore", "diskBytesAfter", "convertedDiskBytesBefore", "convertedDiskBytesAfter");
+        return values.isEmpty() ? joinMap(result.metrics()) : values;
+    }
+
+    private static String skipReason(IcebergValidationResult result) {
+        if (result.functionStatus() == IcebergConclusion.FunctionStatus.SKIPPED || !result.errors().isEmpty()) {
+            String errors = joinList(result.errors());
+            return errors.isEmpty() ? escapeHtml(result.conclusion()) : errors;
+        }
+        return "";
+    }
+
+    private static String statusCell(IcebergValidationResult result) {
+        return "<span class=\"status-" + result.functionStatus() + "\">"
+            + result.functionStatus()
+            + "</span><br>"
+            + escapeHtml(result.performanceStatus().toString());
+    }
+
+    private static String conversionDirection(IcebergValidationResult result) {
+        if (result.caseId().startsWith("replication-to-ec")) {
+            return "replication -> EC";
+        }
+        if (result.caseId().startsWith("ec-to-replication")) {
+            return "EC -> replication";
+        }
+        return "";
+    }
+
+    private static String conversionMode(IcebergValidationResult result) {
+        return result.caseId().contains("policy-only") ? "policy-only" : "physical rewrite";
+    }
+
+    private static String writeMode(IcebergValidationResult result) {
+        if (result.caseId().contains("same-partition")) {
+            return "same partition append";
+        }
+        if (result.caseId().contains("disjoint-partitions")) {
+            return "disjoint partition append";
+        }
+        if (result.caseId().contains("mixed")) {
+            return "read + write";
+        }
+        return result.purpose();
+    }
+
+    private static String conflictType(IcebergValidationResult result) {
+        if (result.caseId().contains("overlap")) {
+            return "overlapping update conflict";
+        }
+        if (result.caseId().contains("same-partition")) {
+            return "same partition commit contention";
+        }
+        return "";
+    }
+
+    private static String mutationOperation(IcebergValidationResult result) {
+        if (result.caseId().contains("merge")) {
+            return "MERGE";
+        }
+        if (result.caseId().contains("update")) {
+            return "UPDATE";
+        }
+        if (result.caseId().contains("delete")) {
+            return "DELETE";
+        }
+        return "";
+    }
+
+    private static String acidType(IcebergValidationResult result) {
+        if (result.caseId().contains("kill-before")) {
+            return "kill before commit";
+        }
+        if (result.caseId().contains("kill-during")) {
+            return "kill during commit";
+        }
+        if (result.caseId().contains("conflicting")) {
+            return "conflicting commits";
+        }
+        return "reader isolation";
+    }
+
+    private static String atomicAssertion(IcebergValidationResult result) {
+        return result.assertions().stream()
+            .filter(value -> value.contains("snapshot") || value.contains("half-visible") || value.contains("old snapshot"))
+            .map(IcebergValidationReportWriter::escapeHtml)
+            .collect(Collectors.joining("<br>"));
+    }
+
+    private static String isolationAssertion(IcebergValidationResult result) {
+        String assertions = joinList(result.assertions());
+        return assertions.isEmpty() ? joinList(result.evidence()) : assertions;
+    }
+
+    private static String incrementalChangeType(IcebergValidationResult result) {
+        if (result.caseId().contains("append-only")) {
+            return "append-only";
+        }
+        if (result.caseId().contains("delete-update")) {
+            return "update/delete boundary";
+        }
+        if (result.caseId().contains("expired")) {
+            return "expired base snapshot";
+        }
+        return "multi-snapshot";
+    }
+
+    private static String expiredSnapshotBehavior(IcebergValidationResult result) {
+        return result.caseId().contains("expired") || result.caseId().contains("expire")
+            ? result.conclusion()
+            : joinList(result.assertions());
+    }
+
+    private static String timeTravelSelector(IcebergValidationResult result) {
+        if (result.caseId().contains("snapshot-id")) {
+            return "snapshot id";
+        }
+        if (result.caseId().contains("timestamp")) {
+            return "timestamp";
+        }
+        if (result.caseId().contains("schema")) {
+            return "after schema evolution";
+        }
+        return "after expire";
+    }
+
+    private static String compactionType(IcebergValidationResult result) {
+        if (result.caseId().contains("data-compaction")) {
+            return "rewrite_data_files";
+        }
+        if (result.caseId().contains("manifest")) {
+            return "rewrite_manifests";
+        }
+        if (result.caseId().contains("expire")) {
+            return "expire_snapshots";
+        }
+        if (result.caseId().contains("query")) {
+            return "query degradation measurement";
+        }
+        return "multi-snapshot build";
     }
 
     private static String joinMap(Map<String, String> values) {
@@ -240,4 +560,6 @@ public class IcebergValidationReportWriter {
             .replace("\"", "&quot;")
             .replace("'", "&#39;");
     }
+
+    private record ScenarioSection(String scenario, String title, List<String> headers) {}
 }
