@@ -8,9 +8,19 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class IcebergValidationReportWriter {
+    private static final Set<String> PLACEHOLDER_METRIC_KEYS = Set.of(
+        "scriptedActions",
+        "conversionMetrics",
+        "mutationMetrics",
+        "incrementalMetrics",
+        "timeTravelMetrics",
+        "caseImplemented"
+    );
+
     private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules()
         .enable(SerializationFeature.INDENT_OUTPUT);
 
@@ -321,6 +331,9 @@ public class IcebergValidationReportWriter {
             if (key == null) {
                 continue;
             }
+            if (isPlaceholderMetricKey(key)) {
+                continue;
+            }
             String value = values.get(key);
             if (value != null && !value.isBlank()) {
                 if (!builder.isEmpty()) {
@@ -340,7 +353,7 @@ public class IcebergValidationReportWriter {
                 }
             }
         }
-        if (metricKey != null && result.metrics().containsKey(metricKey)) {
+        if (metricKey != null && result.metrics().containsKey(metricKey) && !isPlaceholderMetricKey(metricKey)) {
             return escapeHtml(result.metrics().get(metricKey));
         }
         return fallback == null ? "" : escapeHtml(fallback);
@@ -384,6 +397,16 @@ public class IcebergValidationReportWriter {
     }
 
     private static String evidenceDetails(IcebergValidationResult result) {
+        List<IcebergExecutionEvidence> executionResults = result.executionResults() == null
+            ? List.of()
+            : result.executionResults();
+        if (!executionResults.isEmpty()) {
+            String rows = executionResults.stream()
+                .map(IcebergValidationReportWriter::executionEvidenceBlock)
+                .collect(Collectors.joining());
+            return "<details class=\"evidence-details\"><summary>展开证据</summary>"
+                + "<div class=\"evidence-block\">" + rows + "</div></details>";
+        }
         return "<details class=\"evidence-details\"><summary>展开证据</summary>"
             + "<div class=\"evidence-block\">"
             + evidenceGroup("Setup Commands", result.setupCommands())
@@ -395,6 +418,19 @@ public class IcebergValidationReportWriter {
 
     private static String evidenceGroup(String title, List<String> values) {
         return "<div><strong>" + escapeHtml(title) + "</strong>" + pre(values) + "</div>";
+    }
+
+    private static String executionEvidenceBlock(IcebergExecutionEvidence evidence) {
+        return "<div class=\"execution-evidence\">"
+            + "<strong>" + escapeHtml(evidence.phase() + " - " + evidence.label()) + "</strong>"
+            + "<div><strong>执行脚本</strong>" + pre(List.of(evidence.script())) + "</div>"
+            + "<div><strong>执行结果</strong>"
+            + "<pre>exitCode=" + evidence.exitCode()
+            + "\ndurationSeconds=" + String.format(java.util.Locale.ROOT, "%.3f", evidence.durationSeconds())
+            + "\nstdout:\n" + escapeHtml(evidence.stdout())
+            + "\nstderr:\n" + escapeHtml(evidence.stderr())
+            + "</pre></div>"
+            + "</div>";
     }
 
     private static String conversionDirection(IcebergValidationResult result) {
@@ -525,8 +561,13 @@ public class IcebergValidationReportWriter {
             return "";
         }
         return values.entrySet().stream()
+            .filter(entry -> !isPlaceholderMetricKey(entry.getKey()))
             .map(entry -> escapeHtml(entry.getKey()) + "=" + escapeHtml(entry.getValue()))
             .collect(Collectors.joining("<br>"));
+    }
+
+    private static boolean isPlaceholderMetricKey(String key) {
+        return PLACEHOLDER_METRIC_KEYS.contains(key);
     }
 
     private static String joinList(List<String> values) {

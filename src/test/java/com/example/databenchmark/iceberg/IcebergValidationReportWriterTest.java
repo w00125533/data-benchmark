@@ -23,14 +23,23 @@ class IcebergValidationReportWriterTest {
             "2026-07-28T00:00:00Z",
             "2026-07-28T00:00:01Z",
             List.of(
-                result("schemaEvolution", "schema-add-drop-rename", "verify schema compatibility",
+                resultWithExecution("schemaEvolution", "schema-add-drop-rename", "verify schema compatibility",
                     List.of("ALTER TABLE iceberg_table ADD COLUMN added_text STRING"),
                     List.of("row count matched"),
                     Map.of("snapshotCount", "3", "queryMs", "12.5", "schemaChangeTypes", "add,rename,type promotion"),
                     Map.of("queryMs", "10.0"),
                     Map.of("latencyRatio", "1.25"),
                     "历史数据兼容读取通过，查询延迟为基线 1.25 倍。",
-                    List.of("snapshotId=123")),
+                    List.of("snapshotId=123"),
+                    List.of(new IcebergExecutionEvidence(
+                        "action",
+                        "query current row count",
+                        "SELECT COUNT(*) FROM iceberg_table",
+                        0,
+                        0.42,
+                        "count\n1000",
+                        ""
+                    ))),
                 result("erasureCoding", "ec-rs-10-4-failure-tolerance", "verify EC failure tolerance",
                     List.of("hdfs ec -setPolicy -policy RS-10-4-1024k /target"),
                     List.of("checksum matches"),
@@ -42,9 +51,9 @@ class IcebergValidationReportWriterTest {
                 result("erasureCodingConversion", "replication-to-ec-rewrite", "verify EC conversion",
                     List.of("INSERT INTO target SELECT * FROM source"),
                     List.of("checksum matches after conversion"),
-                    Map.of("conversionSeconds", "12", "throughputMbPerSecond", "30"),
+                    Map.of("conversionSeconds", "12", "throughputMbPerSecond", "30", "conversionMetrics", "seconds,throughputMbPerSecond"),
                     Map.of("fileCountBefore", "128"),
-                    Map.of("fileCountAfter", "64"),
+                    Map.of("fileCountAfter", "64", "scriptedActions", "5"),
                     "转换效率符合预期。",
                     List.of("direction=replication->ec")),
                 result("concurrentWrite", "concurrent-append-same-partition", "verify concurrent append",
@@ -90,7 +99,7 @@ class IcebergValidationReportWriterTest {
                 result("smallFileCompaction", "small-files-data-compaction", "verify compaction",
                     List.of("CALL iceberg_catalog.system.rewrite_data_files"),
                     List.of("file count and manifest count collected before and after"),
-                    Map.of("targetSnapshots", "100", "filesPerCommit", "4", "dataFileCountAfter", "20"),
+                    Map.of("targetSnapshots", "100", "filesPerCommit", "4", "dataFileCountAfter", "20", "caseImplemented", "true"),
                     Map.of("dataFileCountBefore", "400"),
                     Map.of("dataFileCountAfter", "20"),
                     "小文件合并符合预期。",
@@ -136,14 +145,26 @@ class IcebergValidationReportWriterTest {
             .contains("通过多阶段 Schema 变更")
             .contains("Schema 变化类型")
             .contains("schema-add-drop-rename")
-            .contains("ALTER TABLE iceberg_table ADD COLUMN added_text STRING")
+            .contains("<strong>执行脚本</strong>")
+            .contains("<strong>执行结果</strong>")
+            .contains("SELECT COUNT(*) FROM iceberg_table")
+            .contains("exitCode=0")
+            .contains("durationSeconds=0.420")
+            .contains("count")
+            .contains("1000")
             .contains("row count matched")
             .contains("历史数据兼容读取通过")
             .contains("RS-10-4-1024k")
             .contains("replicationBaseline=2")
             .contains("性能指标")
             .contains("fileCount")
-            .contains("hdfsDiskBytes");
+            .contains("hdfsDiskBytes")
+            .doesNotContain("scriptedActions=")
+            .doesNotContain("conversionMetrics=seconds,throughputMbPerSecond")
+            .doesNotContain("mutationMetrics=duration,rewriteFiles,deleteFiles,queryMsAfter")
+            .doesNotContain("incrementalMetrics=fullScanMs,incrementalMs,savingRatio,snapshotWindow")
+            .doesNotContain("timeTravelMetrics=currentQueryMs,historicalQueryMs,planningMs")
+            .doesNotContain("caseImplemented=");
     }
 
     private static IcebergValidationResult result(
@@ -157,6 +178,34 @@ class IcebergValidationReportWriterTest {
         Map<String, String> comparison,
         String conclusion,
         List<String> evidence
+    ) {
+        return resultWithExecution(
+            scenario,
+            caseId,
+            purpose,
+            actions,
+            assertions,
+            metrics,
+            baseline,
+            comparison,
+            conclusion,
+            evidence,
+            List.of()
+        );
+    }
+
+    private static IcebergValidationResult resultWithExecution(
+        String scenario,
+        String caseId,
+        String purpose,
+        List<String> actions,
+        List<String> assertions,
+        Map<String, String> metrics,
+        Map<String, String> baseline,
+        Map<String, String> comparison,
+        String conclusion,
+        List<String> evidence,
+        List<IcebergExecutionEvidence> executionResults
     ) {
         return new IcebergValidationResult(
             scenario,
@@ -174,7 +223,7 @@ class IcebergValidationReportWriterTest {
             conclusion,
             evidence,
             List.of(),
-            List.of()
+            executionResults
         );
     }
 }
