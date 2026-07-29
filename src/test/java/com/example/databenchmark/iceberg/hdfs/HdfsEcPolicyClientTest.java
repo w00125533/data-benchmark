@@ -20,4 +20,12 @@ class HdfsEcPolicyClientTest {
         assertThat(preflight.canRunFaultTolerance()).isTrue();
         assertThat(preflight.reason()).isEmpty();
     }
+
+    @Test
+    void requiredDataNodesDelegatesToPolicySpec() {
+        assertThat(HdfsEcPolicyClient.requiredDataNodes("RS-3-2-1024k")).isEqualTo(5);
+        assertThat(HdfsEcPolicyClient.requiredDataNodes("RS-6-3-1024k")).isEqualTo(9);
+        assertThat(HdfsEcPolicyClient.requiredDataNodes("RS-10-4-1024k")).isEqualTo(14);
+        assertThat(HdfsEcPolicyClient.requiredDataNodes("XOR-2-1-1024k")).isEqualTo(3);
+    }
 }

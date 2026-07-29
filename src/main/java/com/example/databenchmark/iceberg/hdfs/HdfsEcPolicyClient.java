@@ -50,19 +50,7 @@ public class HdfsEcPolicyClient {
     }
 
     public static int requiredDataNodes(String policy) {
-        if (policy.startsWith("RS-3-2")) {
-            return 5;
-        }
-        if (policy.startsWith("RS-6-3")) {
-            return 9;
-        }
-        if (policy.startsWith("RS-10-4")) {
-            return 14;
-        }
-        if (policy.startsWith("XOR-2-1")) {
-            return 3;
-        }
-        return 1;
+        return EcPolicySpec.parse(policy).requiredDataNodes();
     }
 
     public record EcPreflight(
