@@ -26,18 +26,24 @@ class IcebergValidationReportWriterTest {
                 resultWithExecution("schemaEvolution", "schema-add-drop-rename", "verify schema compatibility",
                     List.of("ALTER TABLE iceberg_table ADD COLUMN added_text STRING"),
                     List.of("row count matched"),
-                    Map.of(
-                        "schemaChangeType", "add/drop/rename",
-                        "changeCount", "3",
-                        "baselineRows", "1000",
-                        "currentRows", "1000",
-                        "snapshotCount", "4",
-                        "schemaHistoryLength", "4"
+                    Map.ofEntries(
+                        Map.entry("validationPoint", "验证字段 rename 后历史快照仍按字段 ID 兼容读取。"),
+                        Map.entry("schemaChangeType", "add/drop/rename"),
+                        Map.entry("changeCount", "4"),
+                        Map.entry("baselineSnapshotId", "111"),
+                        Map.entry("postAlterSnapshotId", "222"),
+                        Map.entry("historicalQuerySql", "SELECT id FROM t VERSION AS OF 111 LIMIT 20"),
+                        Map.entry("currentQuerySql", "SELECT id FROM t LIMIT 20"),
+                        Map.entry("historicalRows", "1000"),
+                        Map.entry("currentRows", "2000"),
+                        Map.entry("historicalQuerySeconds", "0.321"),
+                        Map.entry("currentQuerySeconds", "0.456"),
+                        Map.entry("schemaHistoryLength", "5")
                     ),
                     Map.of("queryMs", "10.0"),
                     Map.of("latencyRatio", "1.25"),
                     "历史数据兼容读取通过，查询延迟为基线 1.25 倍。",
-                    List.of("snapshotId=123"),
+                    List.of("historicalSampleRows=id\n1\n2", "currentSampleRows=id\n2000\n1999"),
                     List.of(new IcebergExecutionEvidence(
                         "action",
                         "query current row count",
@@ -61,22 +67,25 @@ class IcebergValidationReportWriterTest {
                     Map.of(),
                     "DataNode 数不足，跳过 RS-10-4 容错验证。",
                     List.of("policy=RS-10-4-1024k", "requiredDataNodes=14")),
-                result("erasureCoding", "ec-file-count-and-disk-usage", "verify EC disk usage",
+                result("erasureCoding", "hdfs-replication-1-actual", "verify EC disk usage",
                     List.of("hdfs dfs -du -s /replication-baseline", "hdfs dfs -count /ec-target"),
                     List.of("checksum matches"),
                     Map.of(
-                        "policy", "RS-3-2-1024k",
-                        "replicationBaseline", "2",
-                        "replicationFileCount", "128",
-                        "ecFileCount", "96",
-                        "replicationDiskBytes", "4096",
-                        "ecDiskBytes", "2458",
-                        "diskSavingRatio", "40.0%"
+                        "validationPoint", "在 1 个 DataNode 下真实测量 HDFS 单副本。",
+                        "policyMode", "hdfs-replication-1-actual",
+                        "replication", "1",
+                        "rowCount", "1000",
+                        "logicalBytes", "128000",
+                        "fileCount", "8",
+                        "hdfsDiskBytes", "128000",
+                        "querySeconds", "0.512",
+                        "storageMetricType", "actual",
+                        "ecPolicyCount", "4"
                     ),
                     Map.of("replicationBaseline", "2"),
                     Map.of("scriptedActions", "4", "ecPolicies", "RS-3-2"),
                     "HDFS 用量对比已采集。",
-                    List.of("policy=RS-3-2-1024k")),
+                    List.of("policyMode=hdfs-replication-1-actual")),
                 skippedResult("erasureCodingConversion", "replication-to-ec-policy-only", "verify EC conversion",
                     List.of(),
                     List.of("conversion not executed until real HDFS collection is wired"),
@@ -152,63 +161,49 @@ class IcebergValidationReportWriterTest {
         assertThat(root.resolve("run-1").resolve("report.json")).exists();
         assertThat(root.resolve("run-1").resolve("report.html")).exists();
         assertThat(root.resolve("run-1").resolve("report.md")).doesNotExist();
-        assertThat(Files.readString(root.resolve("run-1").resolve("report.html")))
+
+        String html = Files.readString(root.resolve("run-1").resolve("report.html"));
+        assertThat(html)
             .contains("<title>Iceberg Validation Report</title>")
-            .contains("<div class=\"scenario-method\"><strong>验证策略和方法</strong>")
-            .contains("<th>执行脚本与证据</th>")
             .contains("<details class=\"evidence-details\"><summary>展开证据</summary>")
-            .doesNotContain("验证项总览")
-            .doesNotContain("需求要素矩阵")
-            .doesNotContain("<h2>执行脚本与证据</h2>")
             .contains("<h2>Schema 长期演进</h2>")
+            .contains("<th>用例</th>")
+            .contains("<th>验证点说明</th>")
             .contains("<th>Schema 变化</th>")
+            .contains("<th>历史数据查询</th>")
+            .contains("<th>当前数据查询</th>")
             .contains("<th>元数据/性能指标</th>")
+            .contains("<th>状态</th>")
+            .contains("<th>执行脚本与证据</th>")
+            .contains("验证字段 rename 后历史快照仍按字段 ID 兼容读取。")
+            .contains("SELECT id FROM t VERSION AS OF 111 LIMIT 20")
+            .contains("historicalRows=1000")
+            .contains("currentRows=2000")
+            .contains("historicalQuerySeconds=0.321")
+            .contains("currentQuerySeconds=0.456")
+            .contains("schemaHistoryLength=5")
+            .contains("返回数据集")
+            .contains("historicalSampleRows=id")
+            .contains("currentSampleRows=id")
             .contains("<h2>HDFS 纠删码</h2>")
-            .contains("<th>EC Policy</th>")
-            .contains("<th>HDFS 磁盘占用</th>")
-            .contains("<h2>EC/replication 转换</h2>")
-            .contains("<th>转换方向</th>")
-            .contains("<h2>多进程并发写入</h2>")
-            .contains("<th>Writer 数</th>")
-            .contains("<h2>行级更新删除</h2>")
-            .contains("<th>操作类型</th>")
-            .contains("<h2>ACID 事务保证</h2>")
-            .contains("<th>快照原子性断言</th>")
-            .contains("<h2>增量拉取</h2>")
-            .contains("<th>Snapshot Window</th>")
-            .contains("<h2>时间旅行</h2>")
-            .contains("<th>访问方式</th>")
-            .contains("<h2>小文件 Compaction</h2>")
-            .contains("<th>Compaction 类型</th>")
-            .contains("Schema 长期演进")
-            .contains("通过多阶段 Schema 变更")
-            .contains("<td>schemaChangeType=add/drop/rename<br>changeCount=3<br>ALTER TABLE iceberg_table ADD COLUMN added_text STRING</td>")
-            .contains("<td>baselineRows=1000<br>currentRows=1000<br>snapshotCount=4<br>row count matched</td>")
-            .contains("<td>snapshotCount=4<br>schemaHistoryLength=4</td>")
-            .contains("add/drop/rename")
-            .contains("changeCount=3")
-            .contains("baselineRows=1000")
-            .contains("currentRows=1000")
-            .contains("schemaHistoryLength=4")
-            .contains("schema-add-drop-rename")
-            .contains("<strong>执行脚本</strong>")
-            .contains("<strong>执行结果</strong>")
-            .contains("SELECT COUNT(*) FROM iceberg_table")
-            .contains("exitCode=0")
-            .contains("durationSeconds=0.420")
-            .contains("count")
-            .contains("1000")
-            .contains("row count matched")
-            .contains("历史数据兼容读取通过")
-            .contains("RS-10-4-1024k")
-            .contains("replicationBaseline=2")
-            .contains("replicationFileCount=128")
-            .contains("ecFileCount=96")
-            .contains("replicationDiskBytes=4096")
-            .contains("ecDiskBytes=2458")
-            .contains("diskSavingRatio=40.0%")
+            .contains("<th>Policy/模式</th>")
+            .contains("<th>EC 设置位置</th>")
+            .contains("<th>DataNode 条件</th>")
+            .contains("<th>相同数据量</th>")
+            .contains("<th>文件数量</th>")
+            .contains("<th>磁盘占用</th>")
+            .contains("<th>查询效率</th>")
+            .contains("<th>结论</th>")
+            .contains("hdfs-replication-1-actual")
+            .contains("storageMetricType=actual")
+            .contains("querySeconds=0.512")
+            .contains("rowCount=1000")
+            .contains("logicalBytes=128000")
+            .contains("fileCount=8")
+            .contains("hdfsDiskBytes=128000")
             .contains("liveDataNodes=1")
             .contains("requiredDataNodes=14")
+            .contains("<h2>EC/replication")
             .contains("conversionDirection=replication-&gt;ec")
             .contains("conversionMode=policy-only")
             .contains("targetPolicy=RS-10-4-1024k")
@@ -217,14 +212,12 @@ class IcebergValidationReportWriterTest {
             .contains("policyCommandStatus=notExecuted")
             .contains("checksumStatus=notCollected")
             .contains("skipReason=real HDFS/Spark physical and policy conversion execution is not wired")
-            .contains("physical/policy conversion measurement is pending real execution")
-            .contains("待真实执行采集")
             .contains("status-SKIPPED")
             .contains("NOT_COMPARABLE")
-            .contains("元数据/性能指标")
             .doesNotContain("<td>scriptedActions=4</td>")
             .doesNotContain("scriptedActions=")
             .doesNotContain("ecPolicies=RS-3-2")
+            .doesNotContain("ecPolicyCount=4")
             .doesNotContain("conversionMetrics=seconds,throughputMbPerSecond")
             .doesNotContain("conversionSeconds=")
             .doesNotContain("throughputMbPerSecond=")

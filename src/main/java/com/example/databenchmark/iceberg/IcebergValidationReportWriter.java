@@ -21,6 +21,7 @@ public class IcebergValidationReportWriter {
         "caseImplemented",
         "acidEvidence",
         "ecPolicies",
+        "ecPolicyCount",
         "schemaChangeTypes"
     );
 
@@ -169,10 +170,10 @@ public class IcebergValidationReportWriter {
         return List.of(
             new ScenarioSection("schemaEvolution", "Schema 长期演进",
                 "通过多阶段 Schema 变更覆盖字段新增、删除、重命名、类型提升和复杂类型变化，验证历史快照、字段投影和字段 ID 兼容读取，并记录查询延迟变化。",
-                List.of("用例", "Schema 变化", "历史数据读取断言", "兼容性结论", "元数据/性能指标", "状态", "执行脚本与证据")),
+                List.of("用例", "验证点说明", "Schema 变化", "历史数据查询", "当前数据查询", "元数据/性能指标", "状态", "执行脚本与证据")),
             new ScenarioSection("erasureCoding", "HDFS 纠删码",
                 "以 replication=2 作为基线，对比多种 EC policy 的读写结果、文件数和 HDFS 磁盘占用；具备足够 DataNode 时执行失效副本容错验证，不满足条件时记录跳过原因。",
-                List.of("用例", "EC Policy", "replication 基线", "DataNode 要求", "文件数统计", "HDFS 磁盘占用", "故障注入/Skip 原因", "结论", "状态", "执行脚本与证据")),
+                List.of("用例", "验证点说明", "Policy/模式", "EC 设置位置", "DataNode 条件", "相同数据量", "文件数量", "磁盘占用", "查询效率", "结论", "状态", "执行脚本与证据")),
             new ScenarioSection("erasureCodingConversion", "EC/replication 转换",
                 "分别验证 replication 到 EC、EC 到 replication 的 policy-only 和 physical rewrite 路径，度量转换耗时、吞吐、文件数、磁盘占用和转换前后查询一致性。",
                 List.of("用例", "转换方向", "转换方式", "转换前后文件/磁盘", "转换耗时/吞吐", "查询对比", "结论", "状态", "执行脚本与证据")),
@@ -202,21 +203,24 @@ public class IcebergValidationReportWriter {
         return switch (result.scenario()) {
             case "schemaEvolution" -> List.of(
                 code(result.caseId()),
+                metricOrEmpty(result, "validationPoint"),
                 schemaChangeSummary(result),
-                schemaHistoricalReadSummary(result),
-                result.conclusion(),
+                schemaHistoricalQueryCell(result),
+                schemaCurrentQueryCell(result),
                 schemaMetadataMetrics(result),
                 status,
                 evidenceDetails(result)
             );
             case "erasureCoding" -> List.of(
                 code(result.caseId()),
-                ecPolicyCell(result),
-                ecReplicationBaseline(result),
+                metricOrEmpty(result, "validationPoint"),
+                ecPolicyModeCell(result),
+                ecPolicyLocationCell(result),
                 ecDataNodeRequirements(result),
+                ecDataScaleCell(result),
                 ecFileCountMetrics(result),
                 ecDiskUsageMetrics(result),
-                ecSkipReason(result),
+                ecQueryEfficiencyCell(result),
                 result.conclusion(),
                 status,
                 evidenceDetails(result)
@@ -337,6 +341,30 @@ public class IcebergValidationReportWriter {
         return values + "<br>" + assertions;
     }
 
+    private static String schemaHistoricalQueryCell(IcebergValidationResult result) {
+        return mapValues(result.metrics(),
+            "baselineSnapshotId",
+            "baselineSnapshotIdStatus",
+            "historicalRows",
+            "historicalRowsStatus",
+            "historicalQuerySeconds",
+            "historicalQuerySecondsStatus",
+            "historicalQuerySql"
+        );
+    }
+
+    private static String schemaCurrentQueryCell(IcebergValidationResult result) {
+        return mapValues(result.metrics(),
+            "postAlterSnapshotId",
+            "postAlterSnapshotIdStatus",
+            "currentRows",
+            "currentRowsStatus",
+            "currentQuerySeconds",
+            "currentQuerySecondsStatus",
+            "currentQuerySql"
+        );
+    }
+
     private static String schemaMetadataMetrics(IcebergValidationResult result) {
         return mapValues(
             result.metrics(),
@@ -348,28 +376,54 @@ public class IcebergValidationReportWriter {
         );
     }
 
-    private static String ecPolicyCell(IcebergValidationResult result) {
-        String policy = result.metrics().get("policy");
-        if (policy != null && !policy.isBlank()) {
-            return escapeHtml(policy);
-        }
-        return mapValues(result.metrics(), "ecPolicyCount");
+    private static String ecPolicyModeCell(IcebergValidationResult result) {
+        return mapValues(result.metrics(), "policyMode", "replication", "policy");
     }
 
-    private static String ecReplicationBaseline(IcebergValidationResult result) {
-        return mapValues(result.metrics(), "replicationBaseline");
+    private static String ecPolicyLocationCell(IcebergValidationResult result) {
+        return mapValues(result.metrics(), "setPolicyPath", "setPolicyStatus", "getPolicyStatus");
     }
 
     private static String ecDataNodeRequirements(IcebergValidationResult result) {
-        return mapValues(result.metrics(), "liveDataNodes", "requiredDataNodes");
+        return mapValues(result.metrics(), "liveDataNodes", "requiredDataNodes", "physicalEcWritable");
+    }
+
+    private static String ecDataScaleCell(IcebergValidationResult result) {
+        return mapValues(result.metrics(),
+            "rowCount",
+            "logicalBytes",
+            "logicalBytesStatus",
+            "logicalBytesEstimate",
+            "checksum",
+            "targetChecksum"
+        );
     }
 
     private static String ecFileCountMetrics(IcebergValidationResult result) {
-        return mapValues(result.metrics(), "replicationFileCount", "ecFileCount", "targetRowCount", "targetChecksum");
+        return mapValues(result.metrics(), "fileCount", "fileCountStatus", "replicationFileCount", "ecFileCount");
     }
 
     private static String ecDiskUsageMetrics(IcebergValidationResult result) {
-        return mapValues(result.metrics(), "replicationDiskBytes", "ecDiskBytes", "diskSavingRatio", "hdfsUsageStatus");
+        return mapValues(result.metrics(),
+            "hdfsDiskBytes",
+            "hdfsDiskBytesStatus",
+            "replicationDiskBytes",
+            "ecDiskBytes",
+            "theoreticalEcDiskBytes",
+            "theoreticalSavingVsReplication2",
+            "storageMetricType"
+        );
+    }
+
+    private static String ecQueryEfficiencyCell(IcebergValidationResult result) {
+        return mapValues(result.metrics(),
+            "querySeconds",
+            "querySecondsStatus",
+            "queryPerformanceStatus",
+            "querySecondsBeforeFailureStatus",
+            "querySecondsAfterFailureStatus",
+            "latencyImpactRatioStatus"
+        );
     }
 
     private static String ecSkipReason(IcebergValidationResult result) {
@@ -499,19 +553,43 @@ public class IcebergValidationReportWriter {
                 .map(IcebergValidationReportWriter::executionEvidenceBlock)
                 .collect(Collectors.joining());
             return "<details class=\"evidence-details\"><summary>展开证据</summary>"
-                + "<div class=\"evidence-block\">" + rows + "</div></details>";
+                + "<div class=\"evidence-block\">" + rows + "</div>"
+                + datasetEvidence(result)
+                + "</details>";
         }
         return "<details class=\"evidence-details\"><summary>展开证据</summary>"
             + "<div class=\"evidence-block\">"
             + evidenceGroup("Setup Commands", result.setupCommands())
             + evidenceGroup("Action Commands", result.actionCommands())
-            + evidenceGroup("Evidence", result.evidence())
+            + evidenceGroup("Evidence", nonDatasetEvidence(result.evidence()))
             + evidenceGroup("Errors", result.errors())
-            + "</div></details>";
+            + "</div>"
+            + datasetEvidence(result)
+            + "</details>";
     }
 
     private static String evidenceGroup(String title, List<String> values) {
         return "<div><strong>" + escapeHtml(title) + "</strong>" + pre(values) + "</div>";
+    }
+
+    private static String datasetEvidence(IcebergValidationResult result) {
+        List<String> samples = result.evidence().stream()
+            .filter(IcebergValidationReportWriter::isDatasetEvidence)
+            .toList();
+        if (samples.isEmpty()) {
+            return "";
+        }
+        return "<details><summary>返回数据集</summary>" + pre(samples) + "</details>";
+    }
+
+    private static List<String> nonDatasetEvidence(List<String> evidence) {
+        return evidence.stream()
+            .filter(value -> !isDatasetEvidence(value))
+            .toList();
+    }
+
+    private static boolean isDatasetEvidence(String value) {
+        return value.startsWith("historicalSampleRows=") || value.startsWith("currentSampleRows=");
     }
 
     private static String executionEvidenceBlock(IcebergExecutionEvidence evidence) {
