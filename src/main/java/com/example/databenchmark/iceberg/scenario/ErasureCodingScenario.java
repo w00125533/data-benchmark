@@ -59,7 +59,10 @@ public class ErasureCodingScenario extends AbstractIcebergValidationScenario {
     public IcebergValidationResult run(IcebergValidationCase testCase, IcebergValidationContext context) {
         String table = IcebergScenarioSupport.tableName(context, name(), testCase.caseId());
         String location = IcebergScenarioSupport.tableLocation(context, name(), testCase.caseId());
-        if (testCase.caseId().contains("failure")) {
+        if (testCase.caseId().equals("ec-policy-matrix-failure")) {
+            return skippedPolicyMatrixFailure(testCase, context);
+        }
+        if (testCase.caseId().equals("ec-rs-10-4-failure-tolerance")) {
             HdfsEcPolicyClient.EcPreflight preflight = HdfsEcPolicyClient.preflight("RS-10-4-1024k", true, 1);
             return skippedFaultTolerance(testCase, context, preflight);
         }
@@ -97,14 +100,12 @@ public class ErasureCodingScenario extends AbstractIcebergValidationScenario {
         metrics.put("liveDataNodes", "1");
         metrics.put("requiredDataNodes", "1");
 
-        String path = location + "/replication-" + replication + "-baseline";
         List<String> actions = List.of(
             "hdfs dfs -fs " + context.config().hdfs().defaultFs() + " -setrep -w "
-                + replication + " " + path,
-            "SELECT COUNT(*) FROM " + table,
-            "SELECT COUNT(*), SUM(file_size_in_bytes) FROM " + table + ".files",
-            "hdfs dfs -fs " + context.config().hdfs().defaultFs() + " -du -s " + path,
-            "hdfs dfs -fs " + context.config().hdfs().defaultFs() + " -count " + path
+                + replication + " " + location,
+            "hdfs dfs -fs " + context.config().hdfs().defaultFs() + " -du -s " + location,
+            "hdfs dfs -fs " + context.config().hdfs().defaultFs() + " -count " + location,
+            "SELECT COUNT(*) FROM " + table
         );
 
         return plannedEcResult(
@@ -280,5 +281,56 @@ public class ErasureCodingScenario extends AbstractIcebergValidationScenario {
             List.of(),
             List.of()
         );
+    }
+
+    private IcebergValidationResult skippedPolicyMatrixFailure(
+        IcebergValidationCase testCase,
+        IcebergValidationContext context
+    ) {
+        int liveDataNodes = 1;
+        Map<String, String> metrics = new LinkedHashMap<>();
+        metrics.put(
+            "validationPoint",
+            "验证配置中的多种 EC policy 在副本失效后的 DataNode 要求；当前单 DataNode 环境不执行真实故障后查询。"
+        );
+        metrics.put("policyMatrix", policyMatrix(context.config().hdfs().ecPolicies(), liveDataNodes));
+        metrics.put("liveDataNodes", Integer.toString(liveDataNodes));
+        metrics.put("physicalEcWritable", "false");
+        metrics.put("querySecondsBeforeFailureStatus", "notExecuted");
+        metrics.put("querySecondsAfterFailureStatus", "notExecuted");
+        metrics.put("latencyImpactRatioStatus", "notComparable");
+        metrics.put("checksumMatchedStatus", "notExecuted");
+
+        String reason = "Single DataNode environment does not execute real post-failure EC matrix queries.";
+        return new IcebergValidationResult(
+            testCase.scenario(),
+            testCase.caseId(),
+            testCase.purpose(),
+            IcebergScenarioSupport.dataScale(context.config()),
+            List.of(),
+            List.of(),
+            List.of("Skipped: " + reason),
+            metrics,
+            Map.of(),
+            Map.of(),
+            IcebergConclusion.FunctionStatus.SKIPPED,
+            IcebergConclusion.PerformanceStatus.NOT_COMPARABLE,
+            reason,
+            List.of(
+                "liveDataNodes=" + liveDataNodes,
+                "policyMatrix=" + metrics.get("policyMatrix")
+            ),
+            List.of(),
+            List.of()
+        );
+    }
+
+    private static String policyMatrix(List<String> policies, int liveDataNodes) {
+        List<String> entries = new ArrayList<>();
+        for (String policy : policies) {
+            EcPolicySpec spec = EcPolicySpec.parse(policy);
+            entries.add(policy + "(required=" + spec.requiredDataNodes() + ",live=" + liveDataNodes + ")");
+        }
+        return String.join(";", entries);
     }
 }

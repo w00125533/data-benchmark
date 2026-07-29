@@ -3,6 +3,7 @@ package com.example.databenchmark.iceberg.scenario;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.databenchmark.iceberg.IcebergConclusion;
+import com.example.databenchmark.iceberg.IcebergScenarioSupport;
 import com.example.databenchmark.iceberg.IcebergValidationCase;
 import com.example.databenchmark.iceberg.IcebergValidationConfig;
 import com.example.databenchmark.iceberg.IcebergValidationConfigLoader;
@@ -56,12 +57,32 @@ class ErasureCodingScenarioTest {
         assertThat(singleReplica.metrics()).containsEntry("fileCountStatus", "plannedActual");
         assertThat(singleReplica.metrics()).containsEntry("hdfsDiskBytesStatus", "plannedActual");
         assertThat(singleReplica.metrics()).containsEntry("querySecondsStatus", "plannedActual");
+        String singleReplicaLocation = IcebergScenarioSupport.tableLocation(
+            context,
+            scenario.name(),
+            singleReplica.caseId()
+        );
+        assertThat(singleReplica.actionCommands())
+            .noneMatch(command -> command.contains("replication-1-baseline"))
+            .anySatisfy(command -> assertThat(command).contains(" -setrep -w 1 " + singleReplicaLocation))
+            .anySatisfy(command -> assertThat(command).contains(" -du -s " + singleReplicaLocation))
+            .anySatisfy(command -> assertThat(command).contains(" -count " + singleReplicaLocation));
 
         IcebergValidationResult replication2 = resultByCaseId(results, "hdfs-replication-2-baseline");
         assertThat(replication2.metrics()).containsEntry("policyMode", "hdfs-replication-2-target-baseline");
         assertThat(replication2.metrics()).containsEntry("replication", "2");
         assertThat(replication2.metrics()).containsEntry("underReplicated", "true");
         assertThat(replication2.metrics()).containsEntry("storageMetricType", "actual");
+        String replication2Location = IcebergScenarioSupport.tableLocation(
+            context,
+            scenario.name(),
+            replication2.caseId()
+        );
+        assertThat(replication2.actionCommands())
+            .noneMatch(command -> command.contains(replication2Location + "/replication-2-baseline"))
+            .anySatisfy(command -> assertThat(command).contains(" -setrep -w 2 " + replication2Location))
+            .anySatisfy(command -> assertThat(command).contains(" -du -s " + replication2Location))
+            .anySatisfy(command -> assertThat(command).contains(" -count " + replication2Location));
 
         IcebergValidationResult rs104 = resultByCaseId(results, "ec-policy-rs-10-4-1024k");
         assertThat(rs104.metrics()).containsEntry("policy", "RS-10-4-1024k");
@@ -135,6 +156,45 @@ class ErasureCodingScenarioTest {
             "skipReason",
             "RS-10-4-1024k requires at least 14 live DataNodes for full policy tolerance validation"
         );
+    }
+
+    @Test
+    void policyMatrixFailureReportsConfiguredPoliciesWithoutSinglePolicyMetrics() throws Exception {
+        ErasureCodingScenario scenario = new ErasureCodingScenario();
+        IcebergValidationConfig config = new IcebergValidationConfigLoader().load(Path.of("configs/iceberg-validation.yml"));
+        IcebergValidationContext context = new IcebergValidationContext(
+            config,
+            "ec-test",
+            Path.of("work"),
+            Path.of("reports"),
+            false
+        );
+        IcebergValidationCase testCase = scenario.cases(config).stream()
+            .filter(candidate -> candidate.caseId().equals("ec-policy-matrix-failure"))
+            .findFirst()
+            .orElseThrow();
+
+        IcebergValidationResult result = scenario.run(testCase, context);
+
+        assertThat(result.functionStatus()).isEqualTo(IcebergConclusion.FunctionStatus.SKIPPED);
+        assertThat(result.performanceStatus()).isEqualTo(IcebergConclusion.PerformanceStatus.NOT_COMPARABLE);
+        assertThat(result.metrics()).containsEntry(
+            "validationPoint",
+            "验证配置中的多种 EC policy 在副本失效后的 DataNode 要求；当前单 DataNode 环境不执行真实故障后查询。"
+        );
+        assertThat(result.metrics()).containsEntry(
+            "policyMatrix",
+            "RS-3-2-1024k(required=5,live=1);RS-6-3-1024k(required=9,live=1);"
+                + "RS-10-4-1024k(required=14,live=1);XOR-2-1-1024k(required=3,live=1)"
+        );
+        assertThat(result.metrics()).containsEntry("liveDataNodes", "1");
+        assertThat(result.metrics()).containsEntry("physicalEcWritable", "false");
+        assertThat(result.metrics()).containsEntry("querySecondsBeforeFailureStatus", "notExecuted");
+        assertThat(result.metrics()).containsEntry("querySecondsAfterFailureStatus", "notExecuted");
+        assertThat(result.metrics()).containsEntry("latencyImpactRatioStatus", "notComparable");
+        assertThat(result.metrics()).containsEntry("checksumMatchedStatus", "notExecuted");
+        assertThat(result.metrics()).doesNotContainKey("policy");
+        assertThat(result.metrics()).doesNotContainKey("querySecondsAfterFailure");
     }
 
     private static IcebergValidationResult resultByCaseId(List<IcebergValidationResult> results, String caseId) {
