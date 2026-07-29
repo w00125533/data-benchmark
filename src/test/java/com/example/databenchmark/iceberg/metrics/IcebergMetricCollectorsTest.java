@@ -31,6 +31,19 @@ class IcebergMetricCollectorsTest {
     }
 
     @Test
+    void parsesBorderedTableValueByExpectedColumnName() {
+        String stdout = "+----------------+--------------------+\n"
+            + "|snapshot_id     |committed_at         |\n"
+            + "+----------------+--------------------+\n"
+            + "|12345           |2026-07-29 10:00:00 |\n"
+            + "+----------------+--------------------+\n";
+
+        assertThat(IcebergMetricCollectors.parseSingleString(stdout, "committed_at"))
+            .isEqualTo("2026-07-29 10:00:00");
+        assertThat(IcebergMetricCollectors.parseSingleString(stdout, "snapshot_id")).isEqualTo("12345");
+    }
+
+    @Test
     void parsesBareValueBeforeSparkFooter() {
         String stdout = "1000\nTime taken: 1.2 seconds\n";
 

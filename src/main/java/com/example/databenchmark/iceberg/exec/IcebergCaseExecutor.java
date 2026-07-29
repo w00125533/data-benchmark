@@ -47,9 +47,9 @@ public class IcebergCaseExecutor {
     }
 
     private static String renderArgument(String argument) {
-        if (argument.isEmpty() || argument.matches(".*[\\s\"].*")) {
-            return "\"" + argument.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+        if (argument.matches("[A-Za-z0-9_./:=@+-]+")) {
+            return argument;
         }
-        return argument;
+        return "'" + argument.replace("'", "''") + "'";
     }
 }
