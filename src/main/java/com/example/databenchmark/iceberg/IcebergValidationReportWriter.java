@@ -41,6 +41,7 @@ public class IcebergValidationReportWriter {
                 h1 { font-size: 28px; margin: 0 0 8px; }
                 h2 { font-size: 20px; margin: 28px 0 12px; }
                 .subtitle { color: var(--muted); margin: 0 0 20px; }
+                .scenario-method { margin: -4px 0 12px; color: var(--muted); font-size: 13px; line-height: 1.6; }
                 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; }
                 table { width: 100%; border-collapse: collapse; min-width: 980px; }
                 th, td { border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); padding: 9px 10px; text-align: left; vertical-align: top; font-size: 13px; line-height: 1.45; }
@@ -49,6 +50,9 @@ public class IcebergValidationReportWriter {
                 tr:last-child td { border-bottom: 0; }
                 code { font-family: Consolas, "Liberation Mono", monospace; font-size: 12px; }
                 pre { margin: 0; white-space: pre-wrap; font-family: Consolas, "Liberation Mono", monospace; font-size: 12px; line-height: 1.4; }
+                details.evidence-details summary { cursor: pointer; color: #0969da; font-weight: 700; }
+                .evidence-block { margin-top: 8px; display: grid; gap: 8px; min-width: 360px; }
+                .evidence-block strong { display: block; margin-bottom: 3px; color: var(--text); }
                 .status-PASS { color: var(--pass); font-weight: 700; }
                 .status-SKIPPED { color: var(--skip); font-weight: 700; }
                 .status-FAIL { color: var(--fail); font-weight: 700; }
@@ -80,7 +84,6 @@ public class IcebergValidationReportWriter {
         for (ScenarioSection section : scenarioSections()) {
             appendScenarioSection(builder, section, report.results());
         }
-        appendEvidenceSection(builder, report.results());
         builder.append("</main></body></html>");
         return builder.toString();
     }
@@ -93,6 +96,9 @@ public class IcebergValidationReportWriter {
             return;
         }
         builder.append("<section><h2>").append(escapeHtml(section.title())).append("</h2>");
+        builder.append("<div class=\"scenario-method\"><strong>验证策略和方法</strong> ")
+            .append(escapeHtml(section.method()))
+            .append("</div>");
         builder.append("<div class=\"table-wrap\"><table><thead><tr>");
         for (String header : section.headers()) {
             builder.append("<th>").append(escapeHtml(header)).append("</th>");
@@ -106,41 +112,6 @@ public class IcebergValidationReportWriter {
             builder.append("</tr>");
         }
         builder.append("</tbody></table></div></section>");
-    }
-
-    private static void appendEvidenceSection(StringBuilder builder, List<IcebergValidationResult> results) {
-        builder.append("""
-            <section>
-              <h2>执行脚本与证据</h2>
-            """);
-        for (ScenarioSection section : scenarioSections()) {
-            List<IcebergValidationResult> sectionResults = results.stream()
-                .filter(result -> section.scenario().equals(result.scenario()))
-                .toList();
-            if (sectionResults.isEmpty()) {
-                continue;
-            }
-            builder.append("<h3>").append(escapeHtml(section.title())).append("</h3>");
-            builder.append("""
-                <div class="table-wrap">
-                <table>
-                  <thead><tr>
-                    <th>用例</th><th>Setup Commands</th><th>Action Commands</th><th>Evidence</th><th>Errors</th>
-                  </tr></thead>
-                  <tbody>
-                """);
-            for (IcebergValidationResult result : sectionResults) {
-                builder.append("<tr>")
-                    .append(cell(code(result.caseId())))
-                    .append(cell(pre(result.setupCommands())))
-                    .append(cell(pre(result.actionCommands())))
-                    .append(cell(pre(result.evidence())))
-                    .append(cell(pre(result.errors())))
-                    .append("</tr>");
-            }
-            builder.append("</tbody></table></div>");
-        }
-        builder.append("</section>");
     }
 
     private static void appendKeyValue(StringBuilder builder, String key, String value) {
@@ -184,23 +155,32 @@ public class IcebergValidationReportWriter {
     private static List<ScenarioSection> scenarioSections() {
         return List.of(
             new ScenarioSection("schemaEvolution", "Schema 长期演进",
-                List.of("用例", "Schema 变化", "历史数据读取断言", "兼容性结论", "性能指标", "证据", "状态")),
+                "通过多阶段 Schema 变更覆盖字段新增、删除、重命名、类型提升和复杂类型变化，验证历史快照、字段投影和字段 ID 兼容读取，并记录查询延迟变化。",
+                List.of("用例", "Schema 变化", "历史数据读取断言", "兼容性结论", "性能指标", "状态", "执行脚本与证据")),
             new ScenarioSection("erasureCoding", "HDFS 纠删码",
-                List.of("用例", "EC Policy", "replication 基线", "DataNode 要求", "文件数统计", "HDFS 磁盘占用", "故障注入/Skip 原因", "结论", "状态")),
+                "以 replication=2 作为基线，对比多种 EC policy 的读写结果、文件数和 HDFS 磁盘占用；具备足够 DataNode 时执行失效副本容错验证，不满足条件时记录跳过原因。",
+                List.of("用例", "EC Policy", "replication 基线", "DataNode 要求", "文件数统计", "HDFS 磁盘占用", "故障注入/Skip 原因", "结论", "状态", "执行脚本与证据")),
             new ScenarioSection("erasureCodingConversion", "EC/replication 转换",
-                List.of("用例", "转换方向", "转换方式", "转换前后文件/磁盘", "转换耗时/吞吐", "查询对比", "结论", "状态")),
+                "分别验证 replication 到 EC、EC 到 replication 的 policy-only 和 physical rewrite 路径，度量转换耗时、吞吐、文件数、磁盘占用和转换前后查询一致性。",
+                List.of("用例", "转换方向", "转换方式", "转换前后文件/磁盘", "转换耗时/吞吐", "查询对比", "结论", "状态", "执行脚本与证据")),
             new ScenarioSection("concurrentWrite", "多进程并发写入",
-                List.of("用例", "Writer 数", "写入模式", "冲突类型", "成功/失败提交", "隔离断言", "性能指标", "结论", "状态")),
+                "构造多 writer 并发提交、同分区冲突、重叠更新和读写混合场景，验证成功提交可见性、失败提交不可见性、隔离断言和提交延迟指标。",
+                List.of("用例", "Writer 数", "写入模式", "冲突类型", "成功/失败提交", "隔离断言", "性能指标", "结论", "状态", "执行脚本与证据")),
             new ScenarioSection("rowLevelMutation", "行级更新删除",
-                List.of("用例", "操作类型", "影响范围", "delete/rewrite 文件指标", "历史快照断言", "查询性能", "结论", "状态")),
+                "覆盖 UPDATE、DELETE、MERGE 的窄范围、分区可裁剪和稀疏变更，验证当前快照结果、历史快照可读性，并记录 delete/rewrite 文件和查询性能指标。",
+                List.of("用例", "操作类型", "影响范围", "delete/rewrite 文件指标", "历史快照断言", "查询性能", "结论", "状态", "执行脚本与证据")),
             new ScenarioSection("acidTransaction", "ACID 事务保证",
-                List.of("用例", "故障/冲突类型", "快照原子性断言", "读隔离断言", "错误/Skip 原因", "结论", "状态")),
+                "通过提交前失败、提交期故障、冲突提交和 reader isolation 场景验证快照原子发布、半提交不可见、冲突隔离和读一致性。",
+                List.of("用例", "故障/冲突类型", "快照原子性断言", "读隔离断言", "错误/Skip 原因", "结论", "状态", "执行脚本与证据")),
             new ScenarioSection("incrementalPull", "增量拉取",
-                List.of("用例", "Snapshot Window", "数据变更类型", "增量/全量对比", "过期快照行为", "结论", "状态")),
+                "按 snapshot window 验证 append-only 增量读取、多 snapshot 窗口、update/delete 边界和过期快照行为，对比全量扫描与增量扫描成本。",
+                List.of("用例", "Snapshot Window", "数据变更类型", "增量/全量对比", "过期快照行为", "结论", "状态", "执行脚本与证据")),
             new ScenarioSection("timeTravel", "时间旅行",
-                List.of("用例", "访问方式", "目标快照/时间", "Schema 兼容断言", "过期行为", "性能指标", "结论", "状态")),
+                "使用 snapshot id、timestamp 和 Schema 演进后的历史访问验证时间旅行结果一致性，同时覆盖快照过期后的访问行为和历史查询性能。",
+                List.of("用例", "访问方式", "目标快照/时间", "Schema 兼容断言", "过期行为", "性能指标", "结论", "状态", "执行脚本与证据")),
             new ScenarioSection("smallFileCompaction", "小文件 Compaction",
-                List.of("用例", "Snapshot 数", "小文件构造", "Compaction 类型", "前后文件/manifest/snapshot 指标", "查询对比", "结论", "状态"))
+                "构造多 snapshot、多小文件提交，度量小文件对查询计划和查询耗时的影响，并验证 data file compaction、manifest rewrite、snapshot expiration 前后指标变化。",
+                List.of("用例", "Snapshot 数", "小文件构造", "Compaction 类型", "前后文件/manifest/snapshot 指标", "查询对比", "结论", "状态", "执行脚本与证据"))
         );
     }
 
@@ -213,8 +193,8 @@ public class IcebergValidationReportWriter {
                 joinList(result.assertions()),
                 result.conclusion(),
                 joinMap(result.metrics()),
-                joinList(result.evidence()),
-                status
+                status,
+                evidenceDetails(result)
             );
             case "erasureCoding" -> List.of(
                 code(result.caseId()),
@@ -225,7 +205,8 @@ public class IcebergValidationReportWriter {
                 firstPresent(result, "hdfsDiskBytes", null, diskMetrics(result)),
                 skipReason(result),
                 result.conclusion(),
-                status
+                status,
+                evidenceDetails(result)
             );
             case "erasureCodingConversion" -> List.of(
                 code(result.caseId()),
@@ -235,7 +216,8 @@ public class IcebergValidationReportWriter {
                 metricOrEmpty(result, "conversionSeconds", "throughputMbPerSecond", "conversionMetrics"),
                 queryMetrics(result),
                 result.conclusion(),
-                status
+                status,
+                evidenceDetails(result)
             );
             case "concurrentWrite" -> List.of(
                 code(result.caseId()),
@@ -246,7 +228,8 @@ public class IcebergValidationReportWriter {
                 joinList(result.assertions()),
                 joinMap(result.metrics()),
                 result.conclusion(),
-                status
+                status,
+                evidenceDetails(result)
             );
             case "rowLevelMutation" -> List.of(
                 code(result.caseId()),
@@ -256,7 +239,8 @@ public class IcebergValidationReportWriter {
                 joinList(result.assertions()),
                 metricOrEmpty(result, "queryMsAfter", "mutationMetrics"),
                 result.conclusion(),
-                status
+                status,
+                evidenceDetails(result)
             );
             case "acidTransaction" -> List.of(
                 code(result.caseId()),
@@ -265,7 +249,8 @@ public class IcebergValidationReportWriter {
                 isolationAssertion(result),
                 skipReason(result),
                 result.conclusion(),
-                status
+                status,
+                evidenceDetails(result)
             );
             case "incrementalPull" -> List.of(
                 code(result.caseId()),
@@ -274,7 +259,8 @@ public class IcebergValidationReportWriter {
                 joinBaselineAndComparison(result),
                 expiredSnapshotBehavior(result),
                 result.conclusion(),
-                status
+                status,
+                evidenceDetails(result)
             );
             case "timeTravel" -> List.of(
                 code(result.caseId()),
@@ -284,7 +270,8 @@ public class IcebergValidationReportWriter {
                 expiredSnapshotBehavior(result),
                 joinMap(result.metrics()),
                 result.conclusion(),
-                status
+                status,
+                evidenceDetails(result)
             );
             case "smallFileCompaction" -> List.of(
                 code(result.caseId()),
@@ -294,9 +281,10 @@ public class IcebergValidationReportWriter {
                 joinBaselineAndComparison(result) + "<br>" + joinMap(result.metrics()),
                 queryMetrics(result),
                 result.conclusion(),
-                status
+                status,
+                evidenceDetails(result)
             );
-            default -> List.of(code(result.caseId()), result.conclusion(), status);
+            default -> List.of(code(result.caseId()), result.conclusion(), status, evidenceDetails(result));
         };
     }
 
@@ -393,6 +381,20 @@ public class IcebergValidationReportWriter {
             + result.functionStatus()
             + "</span><br>"
             + escapeHtml(result.performanceStatus().toString());
+    }
+
+    private static String evidenceDetails(IcebergValidationResult result) {
+        return "<details class=\"evidence-details\"><summary>展开证据</summary>"
+            + "<div class=\"evidence-block\">"
+            + evidenceGroup("Setup Commands", result.setupCommands())
+            + evidenceGroup("Action Commands", result.actionCommands())
+            + evidenceGroup("Evidence", result.evidence())
+            + evidenceGroup("Errors", result.errors())
+            + "</div></details>";
+    }
+
+    private static String evidenceGroup(String title, List<String> values) {
+        return "<div><strong>" + escapeHtml(title) + "</strong>" + pre(values) + "</div>";
     }
 
     private static String conversionDirection(IcebergValidationResult result) {
@@ -561,5 +563,5 @@ public class IcebergValidationReportWriter {
             .replace("'", "&#39;");
     }
 
-    private record ScenarioSection(String scenario, String title, List<String> headers) {}
+    private record ScenarioSection(String scenario, String title, String method, List<String> headers) {}
 }
