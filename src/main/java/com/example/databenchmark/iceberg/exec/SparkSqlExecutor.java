@@ -22,15 +22,20 @@ public class SparkSqlExecutor {
 
     public CommandResult run(IcebergValidationConfig config, String sql)
         throws IOException, InterruptedException {
-        CommandResult result = commandRunner.run(
-            commandFor(config, sql),
-            Path.of("."),
-            Duration.ofSeconds(config.spark().timeoutSeconds())
-        );
+        CommandResult result = runRaw(config, sql);
         if (result.exitCode() != 0) {
             throw new IllegalStateException("Spark SQL failed: " + result.stderr());
         }
         return result;
+    }
+
+    public CommandResult runRaw(IcebergValidationConfig config, String sql)
+        throws IOException, InterruptedException {
+        return commandRunner.run(
+            commandFor(config, sql),
+            Path.of("."),
+            Duration.ofSeconds(config.spark().timeoutSeconds())
+        );
     }
 
     public List<String> commandFor(IcebergValidationConfig config, String sql) {

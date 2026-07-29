@@ -17,8 +17,13 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
+    private static final Pattern SPARK_LOG_LEVEL_LINE = Pattern.compile(
+        "^(?:\\d{2}/\\d{2}/\\d{2}\\s+\\d{2}:\\d{2}:\\d{2}\\s+)?(?:INFO|WARN|ERROR)\\b.*"
+    );
+
     private final SparkSqlExecutor sparkSqlExecutor;
     private final boolean executeSpark;
 
@@ -295,7 +300,7 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
 
     private IcebergExecutionEvidence runSpark(IcebergValidationConfig config, String phase, String label, String sql)
         throws IOException, InterruptedException {
-        CommandResult result = sparkSqlExecutor.run(config, sql);
+        CommandResult result = sparkSqlExecutor.runRaw(config, sql);
         return new IcebergExecutionEvidence(
             phase,
             label,
@@ -308,15 +313,44 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
     }
 
     private static long dataRowCount(String stdout) {
-        return stdout.lines()
+        List<String> dataLines = stdout.lines()
             .map(String::trim)
             .filter(line -> !line.isBlank())
-            .filter(line -> !line.chars().allMatch(character ->
-                character == '-' || character == '+' || character == '|' || Character.isWhitespace(character)))
-            .filter(line -> !line.startsWith("Time taken:"))
-            .filter(line -> !line.startsWith("Setting default log level to "))
-            .skip(1)
-            .count();
+            .filter(line -> !isSeparator(line))
+            .filter(line -> !isSparkMetadata(line))
+            .map(SchemaEvolutionScenario::stripSparkTableBorders)
+            .filter(line -> !line.isBlank())
+            .toList();
+        int firstDataIndex = !dataLines.isEmpty() && looksLikeHeader(dataLines.get(0)) ? 1 : 0;
+        return dataLines.size() - firstDataIndex;
+    }
+
+    private static boolean isSeparator(String line) {
+        return line.chars().allMatch(character ->
+            character == '-' || character == '+' || character == '|' || character == '=' || Character.isWhitespace(character));
+    }
+
+    private static boolean isSparkMetadata(String line) {
+        return line.startsWith("Time taken:")
+            || line.startsWith("Setting default log level to ")
+            || line.startsWith("Using Spark's default log4j profile")
+            || line.startsWith("To adjust logging level")
+            || line.startsWith("Spark session available as")
+            || line.startsWith("Spark master:")
+            || line.startsWith("SLF4J:")
+            || SPARK_LOG_LEVEL_LINE.matcher(line).matches();
+    }
+
+    private static String stripSparkTableBorders(String line) {
+        if (line.startsWith("|") && line.endsWith("|")) {
+            return line.substring(1, line.length() - 1).trim();
+        }
+        return line;
+    }
+
+    private static boolean looksLikeHeader(String line) {
+        return line.chars().noneMatch(Character::isDigit)
+            && line.chars().anyMatch(Character::isLetter);
     }
 
     private static SchemaPlan schemaPlan(String caseId, String table, IcebergValidationContext context) {

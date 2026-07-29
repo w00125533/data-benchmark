@@ -218,6 +218,43 @@ class SchemaEvolutionScenarioTest {
     }
 
     @Test
+    void nonZeroSparkExitCapturesFailedCommandEvidence() throws Exception {
+        IcebergValidationResult result = runAddDropRenameWith(new FakeSparkSqlExecutor(FailureMode.SCHEMA_CHANGE_NON_ZERO));
+
+        assertThat(result.functionStatus()).isEqualTo(com.example.databenchmark.iceberg.IcebergConclusion.FunctionStatus.FAIL);
+        assertThat(result.performanceStatus()).isEqualTo(com.example.databenchmark.iceberg.IcebergConclusion.PerformanceStatus.NOT_COMPARABLE);
+        assertThat(result.errors()).anySatisfy(error -> assertThat(error).contains("boom stderr"));
+
+        IcebergExecutionEvidence failedChange = result.executionResults().stream()
+            .filter(executionResult -> executionResult.label().equals("schema change"))
+            .filter(executionResult -> executionResult.exitCode() == 7)
+            .findFirst()
+            .orElseThrow();
+        assertThat(failedChange.script()).startsWith("ALTER TABLE");
+        assertThat(failedChange.durationSeconds()).isEqualTo(0.789);
+        assertThat(failedChange.stdout()).isEqualTo("partial stdout\n");
+        assertThat(failedChange.stderr()).isEqualTo("boom stderr\n");
+    }
+
+    @Test
+    void dataRowCountHandlesHeaderlessSparkOutput() throws Exception {
+        IcebergValidationResult result = runAddDropRenameWith(new FakeSparkSqlExecutor(OutputMode.HEADERLESS));
+
+        assertThat(result.functionStatus()).isEqualTo(com.example.databenchmark.iceberg.IcebergConclusion.FunctionStatus.PASS);
+        assertThat(result.metrics()).containsEntry("historicalRows", "2");
+        assertThat(result.metrics()).containsEntry("currentRows", "2");
+    }
+
+    @Test
+    void dataRowCountIgnoresSparkNoiseHeadersAndSeparators() throws Exception {
+        IcebergValidationResult result = runAddDropRenameWith(new FakeSparkSqlExecutor(OutputMode.NOISY));
+
+        assertThat(result.functionStatus()).isEqualTo(com.example.databenchmark.iceberg.IcebergConclusion.FunctionStatus.PASS);
+        assertThat(result.metrics()).containsEntry("historicalRows", "2");
+        assertThat(result.metrics()).containsEntry("currentRows", "2");
+    }
+
+    @Test
     void schemaChangeFailureReturnsFailedResult() throws Exception {
         IcebergValidationResult result = runAddDropRenameWith(new FakeSparkSqlExecutor(FailureMode.SCHEMA_CHANGE));
 
@@ -286,24 +323,53 @@ class SchemaEvolutionScenarioTest {
 
     private enum FailureMode {
         SCHEMA_CHANGE,
+        SCHEMA_CHANGE_NON_ZERO,
         HISTORICAL_QUERY
+    }
+
+    private enum OutputMode {
+        HEADER,
+        HEADERLESS,
+        NOISY
     }
 
     private static final class FakeSparkSqlExecutor extends SparkSqlExecutor {
         private final FailureMode failureMode;
+        private final OutputMode outputMode;
 
         private FakeSparkSqlExecutor() {
-            this(null);
+            this(null, OutputMode.HEADER);
         }
 
         private FakeSparkSqlExecutor(FailureMode failureMode) {
+            this(failureMode, OutputMode.HEADER);
+        }
+
+        private FakeSparkSqlExecutor(OutputMode outputMode) {
+            this(null, outputMode);
+        }
+
+        private FakeSparkSqlExecutor(FailureMode failureMode, OutputMode outputMode) {
             this.failureMode = failureMode;
+            this.outputMode = outputMode;
         }
 
         @Override
         public CommandResult run(IcebergValidationConfig config, String sql) {
+            CommandResult result = runRaw(config, sql);
+            if (result.exitCode() != 0) {
+                throw new IllegalStateException("Spark SQL failed: " + result.stderr());
+            }
+            return result;
+        }
+
+        @Override
+        public CommandResult runRaw(IcebergValidationConfig config, String sql) {
             if (failureMode == FailureMode.SCHEMA_CHANGE && sql.startsWith("ALTER TABLE")) {
                 throw new IllegalStateException("boom");
+            }
+            if (failureMode == FailureMode.SCHEMA_CHANGE_NON_ZERO && sql.startsWith("ALTER TABLE")) {
+                return new CommandResult(List.of("spark-sql"), 7, "partial stdout\n", "boom stderr\n", 0.789);
             }
             if (failureMode == FailureMode.HISTORICAL_QUERY && sql.contains("VERSION AS OF")) {
                 throw new IllegalStateException("boom");
@@ -315,12 +381,47 @@ class SchemaEvolutionScenarioTest {
                 return new CommandResult(List.of("spark-sql"), 0, "snapshot_id\n222\n", "", 0.100);
             }
             if (sql.contains("VERSION AS OF")) {
-                return new CommandResult(List.of("spark-sql"), 0, "id\n1\n2\n", "", 0.321);
+                return new CommandResult(List.of("spark-sql"), 0, historicalRowsStdout(), "", 0.321);
             }
             if (sql.contains("ORDER BY id DESC")) {
-                return new CommandResult(List.of("spark-sql"), 0, "id\n2000\n1999\n", "", 0.456);
+                return new CommandResult(List.of("spark-sql"), 0, currentRowsStdout(), "", 0.456);
             }
             return new CommandResult(List.of("spark-sql"), 0, "OK\n", "", 0.050);
+        }
+
+        private String historicalRowsStdout() {
+            return switch (outputMode) {
+                case HEADER -> "id\n1\n2\n";
+                case HEADERLESS -> "1\n2\n";
+                case NOISY -> """
+                    Setting default log level to "WARN".
+                    Spark master: local
+                    +---+
+                    | id|
+                    +---+
+                    | 1|
+                    | 2|
+                    +---+
+                    Time taken: 0.321 seconds, Fetched 2 row(s)
+                    """;
+            };
+        }
+
+        private String currentRowsStdout() {
+            return switch (outputMode) {
+                case HEADER -> "id\n2000\n1999\n";
+                case HEADERLESS -> "2000\n1999\n";
+                case NOISY -> """
+                    26/07/29 12:00:00 WARN NativeCodeLoader: Unable to load native-hadoop library
+                    +----+
+                    |  id|
+                    +----+
+                    |2000|
+                    |1999|
+                    +----+
+                    Time taken: 0.456 seconds, Fetched 2 row(s)
+                    """;
+            };
         }
     }
 }
