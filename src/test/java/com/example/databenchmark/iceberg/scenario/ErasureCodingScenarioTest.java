@@ -8,18 +8,19 @@ import com.example.databenchmark.iceberg.IcebergValidationConfig;
 import com.example.databenchmark.iceberg.IcebergValidationConfigLoader;
 import com.example.databenchmark.iceberg.IcebergValidationContext;
 import com.example.databenchmark.iceberg.IcebergValidationResult;
+import com.example.databenchmark.iceberg.hdfs.EcPolicySpec;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class ErasureCodingScenarioTest {
     @Test
-    void nonFaultCasesExposeConcretePlannedMetricsWithoutFakeHdfsUsage() throws Exception {
+    void ecCasesIncludeSingleReplicaBaselineAndPolicyRowsWithoutEcPolicyCount() throws Exception {
         ErasureCodingScenario scenario = new ErasureCodingScenario();
         IcebergValidationConfig config = new IcebergValidationConfigLoader().load(Path.of("configs/iceberg-validation.yml"));
         IcebergValidationContext context = new IcebergValidationContext(
             config,
-            "ec-test",
+            "ec-single-dn-test",
             Path.of("work"),
             Path.of("reports"),
             false
@@ -30,25 +31,75 @@ class ErasureCodingScenarioTest {
             .map(testCase -> scenario.run(testCase, context))
             .toList();
 
-        assertThat(results).hasSize(2);
-        assertThat(results).allSatisfy(result -> {
-            assertThat(result.metrics()).containsEntry("replicationBaseline", "2");
-            assertThat(result.metrics()).containsEntry("ecPolicyCount", Integer.toString(config.hdfs().ecPolicies().size()));
-            assertThat(result.metrics()).containsEntry("targetRowCount", "1000");
-            assertThat(result.metrics()).containsEntry("targetChecksum", "planned");
-            assertThat(result.metrics()).containsEntry("hdfsUsageStatus", "notCollected");
-            assertThat(result.functionStatus()).isEqualTo(IcebergConclusion.FunctionStatus.PASS);
-            assertThat(result.performanceStatus()).isEqualTo(IcebergConclusion.PerformanceStatus.NOT_COMPARABLE);
-            assertThat(result.metrics()).doesNotContainKey("ecPolicies");
-            assertThat(result.comparison()).doesNotContainKey("scriptedActions");
-            assertThat(result.metrics()).doesNotContainKeys(
-                "replicationFileCount",
-                "ecFileCount",
-                "replicationDiskBytes",
-                "ecDiskBytes",
-                "diskSavingRatio"
+        assertThat(results).extracting(IcebergValidationResult::caseId)
+            .containsExactly(
+                "hdfs-replication-1-actual",
+                "hdfs-replication-2-baseline",
+                "ec-policy-rs-3-2-1024k",
+                "ec-policy-rs-6-3-1024k",
+                "ec-policy-rs-10-4-1024k",
+                "ec-policy-xor-2-1-1024k"
             );
+        assertThat(results).allSatisfy(result -> {
+            assertThat(result.metrics()).containsKey("validationPoint");
+            assertThat(result.metrics()).doesNotContainKey("ecPolicyCount");
         });
+        IcebergValidationResult singleReplica = resultByCaseId(results, "hdfs-replication-1-actual");
+        assertThat(singleReplica.metrics()).containsEntry("policyMode", "hdfs-replication-1-actual");
+        assertThat(singleReplica.metrics()).containsEntry("storageMetricType", "actual");
+        assertThat(singleReplica.metrics()).containsEntry("replication", "1");
+        assertThat(singleReplica.metrics()).containsEntry("underReplicated", "false");
+        assertThat(singleReplica.metrics()).containsEntry("liveDataNodes", "1");
+        assertThat(singleReplica.metrics()).containsEntry("requiredDataNodes", "1");
+        assertThat(singleReplica.metrics()).containsEntry("rowCount", "1000");
+        assertThat(singleReplica.metrics()).containsEntry("logicalBytesStatus", "plannedActual");
+        assertThat(singleReplica.metrics()).containsEntry("fileCountStatus", "plannedActual");
+        assertThat(singleReplica.metrics()).containsEntry("hdfsDiskBytesStatus", "plannedActual");
+        assertThat(singleReplica.metrics()).containsEntry("querySecondsStatus", "plannedActual");
+
+        IcebergValidationResult replication2 = resultByCaseId(results, "hdfs-replication-2-baseline");
+        assertThat(replication2.metrics()).containsEntry("policyMode", "hdfs-replication-2-target-baseline");
+        assertThat(replication2.metrics()).containsEntry("replication", "2");
+        assertThat(replication2.metrics()).containsEntry("underReplicated", "true");
+        assertThat(replication2.metrics()).containsEntry("storageMetricType", "actual");
+
+        IcebergValidationResult rs104 = resultByCaseId(results, "ec-policy-rs-10-4-1024k");
+        assertThat(rs104.metrics()).containsEntry("policy", "RS-10-4-1024k");
+        assertThat(rs104.metrics()).containsEntry("physicalEcWritable", "false");
+        assertThat(rs104.metrics()).containsEntry("requiredDataNodes", "14");
+        assertThat(rs104.metrics()).containsKey("theoreticalEcDiskBytes");
+        assertThat(rs104.metrics()).containsKey("theoreticalSavingVsReplication2");
+        assertThat(rs104.metrics()).containsEntry("queryPerformanceStatus", "notRepresentative");
+        assertThat(rs104.actionCommands()).anyMatch(command -> command.contains("-setErasureCodingPolicy"));
+        assertThat(rs104.actionCommands()).anyMatch(command -> command.contains("-getErasureCodingPolicy"));
+        assertThat(rs104.actionCommands()).anyMatch(command -> command.contains(" -du -s "));
+        assertThat(rs104.actionCommands()).anyMatch(command -> command.contains(" -count "));
+        assertThat(rs104.actionCommands()).anyMatch(command -> command.contains("SELECT COUNT(*)"));
+
+        for (String policy : config.hdfs().ecPolicies()) {
+            IcebergValidationResult policyResult = resultByCaseId(
+                results,
+                "ec-policy-" + policy.toLowerCase(java.util.Locale.ROOT).replace('_', '-')
+            );
+            EcPolicySpec spec = EcPolicySpec.parse(policy);
+            assertThat(policyResult.metrics()).containsEntry("policyMode", "ec-policy");
+            assertThat(policyResult.metrics()).containsEntry("policy", policy);
+            assertThat(policyResult.metrics()).containsEntry("setPolicyStatus", "planned");
+            assertThat(policyResult.metrics()).containsEntry("getPolicyStatus", "planned");
+            assertThat(policyResult.metrics()).containsEntry("liveDataNodes", "1");
+            assertThat(policyResult.metrics()).containsEntry("requiredDataNodes", Integer.toString(spec.requiredDataNodes()));
+            assertThat(policyResult.metrics()).containsEntry("physicalEcWritable", "false");
+            assertThat(policyResult.metrics()).containsEntry("rowCount", "1000");
+            assertThat(policyResult.metrics()).containsEntry("logicalBytesStatus", "plannedActual");
+            assertThat(policyResult.metrics()).containsKey("logicalBytesEstimate");
+            assertThat(policyResult.metrics()).containsEntry("fileCountStatus", "notRepresentative");
+            assertThat(policyResult.metrics()).containsEntry("hdfsDiskBytesStatus", "notRepresentative");
+            assertThat(policyResult.metrics()).containsKey("theoreticalEcDiskBytes");
+            assertThat(policyResult.metrics()).containsKey("theoreticalSavingVsReplication2");
+            assertThat(policyResult.metrics()).containsEntry("queryPerformanceStatus", "notRepresentative");
+            assertThat(policyResult.metrics()).containsKey("skipPhysicalReason");
+            assertThat(policyResult.metrics()).containsKey("setPolicyPath");
+        }
     }
 
     @Test
@@ -73,9 +124,23 @@ class ErasureCodingScenarioTest {
         assertThat(result.metrics()).containsEntry("policy", "RS-10-4-1024k");
         assertThat(result.metrics()).containsEntry("liveDataNodes", "1");
         assertThat(result.metrics()).containsEntry("requiredDataNodes", "14");
+        assertThat(result.metrics()).containsKey("validationPoint");
+        assertThat(result.metrics()).containsEntry("querySecondsBeforeFailureStatus", "notExecuted");
+        assertThat(result.metrics()).containsEntry("querySecondsAfterFailureStatus", "notExecuted");
+        assertThat(result.metrics()).containsEntry("latencyImpactRatioStatus", "notComparable");
+        assertThat(result.metrics()).containsEntry("checksumMatchedStatus", "notExecuted");
+        assertThat(result.metrics()).containsEntry("physicalEcWritable", "false");
+        assertThat(result.metrics()).doesNotContainKey("querySecondsAfterFailure");
         assertThat(result.metrics()).containsEntry(
             "skipReason",
             "RS-10-4-1024k requires at least 14 live DataNodes for full policy tolerance validation"
         );
+    }
+
+    private static IcebergValidationResult resultByCaseId(List<IcebergValidationResult> results, String caseId) {
+        return results.stream()
+            .filter(result -> caseId.equals(result.caseId()))
+            .findFirst()
+            .orElseThrow();
     }
 }

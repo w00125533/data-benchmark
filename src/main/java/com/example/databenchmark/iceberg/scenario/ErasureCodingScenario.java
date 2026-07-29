@@ -6,10 +6,14 @@ import com.example.databenchmark.iceberg.IcebergValidationCase;
 import com.example.databenchmark.iceberg.IcebergValidationConfig;
 import com.example.databenchmark.iceberg.IcebergValidationContext;
 import com.example.databenchmark.iceberg.IcebergValidationResult;
+import com.example.databenchmark.iceberg.hdfs.EcPolicySpec;
 import com.example.databenchmark.iceberg.hdfs.HdfsEcPolicyClient;
 import com.example.databenchmark.iceberg.sql.IcebergSqlTemplates;
 import com.example.databenchmark.iceberg.sql.SparkSqlScriptBuilder;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class ErasureCodingScenario extends AbstractIcebergValidationScenario {
@@ -20,12 +24,35 @@ public class ErasureCodingScenario extends AbstractIcebergValidationScenario {
 
     @Override
     public List<IcebergValidationCase> cases(IcebergValidationConfig config) {
-        return List.of(
-            testCase("ec-policy-write-read", "Compare replication=2 with configured EC policies.", Map.of("baseline", "replication=2")),
-            testCase("ec-rs-10-4-failure-tolerance", "Validate RS-10-4 tolerated DataNode failure readability.", Map.of("policy", "RS-10-4-1024k")),
-            testCase("ec-policy-matrix-failure", "Validate tolerated failure matrix for configured EC policies.", Map.of("policies", String.join(",", config.hdfs().ecPolicies()))),
-            testCase("ec-file-count-and-disk-usage", "Compare file count and HDFS disk usage across EC policies.", Map.of("baseline", "replication=2"))
-        );
+        List<IcebergValidationCase> cases = new ArrayList<>();
+        cases.add(testCase(
+            "hdfs-replication-1-actual",
+            "Measure HDFS single-replica actual disk and query baseline.",
+            Map.of("replication", "1")
+        ));
+        cases.add(testCase(
+            "hdfs-replication-2-baseline",
+            "Measure target replication=2 baseline and under-replication status on single DataNode.",
+            Map.of("replication", "2")
+        ));
+        for (String policy : config.hdfs().ecPolicies()) {
+            cases.add(testCase(
+                "ec-policy-" + policy.toLowerCase(Locale.ROOT).replace('_', '-'),
+                "Evaluate EC policy storage and query behavior on single DataNode.",
+                Map.of("policy", policy)
+            ));
+        }
+        cases.add(testCase(
+            "ec-rs-10-4-failure-tolerance",
+            "Validate RS-10-4 tolerated DataNode failure readability.",
+            Map.of("policy", "RS-10-4-1024k")
+        ));
+        cases.add(testCase(
+            "ec-policy-matrix-failure",
+            "Validate tolerated failure matrix for configured EC policies.",
+            Map.of("policies", String.join(",", config.hdfs().ecPolicies()))
+        ));
+        return cases;
     }
 
     @Override
@@ -36,45 +63,122 @@ public class ErasureCodingScenario extends AbstractIcebergValidationScenario {
             HdfsEcPolicyClient.EcPreflight preflight = HdfsEcPolicyClient.preflight("RS-10-4-1024k", true, 1);
             return skippedFaultTolerance(testCase, context, preflight);
         }
-        return plannedEcComparison(testCase, context, table, location);
+        if (testCase.caseId().startsWith("hdfs-replication-")) {
+            int replication = Integer.parseInt(testCase.parameters().get("replication"));
+            return plannedReplicationBaseline(testCase, context, table, location, replication);
+        }
+        return plannedEcPolicy(testCase, context, table, location, testCase.parameters().get("policy"));
     }
 
-    private IcebergValidationResult plannedEcComparison(
+    private IcebergValidationResult plannedReplicationBaseline(
         IcebergValidationCase testCase,
         IcebergValidationContext context,
         String table,
-        String location
+        String location,
+        int replication
     ) {
         long targetRows = Math.min(context.config().scale().rows(), 1000);
-        List<String> setup = List.of(
-            IcebergSqlTemplates.createNamespace(context.config().iceberg().catalog(), context.config().iceberg().namespace()),
-            IcebergSqlTemplates.dropTable(table),
-            IcebergSqlTemplates.createBaseTable(table, location),
-            IcebergSqlTemplates.insertRange(table, 0, targetRows, "baseline")
+        Map<String, String> metrics = new LinkedHashMap<>();
+        metrics.put(
+            "validationPoint",
+            replication == 1
+                ? "Measure the real single-replica HDFS file count, disk usage, and query latency baseline on one DataNode."
+                : "Record the target replication=2 baseline on one DataNode and explicitly mark under-replication risk."
         );
-        String setupScript = new SparkSqlScriptBuilder()
-            .add(setup.get(0))
-            .add(setup.get(1))
-            .add(setup.get(2))
-            .add(setup.get(3))
-            .build();
+        metrics.put("policyMode", replication == 1 ? "hdfs-replication-1-actual" : "hdfs-replication-2-target-baseline");
+        metrics.put("replication", Integer.toString(replication));
+        metrics.put("rowCount", Long.toString(targetRows));
+        metrics.put("logicalBytesStatus", "plannedActual");
+        metrics.put("fileCountStatus", "plannedActual");
+        metrics.put("hdfsDiskBytesStatus", "plannedActual");
+        metrics.put("querySecondsStatus", "plannedActual");
+        metrics.put("storageMetricType", "actual");
+        metrics.put("underReplicated", Boolean.toString(replication > 1));
+        metrics.put("liveDataNodes", "1");
+        metrics.put("requiredDataNodes", "1");
+
+        String path = location + "/replication-" + replication + "-baseline";
         List<String> actions = List.of(
             "hdfs dfs -fs " + context.config().hdfs().defaultFs() + " -setrep -w "
-                + context.config().hdfs().replicationBaseline() + " " + location + "/replication-baseline",
-            "hdfs ec -fs " + context.config().hdfs().defaultFs() + " -setPolicy -policy RS-10-4-1024k -path "
-                + location + "/ec-target",
+                + replication + " " + path,
             "SELECT COUNT(*) FROM " + table,
             "SELECT COUNT(*), SUM(file_size_in_bytes) FROM " + table + ".files",
-            "hdfs dfs -fs " + context.config().hdfs().defaultFs() + " -du -s " + location + "/replication-baseline",
-            "hdfs dfs -fs " + context.config().hdfs().defaultFs() + " -count " + location + "/ec-target"
+            "hdfs dfs -fs " + context.config().hdfs().defaultFs() + " -du -s " + path,
+            "hdfs dfs -fs " + context.config().hdfs().defaultFs() + " -count " + path
         );
-        Map<String, String> metrics = Map.of(
-            "replicationBaseline", Integer.toString(context.config().hdfs().replicationBaseline()),
-            "ecPolicyCount", Integer.toString(context.config().hdfs().ecPolicies().size()),
-            "targetRowCount", Long.toString(targetRows),
-            "targetChecksum", "planned",
-            "hdfsUsageStatus", "notCollected"
+
+        return plannedEcResult(
+            testCase,
+            context,
+            table,
+            location,
+            metrics,
+            actions,
+            replication == 1 ? IcebergConclusion.FunctionStatus.PASS : IcebergConclusion.FunctionStatus.DEGRADED,
+            replication == 1
+                ? "Single-replica HDFS baseline is planned for actual collection on the available DataNode."
+                : "Replication=2 baseline is auditable, but it is under-replicated with only one live DataNode."
         );
+    }
+
+    private IcebergValidationResult plannedEcPolicy(
+        IcebergValidationCase testCase,
+        IcebergValidationContext context,
+        String table,
+        String location,
+        String policy
+    ) {
+        long targetRows = Math.min(context.config().scale().rows(), 1000);
+        long logicalBytesEstimate = targetRows * 128L;
+        EcPolicySpec spec = EcPolicySpec.parse(policy);
+        Map<String, String> metrics = new LinkedHashMap<>();
+        metrics.put("validationPoint", "Report EC policy commands, DataNode requirements, and theoretical storage on one DataNode.");
+        metrics.put("policyMode", "ec-policy");
+        metrics.put("policy", policy);
+        metrics.put("setPolicyPath", ecPolicyPath(location, policy));
+        metrics.put("setPolicyStatus", "planned");
+        metrics.put("getPolicyStatus", "planned");
+        metrics.put("liveDataNodes", "1");
+        metrics.put("requiredDataNodes", Integer.toString(spec.requiredDataNodes()));
+        metrics.put("physicalEcWritable", "false");
+        metrics.put("rowCount", Long.toString(targetRows));
+        metrics.put("logicalBytesStatus", "plannedActual");
+        metrics.put("logicalBytesEstimate", Long.toString(logicalBytesEstimate));
+        metrics.put("fileCountStatus", "notRepresentative");
+        metrics.put("hdfsDiskBytesStatus", "notRepresentative");
+        metrics.put("theoreticalEcDiskBytes", Long.toString(spec.theoreticalDiskBytes(logicalBytesEstimate)));
+        metrics.put("theoreticalSavingVsReplication2", spec.theoreticalSavingVsReplication2(logicalBytesEstimate));
+        metrics.put("queryPerformanceStatus", "notRepresentative");
+        metrics.put(
+            "skipPhysicalReason",
+            policy + " requires " + spec.requiredDataNodes() + " live DataNodes for physical EC block groups"
+        );
+
+        return plannedEcResult(
+            testCase,
+            context,
+            table,
+            location,
+            metrics,
+            ecPolicyActions(context, location, table, policy),
+            IcebergConclusion.FunctionStatus.DEGRADED,
+            policy + " cannot be physically encoded with one DataNode; theoretical storage estimates are reported separately from actual HDFS usage."
+        );
+    }
+
+    private IcebergValidationResult plannedEcResult(
+        IcebergValidationCase testCase,
+        IcebergValidationContext context,
+        String table,
+        String location,
+        Map<String, String> metrics,
+        List<String> actions,
+        IcebergConclusion.FunctionStatus functionStatus,
+        String conclusion
+    ) {
+        long targetRows = Math.min(context.config().scale().rows(), 1000);
+        List<String> setup = setupCommands(context, table, location, targetRows);
+        String setupScript = setupScript(setup);
         return new IcebergValidationResult(
             testCase.scenario(),
             testCase.caseId(),
@@ -82,17 +186,59 @@ public class ErasureCodingScenario extends AbstractIcebergValidationScenario {
             IcebergScenarioSupport.dataScale(context.config()),
             setup,
             actions,
-            List.of("row count target defined for replication and EC", "HDFS usage collection not executed in this planner path"),
+            List.of("row count target is planned", "HDFS du/count and query commands are auditable but not executed in this planner path"),
             metrics,
             Map.of("baselineRows", Long.toString(targetRows)),
             Map.of(),
-            IcebergConclusion.FunctionStatus.PASS,
+            functionStatus,
             IcebergConclusion.PerformanceStatus.NOT_COMPARABLE,
-            "EC comparison exposes replication baseline, EC policy count, row/checksum targets; HDFS du/count is not collected yet.",
+            conclusion,
             List.of("table=" + table, "location=" + location, "setupScript=" + setupScript.strip()),
             List.of(),
             List.of()
         );
+    }
+
+    private List<String> ecPolicyActions(
+        IcebergValidationContext context,
+        String location,
+        String table,
+        String policy
+    ) {
+        String path = ecPolicyPath(location, policy);
+        String defaultFs = context.config().hdfs().defaultFs();
+        return List.of(
+            "hdfs dfs -fs " + defaultFs + " -mkdir -p " + path,
+            "hdfs dfs -fs " + defaultFs + " -setErasureCodingPolicy -path " + path + " -policy " + policy,
+            "hdfs dfs -fs " + defaultFs + " -getErasureCodingPolicy -path " + path,
+            "hdfs dfs -fs " + defaultFs + " -du -s " + path,
+            "hdfs dfs -fs " + defaultFs + " -count " + path,
+            "SELECT COUNT(*) FROM " + table
+        );
+    }
+
+    private static String ecPolicyPath(String location, String policy) {
+        return location + "/ec-target/" + policy.toLowerCase(Locale.ROOT);
+    }
+
+    private List<String> setupCommands(
+        IcebergValidationContext context,
+        String table,
+        String location,
+        long targetRows
+    ) {
+        return List.of(
+            IcebergSqlTemplates.createNamespace(context.config().iceberg().catalog(), context.config().iceberg().namespace()),
+            IcebergSqlTemplates.dropTable(table),
+            IcebergSqlTemplates.createBaseTable(table, location),
+            IcebergSqlTemplates.insertRange(table, 0, targetRows, "baseline")
+        );
+    }
+
+    private static String setupScript(List<String> setup) {
+        SparkSqlScriptBuilder builder = new SparkSqlScriptBuilder();
+        setup.forEach(builder::add);
+        return builder.build();
     }
 
     private IcebergValidationResult skippedFaultTolerance(
@@ -101,12 +247,17 @@ public class ErasureCodingScenario extends AbstractIcebergValidationScenario {
         HdfsEcPolicyClient.EcPreflight preflight
     ) {
         int requiredDataNodes = HdfsEcPolicyClient.requiredDataNodes(preflight.policy());
-        Map<String, String> metrics = Map.of(
-            "policy", preflight.policy(),
-            "liveDataNodes", Integer.toString(preflight.liveDataNodes()),
-            "requiredDataNodes", Integer.toString(requiredDataNodes),
-            "skipReason", preflight.reason()
-        );
+        Map<String, String> metrics = new LinkedHashMap<>();
+        metrics.put("validationPoint", "Validate EC policy readability and query performance impact after replica failure; current DataNode count is insufficient for execution.");
+        metrics.put("policy", preflight.policy());
+        metrics.put("liveDataNodes", Integer.toString(preflight.liveDataNodes()));
+        metrics.put("requiredDataNodes", Integer.toString(requiredDataNodes));
+        metrics.put("skipReason", preflight.reason());
+        metrics.put("querySecondsBeforeFailureStatus", "notExecuted");
+        metrics.put("querySecondsAfterFailureStatus", "notExecuted");
+        metrics.put("latencyImpactRatioStatus", "notComparable");
+        metrics.put("checksumMatchedStatus", "notExecuted");
+        metrics.put("physicalEcWritable", Boolean.toString(preflight.canRunFaultTolerance()));
         return new IcebergValidationResult(
             testCase.scenario(),
             testCase.caseId(),
