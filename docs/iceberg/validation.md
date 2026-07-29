@@ -68,3 +68,14 @@ requiredDataNodes=14
 - `evidence`：表名、HDFS location、snapshot、错误或跳过原因。
 
 JSON 和 HTML 报告会同时生成。JSON 便于自动化消费，HTML 用表格呈现验证项、需求关键要素、指标、基线/对比和证据，便于人工审阅。
+
+## 报告度量语义
+
+`metrics`、`baseline` 和 `comparison` 只保留已经采集到的数值、状态值或明确的采集状态，不再用 `scriptedActions`、`mutationMetrics`、`incrementalMetrics`、`timeTravelMetrics`、`caseImplemented` 这类指标名称列表充当性能结论。
+
+每个用例的行内证据分为两类：
+
+- 执行脚本：实际提交给 Spark SQL 或 HDFS CLI 的命令，或未执行场景的完整计划脚本。
+- 执行结果：exit code、duration seconds、stdout、stderr。未执行场景会显式显示 `exitCode=-1`、`notExecuted=true` 和 `notExecutedReason`。
+
+未接入真实执行链路的场景必须使用 `SKIPPED` 和 `NOT_COMPARABLE`，并通过 `expectedMetricFields` 列出后续真实执行需要采集的字段。小文件 Compaction 场景需要覆盖多 snapshot、多小文件提交下的 snapshot、data file、manifest、metadata JSON、HDFS disk、planning 和 query 前后指标。EC 场景如果当前共享 HDFS DataNode 数量不足以验证 `RS-10-4-1024k`，报告会显示 `liveDataNodes`、`requiredDataNodes` 和 skip reason。
