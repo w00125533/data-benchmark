@@ -30,11 +30,17 @@ class ErasureCodingConversionScenarioTest {
 
         assertThat(results).hasSize(4);
         assertThat(results).allSatisfy(result -> {
+            assertThat(result.functionStatus()).isEqualTo(IcebergConclusion.FunctionStatus.SKIPPED);
+            assertThat(result.performanceStatus()).isEqualTo(IcebergConclusion.PerformanceStatus.NOT_COMPARABLE);
+            assertThat(result.actionCommands()).isEmpty();
             assertThat(result.metrics()).containsEntry("conversionStatus", "notExecuted");
             assertThat(result.metrics()).containsEntry("hdfsUsageStatus", "notCollected");
             assertThat(result.metrics()).containsEntry("checksumStatus", "notCollected");
+            assertThat(result.metrics()).containsEntry(
+                "skipReason",
+                "real HDFS/Spark physical and policy conversion execution is not wired"
+            );
             assertThat(result.metrics()).containsKeys("conversionDirection", "conversionMode");
-            assertThat(result.performanceStatus()).isEqualTo(IcebergConclusion.PerformanceStatus.NOT_COMPARABLE);
             assertThat(result.metrics()).doesNotContainKeys(
                 "conversionMetrics",
                 "conversionSeconds",
@@ -48,6 +54,17 @@ class ErasureCodingConversionScenarioTest {
                 "checksumMatched"
             );
             assertThat(result.comparison()).doesNotContainKey("scriptedActions");
+            assertThat(result.conclusion()).contains("physical/policy conversion measurement is pending real execution");
+            assertThat(String.join("\n", result.actionCommands()))
+                .doesNotContain("INSERT INTO")
+                .doesNotContain("_source")
+                .doesNotContain("_target")
+                .doesNotContain("/target")
+                .doesNotContain("/before")
+                .doesNotContain("/after")
+                .doesNotContain("hdfs ec -setPolicy")
+                .doesNotContain("hdfs ec -unsetPolicy")
+                .doesNotContain("hdfs dfs");
         });
 
         IcebergValidationResult replicationToEcPolicyOnly = resultByCaseId(results, "replication-to-ec-policy-only");

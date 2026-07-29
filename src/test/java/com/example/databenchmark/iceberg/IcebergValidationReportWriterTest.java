@@ -77,8 +77,8 @@ class IcebergValidationReportWriterTest {
                     Map.of("scriptedActions", "4", "ecPolicies", "RS-3-2"),
                     "HDFS 用量对比已采集。",
                     List.of("policy=RS-3-2-1024k")),
-                result("erasureCodingConversion", "replication-to-ec-policy-only", "verify EC conversion",
-                    List.of("hdfs ec -setPolicy -path /target -policy RS-10-4-1024k"),
+                skippedResult("erasureCodingConversion", "replication-to-ec-policy-only", "verify EC conversion",
+                    List.of(),
                     List.of("conversion not executed until real HDFS collection is wired"),
                     Map.of(
                         "conversionDirection", "replication->ec",
@@ -87,11 +87,12 @@ class IcebergValidationReportWriterTest {
                         "conversionStatus", "notExecuted",
                         "policyCommandStatus", "notExecuted",
                         "hdfsUsageStatus", "notCollected",
-                        "checksumStatus", "notCollected"
+                        "checksumStatus", "notCollected",
+                        "skipReason", "real HDFS/Spark physical and policy conversion execution is not wired"
                     ),
                     Map.of(),
                     Map.of(),
-                    "转换效率符合预期。",
+                    "Real HDFS/Spark conversion is not wired; physical/policy conversion measurement is pending real execution.",
                     List.of("direction=replication->ec")),
                 result("concurrentWrite", "concurrent-append-same-partition", "verify concurrent append",
                     List.of("launch Spark writers: [2, 4, 8]"),
@@ -215,6 +216,8 @@ class IcebergValidationReportWriterTest {
             .contains("conversionStatus=notExecuted")
             .contains("policyCommandStatus=notExecuted")
             .contains("checksumStatus=notCollected")
+            .contains("skipReason=real HDFS/Spark physical and policy conversion execution is not wired")
+            .contains("physical/policy conversion measurement is pending real execution")
             .contains("待真实执行采集")
             .contains("status-SKIPPED")
             .contains("NOT_COMPARABLE")
@@ -232,6 +235,10 @@ class IcebergValidationReportWriterTest {
             .doesNotContain("querySecondsBefore=")
             .doesNotContain("querySecondsAfter=")
             .doesNotContain("checksumMatched=")
+            .doesNotContain("hdfs ec -setPolicy -path /target")
+            .doesNotContain("INSERT INTO")
+            .doesNotContain("_source")
+            .doesNotContain("_target")
             .doesNotContain("mutationMetrics=duration,rewriteFiles,deleteFiles,queryMsAfter")
             .doesNotContain("incrementalMetrics=fullScanMs,incrementalMs,savingRatio,snapshotWindow")
             .doesNotContain("timeTravelMetrics=currentQueryMs,historicalQueryMs,planningMs")

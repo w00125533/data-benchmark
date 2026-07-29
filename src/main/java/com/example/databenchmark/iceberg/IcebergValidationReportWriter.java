@@ -509,7 +509,7 @@ public class IcebergValidationReportWriter {
         if (!values.isEmpty()) {
             return values;
         }
-        return conversionPending(result, "checksumStatus");
+        return conversionPending(result, "checksumStatus", "skipReason");
     }
 
     private static String conversionPending(IcebergValidationResult result, String... keys) {

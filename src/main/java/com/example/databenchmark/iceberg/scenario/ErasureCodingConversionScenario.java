@@ -13,6 +13,8 @@ import java.util.List;
 import java.util.Map;
 
 public class ErasureCodingConversionScenario extends AbstractIcebergValidationScenario {
+    private static final String SKIP_REASON = "real HDFS/Spark physical and policy conversion execution is not wired";
+
     @Override
     public String name() {
         return "erasureCodingConversion";
@@ -30,8 +32,6 @@ public class ErasureCodingConversionScenario extends AbstractIcebergValidationSc
 
     @Override
     public IcebergValidationResult run(IcebergValidationCase testCase, IcebergValidationContext context) {
-        String sourceTable = IcebergScenarioSupport.tableName(context, name(), testCase.caseId()) + "_source";
-        String targetTable = IcebergScenarioSupport.tableName(context, name(), testCase.caseId()) + "_target";
         String baseTable = IcebergScenarioSupport.tableName(context, name(), testCase.caseId());
         String location = IcebergScenarioSupport.tableLocation(context, name(), testCase.caseId());
         List<String> setup = List.of(
@@ -52,53 +52,24 @@ public class ErasureCodingConversionScenario extends AbstractIcebergValidationSc
             testCase.purpose(),
             IcebergScenarioSupport.dataScale(context.config()),
             setup,
-            conversionActions(testCase, context, sourceTable, targetTable, location),
+            List.of(),
             List.of(
-                "real HDFS/Spark conversion execution is not wired",
+                SKIP_REASON,
                 "file, disk, timing, query, and checksum metrics are not collected"
             ),
             conversionMetrics(testCase, context.config()),
             Map.of(),
             Map.of(),
-            IcebergConclusion.FunctionStatus.PASS,
+            IcebergConclusion.FunctionStatus.SKIPPED,
             IcebergConclusion.PerformanceStatus.NOT_COMPARABLE,
-            "Real HDFS/Spark conversion is not wired; performance is not comparable until execution metrics are collected.",
+            "Real HDFS/Spark conversion is not wired; physical/policy conversion measurement is pending real execution.",
             List.of(
-                "sourceTable=" + sourceTable,
-                "targetTable=" + targetTable,
+                "conversionPlan=not executed",
                 "location=" + location,
                 "setupScript=" + setupScript.strip()
             ),
             List.of(),
             List.of()
-        );
-    }
-
-    private static List<String> conversionActions(
-        IcebergValidationCase testCase,
-        IcebergValidationContext context,
-        String sourceTable,
-        String targetTable,
-        String location
-    ) {
-        String defaultFs = context.config().hdfs().defaultFs();
-        if (conversionMode(testCase).equals("policy-only")) {
-            if (conversionDirection(testCase).equals("replication->ec")) {
-                return List.of(
-                    "hdfs ec -setPolicy -path " + location + "/target -policy " + targetPolicy(context.config()),
-                    "hdfs dfs -fs " + defaultFs + " -du -s " + location + "/target"
-                );
-            }
-            return List.of(
-                "hdfs ec -unsetPolicy -path " + location + "/replication-target",
-                "hdfs dfs -fs " + defaultFs + " -setrep -w " + context.config().hdfs().replicationBaseline()
-                    + " " + location + "/replication-target"
-            );
-        }
-        return List.of(
-            "hdfs dfs -fs " + defaultFs + " -du -s " + location + "/before",
-            "INSERT INTO " + targetTable + " SELECT * FROM " + sourceTable,
-            "hdfs dfs -fs " + defaultFs + " -du -s " + location + "/after"
         );
     }
 
@@ -119,6 +90,7 @@ public class ErasureCodingConversionScenario extends AbstractIcebergValidationSc
         }
         metrics.put("hdfsUsageStatus", "notCollected");
         metrics.put("checksumStatus", "notCollected");
+        metrics.put("skipReason", SKIP_REASON);
         return metrics;
     }
 
