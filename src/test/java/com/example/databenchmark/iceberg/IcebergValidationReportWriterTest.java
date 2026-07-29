@@ -35,9 +35,13 @@ class IcebergValidationReportWriterTest {
                         Map.entry("historicalQuerySql", "SELECT id FROM t VERSION AS OF 111 LIMIT 20"),
                         Map.entry("currentQuerySql", "SELECT id FROM t LIMIT 20"),
                         Map.entry("historicalRows", "1000"),
+                        Map.entry("historicalRowsStatus", "planned"),
                         Map.entry("currentRows", "2000"),
+                        Map.entry("currentRowsStatus", "planned"),
                         Map.entry("historicalQuerySeconds", "0.321"),
+                        Map.entry("historicalQuerySecondsStatus", "notExecuted"),
                         Map.entry("currentQuerySeconds", "0.456"),
+                        Map.entry("currentQuerySecondsStatus", "notExecuted"),
                         Map.entry("schemaHistoryLength", "5")
                     ),
                     Map.of("queryMs", "10.0"),
@@ -58,9 +62,14 @@ class IcebergValidationReportWriterTest {
                     List.of("checksum matches"),
                     Map.of(
                         "policy", "RS-10-4-1024k",
+                        "policyMode", "ec-policy",
                         "replicationBaseline", "2",
                         "liveDataNodes", "1",
                         "requiredDataNodes", "14",
+                        "physicalEcWritable", "false",
+                        "theoreticalEcDiskBytes", "179200",
+                        "theoreticalSavingVsReplication2", "30.00%",
+                        "queryPerformanceStatus", "notRepresentative",
                         "skipReason", "RS-10-4-1024k requires at least 14 live DataNodes"
                     ),
                     Map.of("replicationBaseline", "2"),
@@ -177,10 +186,15 @@ class IcebergValidationReportWriterTest {
             .contains("<th>执行脚本与证据</th>")
             .contains("验证字段 rename 后历史快照仍按字段 ID 兼容读取。")
             .contains("SELECT id FROM t VERSION AS OF 111 LIMIT 20")
+            .contains("SELECT id FROM t LIMIT 20")
             .contains("historicalRows=1000")
+            .contains("historicalRowsStatus=planned")
             .contains("currentRows=2000")
+            .contains("currentRowsStatus=planned")
             .contains("historicalQuerySeconds=0.321")
+            .contains("historicalQuerySecondsStatus=notExecuted")
             .contains("currentQuerySeconds=0.456")
+            .contains("currentQuerySecondsStatus=notExecuted")
             .contains("schemaHistoryLength=5")
             .contains("返回数据集")
             .contains("historicalSampleRows=id")
@@ -195,6 +209,12 @@ class IcebergValidationReportWriterTest {
             .contains("<th>查询效率</th>")
             .contains("<th>结论</th>")
             .contains("hdfs-replication-1-actual")
+            .contains("policyMode=ec-policy")
+            .contains("policy=RS-10-4-1024k")
+            .contains("physicalEcWritable=false")
+            .contains("theoreticalEcDiskBytes=179200")
+            .contains("theoreticalSavingVsReplication2=30.00%")
+            .contains("queryPerformanceStatus=notRepresentative")
             .contains("storageMetricType=actual")
             .contains("querySeconds=0.512")
             .contains("rowCount=1000")
