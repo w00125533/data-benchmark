@@ -106,6 +106,7 @@ class SchemaEvolutionScenarioTest {
             .findFirst()
             .orElseThrow();
         assertThat(nestedStructPostAlterInsert)
+            .contains("id, event_day, region, metric_int, metric_float, amount, payload, tags, attrs")
             .contains("'vendor_id'")
             .contains("'quality_score'")
             .doesNotContain("'vendor_code'");
@@ -131,7 +132,8 @@ class SchemaEvolutionScenarioTest {
             + ".schemaEvolution_schema_add_drop_rename_schema_query_test";
         assertThat(result.actionCommands()).anySatisfy(command -> assertThat(command)
             .startsWith("INSERT INTO " + table + " (")
-            .contains("id, event_day, metric_int, metric_float, amount, payload, tags, attrs")
+            .contains("id, event_day, service_region, metric_int, metric_float, amount, payload, tags, attrs")
+            .contains("'after_evolution'")
             .contains("FROM range(1000, 2000)"));
         assertThat(result.actionCommands()).noneMatch(command -> command.contains("INSERT INTO " + table + "\nSELECT"));
         assertThat(result.actionCommands()).anyMatch(command -> command.contains("VERSION AS OF ${baselineSnapshotId}"));

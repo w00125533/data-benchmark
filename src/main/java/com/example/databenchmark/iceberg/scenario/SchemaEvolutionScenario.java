@@ -433,9 +433,10 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
 
     private static String postAlterInsert(String table, String caseId, long startInclusive, long endExclusive) {
         return """
-            INSERT INTO %s (id, event_day, metric_int, metric_float, amount, payload, tags, attrs)
+            INSERT INTO %s (id, event_day, %s, metric_int, metric_float, amount, payload, tags, attrs)
             SELECT id,
                    DATE_ADD(DATE '2026-01-01', CAST(id %% 7 AS INT)),
+                   'after_evolution',
                    CAST(id AS INT),
                    CAST(id * 1.0 AS FLOAT),
                    CAST(id * 1.25 AS DECIMAL(12, 2)),
@@ -443,7 +444,14 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
                    array('kpi', 'iceberg'),
                    map('source', 'validation')
             FROM range(%d, %d)
-            """.formatted(table, postAlterPayload(caseId), startInclusive, endExclusive);
+            """.formatted(table, postAlterRegionColumn(caseId), postAlterPayload(caseId), startInclusive, endExclusive);
+    }
+
+    private static String postAlterRegionColumn(String caseId) {
+        if ("schema-add-drop-rename".equals(caseId)) {
+            return "service_region";
+        }
+        return "region";
     }
 
     private static String postAlterPayload(String caseId) {
