@@ -52,6 +52,8 @@ public class SparkSqlExecutor {
             "exec", "-T", config.spark().service(),
             "/opt/spark/bin/spark-sql"
         ));
+        command.add("--conf");
+        command.add("spark.jars.ivy=/tmp/.ivy2");
         for (String dependency : config.spark().packages()) {
             command.add("--packages");
             command.add(dependency);

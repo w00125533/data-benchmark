@@ -35,6 +35,7 @@ class SparkSqlExecutorTest {
         );
         assertThat(command).anySatisfy(value ->
             assertThat(value).contains("org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.10.1"));
+        assertThat(command).containsSubsequence("--conf", "spark.jars.ivy=/tmp/.ivy2");
         assertThat(command).anySatisfy(value ->
             assertThat(value).contains("spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"));
     }
