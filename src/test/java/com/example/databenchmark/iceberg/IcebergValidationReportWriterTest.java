@@ -47,7 +47,7 @@ class IcebergValidationReportWriterTest {
                         "count\n1000",
                         ""
                     ))),
-                result("erasureCoding", "ec-rs-10-4-failure-tolerance", "verify EC failure tolerance",
+                skippedResult("erasureCoding", "ec-rs-10-4-failure-tolerance", "verify EC failure tolerance",
                     List.of("hdfs ec -setPolicy -policy RS-10-4-1024k /target"),
                     List.of("checksum matches"),
                     Map.of(
@@ -200,6 +200,8 @@ class IcebergValidationReportWriterTest {
             .contains("diskSavingRatio=40.0%")
             .contains("liveDataNodes=1")
             .contains("requiredDataNodes=14")
+            .contains("status-SKIPPED")
+            .contains("NOT_COMPARABLE")
             .contains("元数据/性能指标")
             .doesNotContain("<td>scriptedActions=4</td>")
             .doesNotContain("scriptedActions=")
@@ -236,6 +238,38 @@ class IcebergValidationReportWriterTest {
             comparison,
             conclusion,
             evidence,
+            List.of()
+        );
+    }
+
+    private static IcebergValidationResult skippedResult(
+        String scenario,
+        String caseId,
+        String purpose,
+        List<String> actions,
+        List<String> assertions,
+        Map<String, String> metrics,
+        Map<String, String> baseline,
+        Map<String, String> comparison,
+        String conclusion,
+        List<String> evidence
+    ) {
+        return new IcebergValidationResult(
+            scenario,
+            caseId,
+            purpose,
+            Map.of("rows", "100000", "profile", "smoke", "smallFileCommits", "100", "filesPerCommit", "4"),
+            List.of("CREATE TABLE iceberg_table"),
+            actions,
+            assertions,
+            metrics,
+            baseline,
+            comparison,
+            IcebergConclusion.FunctionStatus.SKIPPED,
+            IcebergConclusion.PerformanceStatus.NOT_COMPARABLE,
+            conclusion,
+            evidence,
+            List.of(),
             List.of()
         );
     }

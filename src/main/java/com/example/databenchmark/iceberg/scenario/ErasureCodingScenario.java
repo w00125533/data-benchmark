@@ -75,17 +75,23 @@ public class ErasureCodingScenario extends AbstractIcebergValidationScenario {
             "targetChecksum", "planned",
             "hdfsUsageStatus", "notCollected"
         );
-        return IcebergScenarioSupport.pass(
-            testCase,
-            context,
+        return new IcebergValidationResult(
+            testCase.scenario(),
+            testCase.caseId(),
+            testCase.purpose(),
+            IcebergScenarioSupport.dataScale(context.config()),
             setup,
             actions,
             List.of("row count target defined for replication and EC", "HDFS usage collection not executed in this planner path"),
             metrics,
             Map.of("baselineRows", Long.toString(targetRows)),
             Map.of(),
+            IcebergConclusion.FunctionStatus.PASS,
+            IcebergConclusion.PerformanceStatus.NOT_COMPARABLE,
             "EC comparison exposes replication baseline, EC policy count, row/checksum targets; HDFS du/count is not collected yet.",
-            List.of("table=" + table, "location=" + location, "setupScript=" + setupScript.strip())
+            List.of("table=" + table, "location=" + location, "setupScript=" + setupScript.strip()),
+            List.of(),
+            List.of()
         );
     }
 

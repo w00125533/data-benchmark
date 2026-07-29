@@ -37,6 +37,8 @@ class ErasureCodingScenarioTest {
             assertThat(result.metrics()).containsEntry("targetRowCount", "1000");
             assertThat(result.metrics()).containsEntry("targetChecksum", "planned");
             assertThat(result.metrics()).containsEntry("hdfsUsageStatus", "notCollected");
+            assertThat(result.functionStatus()).isEqualTo(IcebergConclusion.FunctionStatus.PASS);
+            assertThat(result.performanceStatus()).isEqualTo(IcebergConclusion.PerformanceStatus.NOT_COMPARABLE);
             assertThat(result.metrics()).doesNotContainKey("ecPolicies");
             assertThat(result.comparison()).doesNotContainKey("scriptedActions");
             assertThat(result.metrics()).doesNotContainKeys(
