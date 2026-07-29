@@ -53,7 +53,7 @@ class SchemaEvolutionScenarioTest {
             );
             assertThat(result.metrics()).doesNotContainKeys("currentQuerySeconds", "historicalQuerySeconds");
             assertThat(result.metrics().get("baselineRows")).isEqualTo("1000");
-            assertThat(result.metrics().get("currentRows")).isEqualTo("1000");
+            assertThat(result.metrics().get("currentRows")).isEqualTo("2000");
             assertThat(result.comparison()).doesNotContainKey("scriptedActions");
         });
         assertThat(results).extracting(result -> result.metrics().get("changeCount"))
@@ -70,6 +70,41 @@ class SchemaEvolutionScenarioTest {
         IcebergValidationResult nestedStruct = resultByCaseId(results, "schema-nested-struct");
         assertThat(nestedStruct.actionCommands())
             .noneMatch(command -> command.matches(".*ADD COLUMN\\s+\\S+\\s+payload\\s+STRUCT<.*"));
+    }
+
+    @Test
+    void schemaCasesExposeHistoricalAndCurrentQuerySqlWithPostAlterData() throws Exception {
+        SchemaEvolutionScenario scenario = new SchemaEvolutionScenario();
+        IcebergValidationConfig config = new IcebergValidationConfigLoader().load(Path.of("configs/iceberg-validation.yml"));
+        IcebergValidationContext context = new IcebergValidationContext(config, "schema-query-test", Path.of("work"), Path.of("reports"), false);
+
+        IcebergValidationResult result = scenario.run(
+            scenario.cases(config).stream()
+                .filter(testCase -> testCase.caseId().equals("schema-add-drop-rename"))
+                .findFirst()
+                .orElseThrow(),
+            context
+        );
+
+        assertThat(result.actionCommands()).anyMatch(command -> command.contains("after_evolution"));
+        assertThat(result.actionCommands()).anyMatch(command -> command.contains("VERSION AS OF ${baselineSnapshotId}"));
+        assertThat(result.actionCommands()).anyMatch(command -> command.contains("SELECT id"));
+        assertThat(result.metrics()).containsKeys(
+            "validationPoint",
+            "baselineSnapshotIdStatus",
+            "postAlterSnapshotIdStatus",
+            "historicalQuerySql",
+            "currentQuerySql",
+            "historicalRowsStatus",
+            "currentRowsStatus",
+            "historicalSampleRowsStatus",
+            "currentSampleRowsStatus"
+        );
+        assertThat(result.metrics().get("validationPoint")).contains("历史快照");
+        assertThat(result.metrics().get("historicalQuerySql")).contains("VERSION AS OF");
+        assertThat(result.metrics().get("currentQuerySql")).contains("SELECT");
+        assertThat(result.evidence()).anyMatch(value -> value.startsWith("historicalSampleRows="));
+        assertThat(result.evidence()).anyMatch(value -> value.startsWith("currentSampleRows="));
     }
 
     private static IcebergValidationResult resultByCaseId(List<IcebergValidationResult> results, String caseId) {

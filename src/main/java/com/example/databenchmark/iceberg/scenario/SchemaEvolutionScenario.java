@@ -35,6 +35,13 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
         String location = IcebergScenarioSupport.tableLocation(context, name(), testCase.caseId());
         long rows = Math.min(context.config().scale().rows(), 1000);
         SchemaPlan plan = schemaPlan(testCase.caseId(), table, context);
+        long baselineEnd = rows;
+        long postAlterEnd = rows + Math.min(rows, 1000);
+        String postAlterInsert = IcebergSqlTemplates.insertRange(table, baselineEnd, postAlterEnd, "after_evolution");
+        String historicalQuerySql = "SELECT id, event_day, metric_int FROM " + table
+            + " VERSION AS OF ${baselineSnapshotId} ORDER BY id LIMIT 20";
+        String currentQuerySql = "SELECT id, event_day, metric_int FROM " + table
+            + " ORDER BY id DESC LIMIT 20";
         List<String> setup = List.of(
             IcebergSqlTemplates.createNamespace(context.config().iceberg().catalog(), context.config().iceberg().namespace()),
             IcebergSqlTemplates.dropTable(table),
@@ -47,29 +54,55 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
             .add(setup.get(2))
             .add(setup.get(3))
             .build();
+        List<String> actions = new ArrayList<>(plan.actions());
+        actions.add(postAlterInsert);
+        actions.add("SELECT snapshot_id FROM " + table + ".snapshots ORDER BY committed_at ASC LIMIT 1 AS baselineSnapshotId");
+        actions.add("SELECT snapshot_id FROM " + table + ".snapshots ORDER BY committed_at DESC LIMIT 1 AS postAlterSnapshotId");
+        actions.add(historicalQuerySql);
+        actions.add(currentQuerySql);
         Map<String, String> metrics = new LinkedHashMap<>();
         metrics.put("schemaChangeType", plan.changeType());
         metrics.put("changeCount", Integer.toString(plan.changeCount()));
+        metrics.put("validationPoint", plan.validationPoint());
         metrics.put("baselineRows", Long.toString(rows));
-        metrics.put("currentRows", Long.toString(rows));
+        metrics.put("currentRows", Long.toString(postAlterEnd));
         metrics.put("snapshotCount", Integer.toString(plan.snapshotCount()));
         metrics.put("schemaHistoryLength", Integer.toString(plan.schemaHistoryLength()));
+        metrics.put("baselineSnapshotIdStatus", "planned");
+        metrics.put("postAlterSnapshotIdStatus", "planned");
+        metrics.put("historicalQuerySql", historicalQuerySql);
+        metrics.put("currentQuerySql", currentQuerySql);
+        metrics.put("historicalRowsStatus", "planned");
+        metrics.put("currentRowsStatus", "planned");
+        metrics.put("historicalQuerySecondsStatus", "notExecuted");
+        metrics.put("currentQuerySecondsStatus", "notExecuted");
+        metrics.put("historicalSampleRowsStatus", "planned");
+        metrics.put("currentSampleRowsStatus", "planned");
+        List<String> evidence = List.of(
+            "table=" + table,
+            "location=" + location,
+            "setupScript=" + script.strip(),
+            "historicalQuerySql=" + historicalQuerySql,
+            "currentQuerySql=" + currentQuerySql,
+            "historicalSampleRows=notExecuted",
+            "currentSampleRows=notExecuted"
+        );
 
         return IcebergScenarioSupport.pass(
             testCase,
             context,
             setup,
-            plan.actions(),
+            actions,
             plan.assertions(),
             metrics,
             Map.of("baselineRows", Long.toString(rows)),
             Map.of(
-                "currentRows", Long.toString(rows),
+                "currentRows", Long.toString(postAlterEnd),
                 "snapshotCount", Integer.toString(plan.snapshotCount()),
                 "schemaHistoryLength", Integer.toString(plan.schemaHistoryLength())
             ),
             plan.conclusion(),
-            List.of("table=" + table, "location=" + location, "setupScript=" + script.strip())
+            evidence
         );
     }
 
@@ -77,6 +110,7 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
         return switch (caseId) {
             case "schema-add-drop-rename" -> new SchemaPlan(
                 "add/drop/rename",
+                "验证字段新增、删除、重命名后历史快照仍按 Iceberg 字段 ID 兼容读取，ALTER 后新写入数据只在当前快照可见。",
                 List.of(
                     "ALTER TABLE " + table + " ADD COLUMN added_text STRING",
                     "ALTER TABLE " + table + " ADD COLUMN category STRING",
@@ -88,6 +122,7 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
             );
             case "schema-type-promotion" -> new SchemaPlan(
                 "type promotion",
+                "验证数值类型提升和 decimal 扩容后，历史快照中的旧类型数据可被兼容读取，ALTER 后新数据按当前类型写入。",
                 List.of(
                     "ALTER TABLE " + table + " ALTER COLUMN metric_int TYPE BIGINT",
                     "ALTER TABLE " + table + " ALTER COLUMN metric_float TYPE DOUBLE",
@@ -98,6 +133,7 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
             );
             case "schema-nested-struct" -> new SchemaPlan(
                 "nested struct",
+                "验证嵌套 struct 字段新增和重命名后，历史快照字段投影仍可读取，当前快照能读取新增嵌套字段。",
                 List.of(
                     "ALTER TABLE " + table + " ADD COLUMN payload.vendor_code STRING",
                     "ALTER TABLE " + table + " ADD COLUMN payload.quality_score DOUBLE",
@@ -108,6 +144,7 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
             );
             case "schema-complex-types" -> new SchemaPlan(
                 "map/list/struct",
+                "验证 map、array、struct 复杂类型新增后，历史数据可按旧投影读取，当前数据可写入并读取复杂类型列。",
                 List.of(
                     "ALTER TABLE " + table + " ADD COLUMN attributes MAP<STRING, STRING>",
                     "ALTER TABLE " + table + " ADD COLUMN checkpoints ARRAY<STRUCT<ts: TIMESTAMP, status: STRING>>",
@@ -128,13 +165,20 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
         }
         return new SchemaPlan(
             "long chain",
+            "验证长链路多次 Schema 变更后，历史快照仍可读取，当前快照包含 ALTER 后追加的新数据。",
             actions,
             List.of("long schema history remains readable", "current rows match the baseline after repeated schema changes"),
             "Long schema history is planned across " + schemaChanges + " schema changes with row-count compatibility checks."
         );
     }
 
-    private record SchemaPlan(String changeType, List<String> actions, List<String> assertions, String conclusion) {
+    private record SchemaPlan(
+        String changeType,
+        String validationPoint,
+        List<String> actions,
+        List<String> assertions,
+        String conclusion
+    ) {
         int changeCount() {
             return actions.size();
         }
