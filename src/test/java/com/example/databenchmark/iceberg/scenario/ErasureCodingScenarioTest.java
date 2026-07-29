@@ -2,6 +2,7 @@ package com.example.databenchmark.iceberg.scenario;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.databenchmark.engine.CommandResult;
 import com.example.databenchmark.iceberg.IcebergConclusion;
 import com.example.databenchmark.iceberg.IcebergScenarioSupport;
 import com.example.databenchmark.iceberg.IcebergValidationCase;
@@ -9,7 +10,9 @@ import com.example.databenchmark.iceberg.IcebergValidationConfig;
 import com.example.databenchmark.iceberg.IcebergValidationConfigLoader;
 import com.example.databenchmark.iceberg.IcebergValidationContext;
 import com.example.databenchmark.iceberg.IcebergValidationResult;
+import com.example.databenchmark.iceberg.exec.SparkSqlExecutor;
 import com.example.databenchmark.iceberg.hdfs.EcPolicySpec;
+import com.example.databenchmark.iceberg.hdfs.HdfsCliClient;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -124,6 +127,36 @@ class ErasureCodingScenarioTest {
     }
 
     @Test
+    void injectedExecutorsDoNotCreateActualEcMetricsOnCurrentPlannerPath() throws Exception {
+        FakeSparkSqlExecutor sparkSqlExecutor = new FakeSparkSqlExecutor();
+        FakeHdfsCliClient hdfsCliClient = new FakeHdfsCliClient();
+        ErasureCodingScenario scenario = new ErasureCodingScenario(sparkSqlExecutor, hdfsCliClient);
+        IcebergValidationConfig config = new IcebergValidationConfigLoader().load(Path.of("configs/iceberg-validation.yml"));
+        IcebergValidationContext context = new IcebergValidationContext(
+            config,
+            "ec-injected-test",
+            Path.of("work"),
+            Path.of("reports"),
+            false
+        );
+
+        IcebergValidationResult replication1 = runCase(scenario, config, context, "hdfs-replication-1-actual");
+        IcebergValidationResult rs104 = runCase(scenario, config, context, "ec-policy-rs-10-4-1024k");
+
+        assertThat(replication1.metrics()).containsEntry("hdfsDiskBytesStatus", "plannedActual");
+        assertThat(replication1.metrics()).containsEntry("querySecondsStatus", "plannedActual");
+        assertThat(replication1.metrics()).doesNotContainKeys("hdfsDiskBytes", "querySeconds");
+        assertThat(replication1.executionResults()).isEmpty();
+        assertThat(rs104.metrics()).containsEntry("hdfsDiskBytesStatus", "notRepresentative");
+        assertThat(rs104.metrics()).containsEntry("queryPerformanceStatus", "notRepresentative");
+        assertThat(rs104.metrics()).containsKey("theoreticalEcDiskBytes");
+        assertThat(rs104.metrics()).doesNotContainKeys("hdfsDiskBytes", "querySeconds");
+        assertThat(rs104.executionResults()).isEmpty();
+        assertThat(sparkSqlExecutor.calls).isZero();
+        assertThat(hdfsCliClient.calls).isZero();
+    }
+
+    @Test
     void faultCasesExposeSkipDataNodeFactsAsMetrics() throws Exception {
         ErasureCodingScenario scenario = new ErasureCodingScenario();
         IcebergValidationConfig config = new IcebergValidationConfigLoader().load(Path.of("configs/iceberg-validation.yml"));
@@ -197,10 +230,43 @@ class ErasureCodingScenarioTest {
         assertThat(result.metrics()).doesNotContainKey("querySecondsAfterFailure");
     }
 
+    private static IcebergValidationResult runCase(
+        ErasureCodingScenario scenario,
+        IcebergValidationConfig config,
+        IcebergValidationContext context,
+        String caseId
+    ) {
+        IcebergValidationCase testCase = scenario.cases(config).stream()
+            .filter(candidate -> candidate.caseId().equals(caseId))
+            .findFirst()
+            .orElseThrow();
+        return scenario.run(testCase, context);
+    }
+
     private static IcebergValidationResult resultByCaseId(List<IcebergValidationResult> results, String caseId) {
         return results.stream()
             .filter(result -> caseId.equals(result.caseId()))
             .findFirst()
             .orElseThrow();
+    }
+
+    private static final class FakeSparkSqlExecutor extends SparkSqlExecutor {
+        private int calls;
+
+        @Override
+        public CommandResult run(IcebergValidationConfig config, String sql) {
+            calls++;
+            return new CommandResult(List.of("spark-sql"), 0, "querySeconds=9.999\n", "", 9.999);
+        }
+    }
+
+    private static final class FakeHdfsCliClient extends HdfsCliClient {
+        private int calls;
+
+        @Override
+        public CommandResult dfs(IcebergValidationConfig config, List<String> args) {
+            calls++;
+            return new CommandResult(List.of("hdfs", "dfs"), 0, "123456 /warehouse/path\n", "", 0.100);
+        }
     }
 }

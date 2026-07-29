@@ -23,14 +23,14 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
     private final boolean executeSpark;
 
     public SchemaEvolutionScenario() {
-        this(new SparkSqlExecutor(), false);
+        this(new SparkSqlExecutor(), true);
     }
 
     SchemaEvolutionScenario(SparkSqlExecutor sparkSqlExecutor) {
         this(sparkSqlExecutor, true);
     }
 
-    private SchemaEvolutionScenario(SparkSqlExecutor sparkSqlExecutor, boolean executeSpark) {
+    SchemaEvolutionScenario(SparkSqlExecutor sparkSqlExecutor, boolean executeSpark) {
         this.sparkSqlExecutor = sparkSqlExecutor;
         this.executeSpark = executeSpark;
     }

@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test;
 class SchemaEvolutionScenarioTest {
     @Test
     void schemaCasesExposeDistinctChangeTypesAndConcreteTargets() throws Exception {
-        SchemaEvolutionScenario scenario = new SchemaEvolutionScenario();
+        SchemaEvolutionScenario scenario = new SchemaEvolutionScenario(new FakeOrUnusedSparkSqlExecutor(), false);
         IcebergValidationConfig config = new IcebergValidationConfigLoader().load(Path.of("configs/iceberg-validation.yml"));
         IcebergValidationContext context = new IcebergValidationContext(
             config,
@@ -113,7 +113,7 @@ class SchemaEvolutionScenarioTest {
 
     @Test
     void schemaCasesExposeHistoricalAndCurrentQuerySqlWithPostAlterData() throws Exception {
-        SchemaEvolutionScenario scenario = new SchemaEvolutionScenario();
+        SchemaEvolutionScenario scenario = new SchemaEvolutionScenario(new FakeOrUnusedSparkSqlExecutor(), false);
         IcebergValidationConfig config = new IcebergValidationConfigLoader().load(Path.of("configs/iceberg-validation.yml"));
         IcebergValidationContext context = new IcebergValidationContext(config, "schema-query-test", Path.of("work"), Path.of("reports"), false);
 
@@ -190,10 +190,67 @@ class SchemaEvolutionScenarioTest {
         assertThat(result.metrics()).containsEntry("historicalQuerySeconds", "0.321");
         assertThat(result.metrics()).containsEntry("currentQuerySeconds", "0.456");
         assertThat(result.executionResults()).extracting(IcebergExecutionEvidence::label)
-            .contains("historical query", "current query");
+            .contains(
+                "create schema table",
+                "schema change",
+                "post alter insert",
+                "baseline snapshot id",
+                "post alter snapshot id",
+                "historical query",
+                "current query"
+            );
+        IcebergExecutionEvidence baselineSnapshot = executionByLabel(result, "baseline snapshot id");
+        IcebergExecutionEvidence postAlterSnapshot = executionByLabel(result, "post alter snapshot id");
+        IcebergExecutionEvidence historicalQuery = executionByLabel(result, "historical query");
+        IcebergExecutionEvidence currentQuery = executionByLabel(result, "current query");
+        assertThat(baselineSnapshot.stdout()).contains("111");
+        assertThat(baselineSnapshot.durationSeconds()).isEqualTo(0.100);
+        assertThat(postAlterSnapshot.stdout()).contains("222");
+        assertThat(postAlterSnapshot.durationSeconds()).isEqualTo(0.100);
+        assertThat(historicalQuery.stdout()).isEqualTo("id\n1\n2\n");
+        assertThat(historicalQuery.durationSeconds()).isEqualTo(0.321);
+        assertThat(currentQuery.stdout()).isEqualTo("id\n2000\n1999\n");
+        assertThat(currentQuery.durationSeconds()).isEqualTo(0.456);
         assertThat(result.evidence()).contains(
             "historicalSampleRows=id\n1\n2",
             "currentSampleRows=id\n2000\n1999"
+        );
+    }
+
+    @Test
+    void schemaChangeFailureReturnsFailedResult() throws Exception {
+        IcebergValidationResult result = runAddDropRenameWith(new FakeSparkSqlExecutor(FailureMode.SCHEMA_CHANGE));
+
+        assertThat(result.functionStatus()).isEqualTo(com.example.databenchmark.iceberg.IcebergConclusion.FunctionStatus.FAIL);
+        assertThat(result.performanceStatus()).isEqualTo(com.example.databenchmark.iceberg.IcebergConclusion.PerformanceStatus.NOT_COMPARABLE);
+        assertThat(result.errors()).anySatisfy(error -> assertThat(error).contains("boom"));
+    }
+
+    @Test
+    void historicalQueryFailureReturnsFailedResult() throws Exception {
+        IcebergValidationResult result = runAddDropRenameWith(new FakeSparkSqlExecutor(FailureMode.HISTORICAL_QUERY));
+
+        assertThat(result.functionStatus()).isEqualTo(com.example.databenchmark.iceberg.IcebergConclusion.FunctionStatus.FAIL);
+        assertThat(result.performanceStatus()).isEqualTo(com.example.databenchmark.iceberg.IcebergConclusion.PerformanceStatus.NOT_COMPARABLE);
+        assertThat(result.errors()).anySatisfy(error -> assertThat(error).contains("boom"));
+    }
+
+    private static IcebergValidationResult runAddDropRenameWith(FakeSparkSqlExecutor sparkSqlExecutor) throws Exception {
+        SchemaEvolutionScenario scenario = new SchemaEvolutionScenario(sparkSqlExecutor);
+        IcebergValidationConfig config = new IcebergValidationConfigLoader().load(Path.of("configs/iceberg-validation.yml"));
+        IcebergValidationContext context = new IcebergValidationContext(
+            config,
+            "schema-failure-test",
+            Path.of("work"),
+            Path.of("reports"),
+            false
+        );
+        return scenario.run(
+            scenario.cases(config).stream()
+                .filter(testCase -> testCase.caseId().equals("schema-add-drop-rename"))
+                .findFirst()
+                .orElseThrow(),
+            context
         );
     }
 
@@ -213,9 +270,44 @@ class SchemaEvolutionScenarioTest {
         return -1;
     }
 
-    private static final class FakeSparkSqlExecutor extends SparkSqlExecutor {
+    private static IcebergExecutionEvidence executionByLabel(IcebergValidationResult result, String label) {
+        return result.executionResults().stream()
+            .filter(executionResult -> label.equals(executionResult.label()))
+            .findFirst()
+            .orElseThrow();
+    }
+
+    private static final class FakeOrUnusedSparkSqlExecutor extends SparkSqlExecutor {
         @Override
         public CommandResult run(IcebergValidationConfig config, String sql) {
+            throw new AssertionError("planned schema tests must not execute Spark SQL");
+        }
+    }
+
+    private enum FailureMode {
+        SCHEMA_CHANGE,
+        HISTORICAL_QUERY
+    }
+
+    private static final class FakeSparkSqlExecutor extends SparkSqlExecutor {
+        private final FailureMode failureMode;
+
+        private FakeSparkSqlExecutor() {
+            this(null);
+        }
+
+        private FakeSparkSqlExecutor(FailureMode failureMode) {
+            this.failureMode = failureMode;
+        }
+
+        @Override
+        public CommandResult run(IcebergValidationConfig config, String sql) {
+            if (failureMode == FailureMode.SCHEMA_CHANGE && sql.startsWith("ALTER TABLE")) {
+                throw new IllegalStateException("boom");
+            }
+            if (failureMode == FailureMode.HISTORICAL_QUERY && sql.contains("VERSION AS OF")) {
+                throw new IllegalStateException("boom");
+            }
             if (sql.contains(".snapshots") && sql.contains("ASC")) {
                 return new CommandResult(List.of("spark-sql"), 0, "snapshot_id\n111\n", "", 0.100);
             }

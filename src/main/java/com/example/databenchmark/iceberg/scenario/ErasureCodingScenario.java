@@ -6,7 +6,9 @@ import com.example.databenchmark.iceberg.IcebergValidationCase;
 import com.example.databenchmark.iceberg.IcebergValidationConfig;
 import com.example.databenchmark.iceberg.IcebergValidationContext;
 import com.example.databenchmark.iceberg.IcebergValidationResult;
+import com.example.databenchmark.iceberg.exec.SparkSqlExecutor;
 import com.example.databenchmark.iceberg.hdfs.EcPolicySpec;
+import com.example.databenchmark.iceberg.hdfs.HdfsCliClient;
 import com.example.databenchmark.iceberg.hdfs.HdfsEcPolicyClient;
 import com.example.databenchmark.iceberg.sql.IcebergSqlTemplates;
 import com.example.databenchmark.iceberg.sql.SparkSqlScriptBuilder;
@@ -17,6 +19,18 @@ import java.util.Locale;
 import java.util.Map;
 
 public class ErasureCodingScenario extends AbstractIcebergValidationScenario {
+    private final SparkSqlExecutor sparkSqlExecutor;
+    private final HdfsCliClient hdfsCliClient;
+
+    public ErasureCodingScenario() {
+        this(new SparkSqlExecutor(), new HdfsCliClient());
+    }
+
+    ErasureCodingScenario(SparkSqlExecutor sparkSqlExecutor, HdfsCliClient hdfsCliClient) {
+        this.sparkSqlExecutor = sparkSqlExecutor;
+        this.hdfsCliClient = hdfsCliClient;
+    }
+
     @Override
     public String name() {
         return "erasureCoding";
