@@ -65,7 +65,14 @@ class SchemaEvolutionScenarioTest {
             assertThat(result.metrics()).doesNotContainKeys("currentQuerySeconds", "historicalQuerySeconds");
             assertThat(result.metrics().get("baselineRows")).isEqualTo("1000");
             assertThat(result.metrics().get("currentRows")).isEqualTo("2000");
+            assertThat(result.metrics().get("snapshotCount")).isEqualTo("2");
+            assertThat(result.comparison()).containsEntry("snapshotCount", "2");
             assertThat(result.comparison()).doesNotContainKey("scriptedActions");
+            assertThat(result.assertions())
+                .doesNotContain(
+                    "current and historical row counts match",
+                    "current rows match the baseline after repeated schema changes"
+                );
         });
         assertThat(results).extracting(result -> result.metrics().get("changeCount"))
             .containsExactly("4", "3", "3", "3", "100");
@@ -77,6 +84,16 @@ class SchemaEvolutionScenarioTest {
         int dropCategoryIndex = commandIndex(addDropRename.actionCommands(), " DROP COLUMN category");
         assertThat(addCategoryIndex).isNotNegative();
         assertThat(dropCategoryIndex).isGreaterThan(addCategoryIndex);
+        assertThat(addDropRename.actionCommands()).anySatisfy(command -> assertThat(command)
+            .startsWith("SELECT snapshot_id AS baselineSnapshotId FROM ")
+            .contains(".snapshots ORDER BY committed_at ASC ")
+            .endsWith("LIMIT 1"));
+        assertThat(addDropRename.actionCommands()).anySatisfy(command -> assertThat(command)
+            .startsWith("SELECT snapshot_id AS postAlterSnapshotId FROM ")
+            .contains(".snapshots ORDER BY committed_at DESC ")
+            .endsWith("LIMIT 1"));
+        assertThat(addDropRename.actionCommands())
+            .noneMatch(command -> command.contains("LIMIT 1 AS"));
 
         IcebergValidationResult nestedStruct = resultByCaseId(results, "schema-nested-struct");
         assertThat(nestedStruct.actionCommands())
@@ -97,7 +114,15 @@ class SchemaEvolutionScenarioTest {
             context
         );
 
-        assertThat(result.actionCommands()).anyMatch(command -> command.contains("after_evolution"));
+        String table = config.iceberg().catalog()
+            + "."
+            + config.iceberg().namespace()
+            + ".schemaEvolution_schema_add_drop_rename_schema_query_test";
+        assertThat(result.actionCommands()).anySatisfy(command -> assertThat(command)
+            .startsWith("INSERT INTO " + table + " (")
+            .contains("id, event_day, metric_int, metric_float, amount, payload, tags, attrs")
+            .contains("FROM range(1000, 2000)"));
+        assertThat(result.actionCommands()).noneMatch(command -> command.contains("INSERT INTO " + table + "\nSELECT"));
         assertThat(result.actionCommands()).anyMatch(command -> command.contains("VERSION AS OF ${baselineSnapshotId}"));
         assertThat(result.actionCommands()).anyMatch(command -> command.contains("SELECT id"));
         assertThat(result.metrics()).containsKeys(

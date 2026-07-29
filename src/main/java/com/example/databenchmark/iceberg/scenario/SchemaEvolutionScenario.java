@@ -37,7 +37,7 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
         SchemaPlan plan = schemaPlan(testCase.caseId(), table, context);
         long baselineEnd = rows;
         long postAlterEnd = rows + Math.min(rows, 1000);
-        String postAlterInsert = IcebergSqlTemplates.insertRange(table, baselineEnd, postAlterEnd, "after_evolution");
+        String postAlterInsert = postAlterInsert(table, baselineEnd, postAlterEnd);
         String historicalQuerySql = "SELECT id, event_day, metric_int FROM " + table
             + " VERSION AS OF ${baselineSnapshotId} ORDER BY id LIMIT 20";
         String currentQuerySql = "SELECT id, event_day, metric_int FROM " + table
@@ -56,8 +56,8 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
             .build();
         List<String> actions = new ArrayList<>(plan.actions());
         actions.add(postAlterInsert);
-        actions.add("SELECT snapshot_id FROM " + table + ".snapshots ORDER BY committed_at ASC LIMIT 1 AS baselineSnapshotId");
-        actions.add("SELECT snapshot_id FROM " + table + ".snapshots ORDER BY committed_at DESC LIMIT 1 AS postAlterSnapshotId");
+        actions.add("SELECT snapshot_id AS baselineSnapshotId FROM " + table + ".snapshots ORDER BY committed_at ASC LIMIT 1");
+        actions.add("SELECT snapshot_id AS postAlterSnapshotId FROM " + table + ".snapshots ORDER BY committed_at DESC LIMIT 1");
         actions.add(historicalQuerySql);
         actions.add(currentQuerySql);
         Map<String, String> metrics = new LinkedHashMap<>();
@@ -150,7 +150,7 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
                     "ALTER TABLE " + table + " ADD COLUMN checkpoints ARRAY<STRUCT<ts: TIMESTAMP, status: STRING>>",
                     "ALTER TABLE " + table + " ADD COLUMN owner STRUCT<team: STRING, priority: INT>"
                 ),
-                List.of("complex type columns can be projected with existing rows", "current and historical row counts match"),
+                List.of("historical rows equal the baseline count", "current rows include post-ALTER appended data"),
                 "Map, list, and struct additions are planned with mixed-version read checks."
             );
             case "schema-long-chain-history" -> longChainPlan(table, context.config().scale().smallFileCommits());
@@ -167,9 +167,24 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
             "long chain",
             "验证长链路多次 Schema 变更后，历史快照仍可读取，当前快照包含 ALTER 后追加的新数据。",
             actions,
-            List.of("long schema history remains readable", "current rows match the baseline after repeated schema changes"),
+            List.of("historical rows equal the baseline count", "current rows include post-ALTER appended data"),
             "Long schema history is planned across " + schemaChanges + " schema changes with row-count compatibility checks."
         );
+    }
+
+    private static String postAlterInsert(String table, long startInclusive, long endExclusive) {
+        return """
+            INSERT INTO %s (id, event_day, metric_int, metric_float, amount, payload, tags, attrs)
+            SELECT id,
+                   DATE_ADD(DATE '2026-01-01', CAST(id %% 7 AS INT)),
+                   CAST(id AS INT),
+                   CAST(id * 1.0 AS FLOAT),
+                   CAST(id * 1.25 AS DECIMAL(12, 2)),
+                   named_struct('vendor', CONCAT('vendor-', CAST(id %% 3 AS STRING)), 'score', CAST(id %% 100 AS INT)),
+                   array('kpi', 'iceberg'),
+                   map('source', 'validation')
+            FROM range(%d, %d)
+            """.formatted(table, startInclusive, endExclusive);
     }
 
     private record SchemaPlan(
@@ -184,7 +199,7 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
         }
 
         int snapshotCount() {
-            return 1;
+            return 2;
         }
 
         int schemaHistoryLength() {
