@@ -39,7 +39,7 @@ java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar iceberg-validate \
   --run-id iceberg-validation-20260728-001
 ```
 
-The command loads an `IcebergValidationConfig`, starts selected scenarios, records evidence, writes JSON and Markdown reports, and returns nonzero if any required scenario fails.
+The command loads an `IcebergValidationConfig`, starts selected scenarios, records evidence, writes JSON and HTML reports, and returns nonzero if any required scenario fails.
 
 Initial options:
 
@@ -110,7 +110,7 @@ Default cleanup:
 
 - Drop validation tables.
 - Remove run-scoped HDFS scratch paths.
-- Preserve final JSON and Markdown reports.
+- Preserve final JSON and HTML reports.
 
 When `keepArtifacts` is true:
 
@@ -175,7 +175,7 @@ scenarios:
 
 report:
   output: "reports/iceberg-validation"
-  formats: ["json", "markdown"]
+  formats: ["json", "html"]
 ```
 
 ## Report Model
@@ -483,7 +483,7 @@ In scope:
 - Iceberg validation config.
 - Scenario framework.
 - Spark SQL and HDFS command execution adapters.
-- JSON and Markdown validation reports.
+- JSON and HTML validation reports.
 - Scenario implementations for the listed cases.
 - Upgrade or configure Iceberg runtime package to `1.10.1` for this validation module.
 

@@ -38,7 +38,7 @@ class IcebergValidateCommandTest {
 
         assertThat(result.exitCode()).isZero();
         assertThat(result.out()).contains("cases=1");
-        assertThat(result.out()).contains("report=" + reportDir.resolve("iceberg-run").resolve("report.md"));
+        assertThat(result.out()).contains("report=" + reportDir.resolve("iceberg-run").resolve("report.html"));
         assertThat(runners.calls).containsExactly("iceberg:iceberg-run:[schemaEvolution]:[schema-add-drop-rename]:true");
     }
 
@@ -73,7 +73,7 @@ class IcebergValidateCommandTest {
                 enabled: true
             report:
               output: "%s"
-              formats: ["json", "markdown"]
+              formats: ["json", "html"]
             """.formatted(reportDir.toString().replace("\\", "\\\\"));
     }
 

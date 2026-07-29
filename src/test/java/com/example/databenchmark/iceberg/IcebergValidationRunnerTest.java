@@ -29,7 +29,7 @@ class IcebergValidationRunnerTest {
         assertThat(report.results()).extracting(IcebergValidationResult::caseId).containsExactly("case-b");
         assertThat(enabled.executed).isEqualTo(1);
         assertThat(disabled.executed).isZero();
-        assertThat(tempDir.resolve("run-1").resolve("report.md")).exists();
+        assertThat(tempDir.resolve("run-1").resolve("report.html")).exists();
     }
 
     @Test

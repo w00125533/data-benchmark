@@ -67,4 +67,4 @@ requiredDataNodes=14
 - `comparison`：延迟倍率、磁盘节省率、文件数差异、转换吞吐等对比结论。
 - `evidence`：表名、HDFS location、snapshot、错误或跳过原因。
 
-JSON 和 Markdown 报告会同时生成，便于自动化消费和人工审阅。
+JSON 和 HTML 报告会同时生成。JSON 便于自动化消费，HTML 用表格呈现验证项、需求关键要素、指标、基线/对比和证据，便于人工审阅。

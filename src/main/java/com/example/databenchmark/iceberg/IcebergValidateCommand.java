@@ -39,7 +39,7 @@ public class IcebergValidateCommand implements Callable<Integer> {
         IcebergValidationConfig config = new IcebergValidationConfigLoader().load(configPath);
         IcebergValidationReport report = parent.runnerFactory()
             .runIcebergValidation(config, runId, scenarios, cases, keepArtifacts);
-        Path reportPath = Path.of(config.report().output()).resolve(report.runId()).resolve("report.md");
+        Path reportPath = Path.of(config.report().output()).resolve(report.runId()).resolve("report.html");
         spec.commandLine().getOut().printf("cases=%d report=%s%n", report.results().size(), reportPath);
         return "SUCCESS".equals(report.status()) ? 0 : 1;
     }

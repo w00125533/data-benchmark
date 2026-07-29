@@ -198,7 +198,7 @@ mvn package
 java -jar target/data-benchmark-0.1.0-SNAPSHOT.jar iceberg-validate --config configs/iceberg-validation.yml --run-id iceberg-validation-smoke
 ```
 
-The suite uses Apache Iceberg `1.10.1`, reuses the shared Spark/HDFS/Hive infrastructure from `../shared-data-infra`, and writes JSON plus Markdown reports under `reports/iceberg-validation/<run_id>/`.
+The suite uses Apache Iceberg `1.10.1`, reuses the shared Spark/HDFS/Hive infrastructure from `../shared-data-infra`, and writes JSON plus HTML reports under `reports/iceberg-validation/<run_id>/`.
 
 Run selected scenarios while developing:
 

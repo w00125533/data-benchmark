@@ -45,7 +45,7 @@ class IcebergValidationConfigLoaderTest {
                 enabled: true
             report:
               output: "reports/iceberg-validation"
-              formats: ["json", "markdown"]
+              formats: ["json", "html"]
             """);
 
         assertThatThrownBy(() -> new IcebergValidationConfigLoader().load(config))
