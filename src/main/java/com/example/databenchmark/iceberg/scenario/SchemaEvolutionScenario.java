@@ -199,8 +199,8 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
                 "post alter snapshot id",
                 postAlterSnapshotSql
             );
-            String baselineSnapshotId = IcebergMetricCollectors.parseSingleString(baselineSnapshot.stdout());
-            String postAlterSnapshotId = IcebergMetricCollectors.parseSingleString(postAlterSnapshot.stdout());
+            String baselineSnapshotId = parseSnapshotId(baselineSnapshot.stdout(), "baselineSnapshotId");
+            String postAlterSnapshotId = parseSnapshotId(postAlterSnapshot.stdout(), "postAlterSnapshotId");
             String historicalQuerySqlWithId = historicalQuerySql.replace("${baselineSnapshotId}", baselineSnapshotId);
             IcebergExecutionEvidence historicalQuery = runAndRequireSuccess(
                 context.config(),
@@ -323,6 +323,10 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
             .toList();
         int firstDataIndex = !dataLines.isEmpty() && looksLikeHeader(dataLines.get(0)) ? 1 : 0;
         return dataLines.size() - firstDataIndex;
+    }
+
+    private static String parseSnapshotId(String stdout, String expectedColumn) {
+        return Long.toString(IcebergMetricCollectors.parseSingleLong(stdout, expectedColumn));
     }
 
     private static boolean isSeparator(String line) {

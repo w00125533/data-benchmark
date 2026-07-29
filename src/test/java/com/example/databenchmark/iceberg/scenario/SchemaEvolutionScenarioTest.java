@@ -255,6 +255,30 @@ class SchemaEvolutionScenarioTest {
     }
 
     @Test
+    void snapshotIdsUseDataRowsFromNoisyAliasedSparkOutput() throws Exception {
+        IcebergValidationResult result = runAddDropRenameWith(new FakeSparkSqlExecutor(SnapshotOutputMode.NOISY_ALIASED));
+
+        assertThat(result.functionStatus()).isEqualTo(com.example.databenchmark.iceberg.IcebergConclusion.FunctionStatus.PASS);
+        assertThat(result.metrics()).containsEntry("baselineSnapshotId", "111");
+        assertThat(result.metrics()).containsEntry("postAlterSnapshotId", "222");
+        assertThat(result.metrics().get("historicalQuerySql")).contains("VERSION AS OF 111");
+        assertThat(executionByLabel(result, "historical query").script()).contains("VERSION AS OF 111");
+    }
+
+    @Test
+    void missingSnapshotIdValueFailsWithoutRunningHistoricalQuery() throws Exception {
+        IcebergValidationResult result = runAddDropRenameWith(new FakeSparkSqlExecutor(SnapshotOutputMode.MISSING_BASELINE_VALUE));
+
+        assertThat(result.functionStatus()).isEqualTo(com.example.databenchmark.iceberg.IcebergConclusion.FunctionStatus.FAIL);
+        assertThat(result.performanceStatus()).isEqualTo(com.example.databenchmark.iceberg.IcebergConclusion.PerformanceStatus.NOT_COMPARABLE);
+        assertThat(result.errors()).anySatisfy(error -> assertThat(error).contains("baselineSnapshotId"));
+        assertThat(result.executionResults()).extracting(IcebergExecutionEvidence::label)
+            .contains("baseline snapshot id", "post alter snapshot id")
+            .doesNotContain("historical query");
+        assertThat(result.evidence()).anySatisfy(value -> assertThat(value).startsWith("executionError="));
+    }
+
+    @Test
     void schemaChangeFailureReturnsFailedResult() throws Exception {
         IcebergValidationResult result = runAddDropRenameWith(new FakeSparkSqlExecutor(FailureMode.SCHEMA_CHANGE));
 
@@ -333,25 +357,45 @@ class SchemaEvolutionScenarioTest {
         NOISY
     }
 
+    private enum SnapshotOutputMode {
+        SIMPLE,
+        NOISY_ALIASED,
+        MISSING_BASELINE_VALUE
+    }
+
     private static final class FakeSparkSqlExecutor extends SparkSqlExecutor {
         private final FailureMode failureMode;
         private final OutputMode outputMode;
+        private final SnapshotOutputMode snapshotOutputMode;
 
         private FakeSparkSqlExecutor() {
-            this(null, OutputMode.HEADER);
+            this(null, OutputMode.HEADER, SnapshotOutputMode.SIMPLE);
         }
 
         private FakeSparkSqlExecutor(FailureMode failureMode) {
-            this(failureMode, OutputMode.HEADER);
+            this(failureMode, OutputMode.HEADER, SnapshotOutputMode.SIMPLE);
         }
 
         private FakeSparkSqlExecutor(OutputMode outputMode) {
-            this(null, outputMode);
+            this(null, outputMode, SnapshotOutputMode.SIMPLE);
+        }
+
+        private FakeSparkSqlExecutor(SnapshotOutputMode snapshotOutputMode) {
+            this(null, OutputMode.HEADER, snapshotOutputMode);
         }
 
         private FakeSparkSqlExecutor(FailureMode failureMode, OutputMode outputMode) {
+            this(failureMode, outputMode, SnapshotOutputMode.SIMPLE);
+        }
+
+        private FakeSparkSqlExecutor(
+            FailureMode failureMode,
+            OutputMode outputMode,
+            SnapshotOutputMode snapshotOutputMode
+        ) {
             this.failureMode = failureMode;
             this.outputMode = outputMode;
+            this.snapshotOutputMode = snapshotOutputMode;
         }
 
         @Override
@@ -375,10 +419,10 @@ class SchemaEvolutionScenarioTest {
                 throw new IllegalStateException("boom");
             }
             if (sql.contains(".snapshots") && sql.contains("ASC")) {
-                return new CommandResult(List.of("spark-sql"), 0, "snapshot_id\n111\n", "", 0.100);
+                return new CommandResult(List.of("spark-sql"), 0, baselineSnapshotStdout(), "", 0.100);
             }
             if (sql.contains(".snapshots") && sql.contains("DESC")) {
-                return new CommandResult(List.of("spark-sql"), 0, "snapshot_id\n222\n", "", 0.100);
+                return new CommandResult(List.of("spark-sql"), 0, postAlterSnapshotStdout(), "", 0.100);
             }
             if (sql.contains("VERSION AS OF")) {
                 return new CommandResult(List.of("spark-sql"), 0, historicalRowsStdout(), "", 0.321);
@@ -387,6 +431,38 @@ class SchemaEvolutionScenarioTest {
                 return new CommandResult(List.of("spark-sql"), 0, currentRowsStdout(), "", 0.456);
             }
             return new CommandResult(List.of("spark-sql"), 0, "OK\n", "", 0.050);
+        }
+
+        private String baselineSnapshotStdout() {
+            return switch (snapshotOutputMode) {
+                case SIMPLE -> "baselineSnapshotId\n111\n";
+                case NOISY_ALIASED -> """
+                    Setting default log level to "WARN".
+                    Spark master: local
+                    +------------------+
+                    |baselineSnapshotId|
+                    +------------------+
+                    |111               |
+                    +------------------+
+                    Time taken: 0.100 seconds, Fetched 1 row(s)
+                    """;
+                case MISSING_BASELINE_VALUE -> "baselineSnapshotId\n";
+            };
+        }
+
+        private String postAlterSnapshotStdout() {
+            return switch (snapshotOutputMode) {
+                case SIMPLE, MISSING_BASELINE_VALUE -> "postAlterSnapshotId\n222\n";
+                case NOISY_ALIASED -> """
+                    26/07/29 12:00:00 WARN NativeCodeLoader: Unable to load native-hadoop library
+                    +-------------------+
+                    |postAlterSnapshotId|
+                    +-------------------+
+                    |222                |
+                    +-------------------+
+                    Time taken: 0.100 seconds, Fetched 1 row(s)
+                    """;
+            };
         }
 
         private String historicalRowsStdout() {
