@@ -42,10 +42,14 @@ class IcebergScenarioRegistryTest {
             "schema-long-chain-history"
         );
         assertThat(new ErasureCodingScenario().cases(config)).extracting("caseId").containsExactly(
-            "ec-policy-write-read",
+            "hdfs-replication-1-actual",
+            "hdfs-replication-2-baseline",
+            "ec-policy-rs-3-2-1024k",
+            "ec-policy-rs-6-3-1024k",
+            "ec-policy-rs-10-4-1024k",
+            "ec-policy-xor-2-1-1024k",
             "ec-rs-10-4-failure-tolerance",
-            "ec-policy-matrix-failure",
-            "ec-file-count-and-disk-usage"
+            "ec-policy-matrix-failure"
         );
         assertThat(new ErasureCodingConversionScenario().cases(config)).extracting("caseId").containsExactly(
             "replication-to-ec-policy-only",

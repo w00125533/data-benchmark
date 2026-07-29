@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.example.databenchmark.iceberg.IcebergValidationConfig;
 import com.example.databenchmark.iceberg.IcebergValidationConfigLoader;
 import com.example.databenchmark.iceberg.IcebergValidationContext;
+import com.example.databenchmark.iceberg.IcebergValidationCase;
 import com.example.databenchmark.iceberg.IcebergValidationResult;
+import com.example.databenchmark.iceberg.IcebergConclusion;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
@@ -44,11 +46,18 @@ class IcebergScenarioScriptTest {
     void ecFailureCaseSkipsWhenRsTenFourDataNodesAreInsufficient() throws Exception {
         IcebergValidationConfig config = config();
         ErasureCodingScenario scenario = new ErasureCodingScenario();
+        IcebergValidationCase testCase = scenario.cases(config).stream()
+            .filter(candidate -> candidate.caseId().equals("ec-rs-10-4-failure-tolerance"))
+            .findFirst()
+            .orElseThrow();
 
-        IcebergValidationResult result = scenario.run(scenario.cases(config).get(1), context(config));
+        IcebergValidationResult result = scenario.run(testCase, context(config));
 
+        assertThat(result.functionStatus()).isEqualTo(IcebergConclusion.FunctionStatus.SKIPPED);
         assertThat(result.conclusion()).contains("requires at least 14 live DataNode");
         assertThat(result.evidence()).contains("policy=RS-10-4-1024k", "requiredDataNodes=14");
+        assertThat(result.metrics()).containsEntry("querySecondsAfterFailureStatus", "notExecuted");
+        assertThat(result.metrics()).doesNotContainKey("querySecondsAfterFailure");
     }
 
     private static IcebergValidationContext context(IcebergValidationConfig config) {
