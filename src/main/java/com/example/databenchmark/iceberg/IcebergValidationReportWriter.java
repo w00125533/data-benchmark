@@ -18,7 +18,10 @@ public class IcebergValidationReportWriter {
         "mutationMetrics",
         "incrementalMetrics",
         "timeTravelMetrics",
-        "caseImplemented"
+        "caseImplemented",
+        "acidEvidence",
+        "ecPolicies",
+        "schemaChangeTypes"
     );
 
     private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules()
@@ -231,42 +234,42 @@ public class IcebergValidationReportWriter {
             );
             case "concurrentWrite" -> List.of(
                 code(result.caseId()),
-                metricOrEmpty(result, "writerGroups"),
-                writeMode(result),
-                conflictType(result),
-                metricOrEmpty(result, "successfulCommits", "failedCommits", "writerGroups"),
+                metricOrEmpty(result, "writerPlan", "writerCount"),
+                metricOrEmpty(result, "writeMode"),
+                metricOrEmpty(result, "conflictType"),
+                metricOrEmpty(result, "successfulCommits", "failedCommits", "retryCount", "conflictCount"),
                 joinList(result.assertions()),
-                joinMap(result.metrics()),
+                auditMetricPlan(result),
                 result.conclusion(),
                 status,
                 evidenceDetails(result)
             );
             case "rowLevelMutation" -> List.of(
                 code(result.caseId()),
-                mutationOperation(result),
+                metricOrEmpty(result, "operation"),
                 result.purpose(),
-                metricOrEmpty(result, "deleteFiles", "rewriteFiles", "mutationMetrics"),
+                metricOrAudit(result, "dataFilesBefore", "dataFilesAfter", "deleteFilesBefore", "deleteFilesAfter"),
                 joinList(result.assertions()),
-                metricOrEmpty(result, "queryMsAfter", "mutationMetrics"),
+                metricOrAudit(result, "querySecondsBefore", "querySecondsAfter"),
                 result.conclusion(),
                 status,
                 evidenceDetails(result)
             );
             case "acidTransaction" -> List.of(
                 code(result.caseId()),
-                acidType(result),
+                metricOrEmpty(result, "transactionCase"),
                 atomicAssertion(result),
                 isolationAssertion(result),
-                skipReason(result),
+                appendWithBreak(skipReason(result), auditMetricPlan(result)),
                 result.conclusion(),
                 status,
                 evidenceDetails(result)
             );
             case "incrementalPull" -> List.of(
                 code(result.caseId()),
-                metricOrEmpty(result, "snapshotWindow", "incrementalMetrics"),
-                incrementalChangeType(result),
-                joinBaselineAndComparison(result),
+                metricOrEmpty(result, "windowPlan", "snapshotWindowSize", "baseSnapshotId", "endSnapshotId"),
+                metricOrEmpty(result, "changeType"),
+                metricOrAudit(result, "fullScanRows", "incrementalRows", "fullScanSeconds", "incrementalSeconds", "savingRatio"),
                 expiredSnapshotBehavior(result),
                 result.conclusion(),
                 status,
@@ -274,21 +277,21 @@ public class IcebergValidationReportWriter {
             );
             case "timeTravel" -> List.of(
                 code(result.caseId()),
-                timeTravelSelector(result),
-                joinList(result.evidence()),
+                metricOrEmpty(result, "selector"),
+                metricOrAudit(result, "targetSnapshotId", "targetTimestamp"),
                 joinList(result.assertions()),
                 expiredSnapshotBehavior(result),
-                joinMap(result.metrics()),
+                metricOrAudit(result, "currentQuerySeconds", "historicalQuerySeconds", "expiredSnapshotUnavailable"),
                 result.conclusion(),
                 status,
                 evidenceDetails(result)
             );
             case "smallFileCompaction" -> List.of(
                 code(result.caseId()),
-                metricOrEmpty(result, "targetSnapshots", "smallFileCommits"),
+                metricOrEmpty(result, "targetSnapshotCommits", "snapshotCountBefore", "snapshotCountAfter"),
                 metricOrEmpty(result, "filesPerCommit"),
-                compactionType(result),
-                joinBaselineAndComparison(result) + "<br>" + joinMap(result.metrics()),
+                metricOrEmpty(result, "maintenancePlan"),
+                metricOrEmpty(result, "dataFileCountBefore", "dataFileCountAfter", "manifestCountBefore", "manifestCountAfter", "metadataJsonCountBefore", "metadataJsonCountAfter", "hdfsDiskBytesBefore", "hdfsDiskBytesAfter") + "<br>" + auditMetricPlan(result),
                 queryMetrics(result),
                 result.conclusion(),
                 status,
@@ -381,6 +384,32 @@ public class IcebergValidationReportWriter {
         return mapValues(result.metrics(), keys);
     }
 
+    private static String metricOrAudit(IcebergValidationResult result, String... keys) {
+        String values = metricOrEmpty(result, keys);
+        return values.isEmpty() ? auditMetricPlan(result) : values;
+    }
+
+    private static String appendWithBreak(String first, String second) {
+        if (first == null || first.isBlank()) {
+            return second == null ? "" : second;
+        }
+        if (second == null || second.isBlank()) {
+            return first;
+        }
+        return first + "<br>" + second;
+    }
+
+    private static String auditMetricPlan(IcebergValidationResult result) {
+        return mapValues(
+            result.metrics(),
+            "executed",
+            "metricCollectionStatus",
+            "notExecutedReason",
+            "expectedMetricFields",
+            "plannedActionCount"
+        );
+    }
+
     private static String mapValues(Map<String, String> values, String... keys) {
         StringBuilder builder = new StringBuilder();
         for (String key : keys) {
@@ -428,8 +457,17 @@ public class IcebergValidationReportWriter {
     }
 
     private static String queryMetrics(IcebergValidationResult result) {
-        String values = metricOrEmpty(result, "queryMsBefore", "queryMsAfter", "readLatencyRatio", "currentQueryMs", "historicalQueryMs");
-        return values.isEmpty() ? joinMap(result.comparison()) : values;
+        String values = metricOrEmpty(
+            result,
+            "querySecondsBefore",
+            "querySecondsAfter",
+            "planningSecondsBefore",
+            "planningSecondsAfter",
+            "readLatencyRatio",
+            "currentQuerySeconds",
+            "historicalQuerySeconds"
+        );
+        return values.isEmpty() ? auditMetricPlan(result) : values;
     }
 
     private static String diskMetrics(IcebergValidationResult result) {

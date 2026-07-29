@@ -1,10 +1,10 @@
 package com.example.databenchmark.iceberg.scenario;
 
+import com.example.databenchmark.iceberg.IcebergScenarioSupport;
 import com.example.databenchmark.iceberg.IcebergValidationCase;
 import com.example.databenchmark.iceberg.IcebergValidationConfig;
 import com.example.databenchmark.iceberg.IcebergValidationContext;
 import com.example.databenchmark.iceberg.IcebergValidationResult;
-import com.example.databenchmark.iceberg.IcebergScenarioSupport;
 import com.example.databenchmark.iceberg.sql.IcebergSqlTemplates;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,16 +36,71 @@ public class SmallFileCompactionScenario extends AbstractIcebergValidationScenar
             long end = start + context.config().scale().filesPerCommit();
             actions.add(IcebergSqlTemplates.insertRange(table, start, end, "small-file-batch-" + i));
         }
-        actions.add(IcebergSqlTemplates.rewriteDataFiles(context.config().iceberg().catalog(), table));
-        actions.add(IcebergSqlTemplates.rewriteManifests(context.config().iceberg().catalog(), table));
-        actions.add(IcebergSqlTemplates.expireSnapshots(context.config().iceberg().catalog(), table, "2026-01-02 00:00:00"));
-        return scriptedPass(
+        actions.addAll(maintenanceActions(testCase.caseId(), context, table));
+        return scriptedSkipped(
             testCase,
             context,
             actions,
-            List.of("row count unchanged after maintenance", "file count and manifest count collected before and after"),
-            Map.of("targetSnapshots", Integer.toString(context.config().scale().smallFileCommits()), "filesPerCommit", Integer.toString(context.config().scale().filesPerCommit())),
-            "多 snapshot 小文件脚本已区分 data file compaction、manifest rewrite 和 snapshot expiration。"
+            List.of("row count unchanged after maintenance", "file, manifest, snapshot, HDFS, planning, and query metrics collected before and after"),
+            Map.of(
+                "targetSnapshotCommits", Integer.toString(context.config().scale().smallFileCommits()),
+                "filesPerCommit", Integer.toString(context.config().scale().filesPerCommit()),
+                "maintenancePlan", maintenancePlan(testCase.caseId())
+            ),
+            List.of(
+                "snapshotCountBefore",
+                "snapshotCountAfter",
+                "dataFileCountBefore",
+                "dataFileCountAfter",
+                "manifestCountBefore",
+                "manifestCountAfter",
+                "metadataJsonCountBefore",
+                "metadataJsonCountAfter",
+                "hdfsDiskBytesBefore",
+                "hdfsDiskBytesAfter",
+                "planningSecondsBefore",
+                "planningSecondsAfter",
+                "querySecondsBefore",
+                "querySecondsAfter"
+            ),
+            "Small-file and compaction SQL was generated, but Spark/HDFS metric collection did not run.",
+            "Small-file compaction validation was not executed, so multi-snapshot, data file, manifest, metadata JSON, HDFS disk, planning, query, and compaction before/after metrics are pending collection."
         );
+    }
+
+    private static List<String> maintenanceActions(String caseId, IcebergValidationContext context, String table) {
+        if (caseId.contains("data-compaction")) {
+            return List.of(IcebergSqlTemplates.rewriteDataFiles(context.config().iceberg().catalog(), table));
+        }
+        if (caseId.contains("manifest")) {
+            return List.of(IcebergSqlTemplates.rewriteManifests(context.config().iceberg().catalog(), table));
+        }
+        if (caseId.contains("expire")) {
+            return List.of(IcebergSqlTemplates.expireSnapshots(context.config().iceberg().catalog(), table, "2026-01-02 00:00:00"));
+        }
+        if (caseId.contains("query")) {
+            return List.of("SELECT COUNT(*), SUM(metric_int) FROM " + table);
+        }
+        return List.of(
+            "SELECT COUNT(*) FROM " + table + ".snapshots",
+            "SELECT COUNT(*) FROM " + table + ".files",
+            "SELECT COUNT(*) FROM " + table + ".manifests"
+        );
+    }
+
+    private static String maintenancePlan(String caseId) {
+        if (caseId.contains("data-compaction")) {
+            return "rewrite_data_files";
+        }
+        if (caseId.contains("manifest")) {
+            return "rewrite_manifests";
+        }
+        if (caseId.contains("expire")) {
+            return "expire_snapshots";
+        }
+        if (caseId.contains("query")) {
+            return "query degradation measurement";
+        }
+        return "multi-snapshot small-file build";
     }
 }

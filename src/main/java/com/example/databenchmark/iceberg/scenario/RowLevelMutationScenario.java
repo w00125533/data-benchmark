@@ -29,19 +29,70 @@ public class RowLevelMutationScenario extends AbstractIcebergValidationScenario 
     public IcebergValidationResult run(IcebergValidationCase testCase, IcebergValidationContext context) {
         String table = IcebergScenarioSupport.tableName(context, name(), testCase.caseId());
         String sourceView = table.replace('.', '_') + "_merge_source";
-        return scriptedPass(
+        return scriptedSkipped(
             testCase,
             context,
-            List.of(
-                IcebergSqlTemplates.updateRange(table, 1, 10),
-                IcebergSqlTemplates.deleteRange(table, 10, 20),
-                mergeSourceView(sourceView),
-                IcebergSqlTemplates.mergeUpsertDelete(table, sourceView)
+            mutationActions(testCase.caseId(), table, sourceView),
+            List.of("current snapshot rows match mutation predicate", "historical snapshot still exposes pre-mutation rows"),
+            Map.of(
+                "operation", mutationOperation(testCase.caseId()),
+                "mutationPlan", testCase.purpose()
             ),
-            List.of("updated rows match expected values", "historical snapshot still sees deleted rows"),
-            Map.of("mutationMetrics", "duration,rewriteFiles,deleteFiles,queryMsAfter"),
-            "行级 UPDATE/DELETE/MERGE 脚本已覆盖当前快照和历史快照断言。"
+            List.of(
+                "operation",
+                "affectedRows",
+                "commitSeconds",
+                "dataFilesBefore",
+                "dataFilesAfter",
+                "deleteFilesBefore",
+                "deleteFilesAfter",
+                "querySecondsBefore",
+                "querySecondsAfter",
+                "historicalSnapshotRows"
+            ),
+            "Row-level mutation SQL was generated, but Spark execution and Iceberg metadata collection did not run.",
+            "Row-level mutation validation was not executed, so affected rows, commit timing, file deltas, query timing, and historical row counts are pending collection."
         );
+    }
+
+    private static List<String> mutationActions(String caseId, String table, String sourceView) {
+        if (caseId.contains("merge")) {
+            return List.of(
+                mergeSourceView(sourceView),
+                IcebergSqlTemplates.mergeUpsertDelete(table, sourceView),
+                "SELECT COUNT(*) FROM " + table,
+                "SELECT COUNT(*) FROM " + table + ".files"
+            );
+        }
+        if (caseId.contains("update")) {
+            return List.of(
+                IcebergSqlTemplates.updateRange(table, 1, 10),
+                "SELECT COUNT(*) FROM " + table,
+                "SELECT COUNT(*) FROM " + table + ".files"
+            );
+        }
+        if (caseId.contains("partition")) {
+            return List.of(
+                IcebergSqlTemplates.deleteRange(table, 10, 20),
+                "SELECT COUNT(*) FROM " + table,
+                "SELECT COUNT(*) FROM " + table + ".files"
+            );
+        }
+        return List.of(
+            IcebergSqlTemplates.deleteRange(table, 100, 105),
+            "SELECT COUNT(*) FROM " + table,
+            "SELECT COUNT(*) FROM " + table + ".files"
+        );
+    }
+
+    private static String mutationOperation(String caseId) {
+        if (caseId.contains("merge")) {
+            return "MERGE";
+        }
+        if (caseId.contains("update")) {
+            return "UPDATE";
+        }
+        return "DELETE";
     }
 
     private static String mergeSourceView(String sourceView) {

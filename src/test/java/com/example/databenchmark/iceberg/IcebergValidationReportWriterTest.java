@@ -240,6 +240,7 @@ class IcebergValidationReportWriterTest {
             .doesNotContain("_source")
             .doesNotContain("_target")
             .doesNotContain("mutationMetrics=duration,rewriteFiles,deleteFiles,queryMsAfter")
+            .doesNotContain("acidEvidence=snapshotLineage,rowCount,conflictError")
             .doesNotContain("incrementalMetrics=fullScanMs,incrementalMs,savingRatio,snapshotWindow")
             .doesNotContain("timeTravelMetrics=currentQueryMs,historicalQueryMs,planningMs")
             .doesNotContain("caseImplemented=")

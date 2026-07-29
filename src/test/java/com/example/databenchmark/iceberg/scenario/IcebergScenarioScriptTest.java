@@ -36,7 +36,8 @@ class IcebergScenarioScriptTest {
             .filteredOn(command -> command.contains("INSERT INTO iceberg_catalog.iceberg_validation.smallFileCompaction_"))
             .hasSize(config.scale().smallFileCommits());
         assertThat(result.actionCommands()).allSatisfy(command -> assertThat(command).doesNotContain("<table>"));
-        assertThat(result.metrics()).containsEntry("targetSnapshots", Integer.toString(config.scale().smallFileCommits()));
+        assertThat(result.metrics()).containsEntry("targetSnapshotCommits", Integer.toString(config.scale().smallFileCommits()));
+        assertThat(result.metrics().get("expectedMetricFields")).contains("snapshotCountBefore", "dataFileCountAfter", "hdfsDiskBytesAfter");
     }
 
     @Test
