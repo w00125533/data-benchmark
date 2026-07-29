@@ -120,13 +120,13 @@ class IcebergValidationReportWriterTest {
                     Map.of("successfulCommits", "8"),
                     "并发提交符合预期。",
                     List.of("writers=8")),
-                result("rowLevelMutation", "row-merge-upsert-delete", "verify row mutation",
+                result("rowLevelMutation", "row-merge-upsert-delete", "verify row mutation <b>raw</b>",
                     List.of("MERGE INTO table"),
                     List.of("historical snapshot still sees deleted rows"),
                     Map.of("mutationMetrics", "duration,rewriteFiles,deleteFiles,queryMsAfter"),
                     Map.of(),
                     Map.of(),
-                    "行级变更符合预期。",
+                    "行级变更符合预期。<script>alert(1)</script>",
                     List.of("deleteFiles=2")),
                 result("acidTransaction", "acid-reader-isolation", "verify ACID isolation",
                     List.of("capture snapshot before", "capture snapshot after"),
@@ -234,6 +234,10 @@ class IcebergValidationReportWriterTest {
             .contains("skipReason=real HDFS/Spark physical and policy conversion execution is not wired")
             .contains("status-SKIPPED")
             .contains("NOT_COMPARABLE")
+            .contains("&lt;b&gt;raw&lt;/b&gt;")
+            .contains("&lt;script&gt;alert(1)&lt;/script&gt;")
+            .doesNotContain("<b>raw</b>")
+            .doesNotContain("<script>alert(1)</script>")
             .doesNotContain("<td>scriptedActions=4</td>")
             .doesNotContain("scriptedActions=")
             .doesNotContain("ecPolicies=RS-3-2")

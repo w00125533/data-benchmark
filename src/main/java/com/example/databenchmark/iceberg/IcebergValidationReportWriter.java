@@ -136,36 +136,6 @@ public class IcebergValidationReportWriter {
         return counts.getOrDefault(status, 0L);
     }
 
-    private static String scenarioDisplayName(String scenario) {
-        return switch (scenario) {
-            case "schemaEvolution" -> "Schema 长期演进";
-            case "erasureCoding" -> "HDFS 纠删码";
-            case "erasureCodingConversion" -> "EC/replication 转换";
-            case "concurrentWrite" -> "多进程并发写入";
-            case "rowLevelMutation" -> "行级更新删除";
-            case "acidTransaction" -> "ACID 事务保证";
-            case "incrementalPull" -> "增量拉取";
-            case "timeTravel" -> "时间旅行";
-            case "smallFileCompaction" -> "小文件 Compaction";
-            default -> scenario;
-        };
-    }
-
-    private static String scenarioRequirement(String scenario) {
-        return switch (scenario) {
-            case "schemaEvolution" -> "Schema 变化类型; 历史数据兼容读取; 字段 ID 兼容";
-            case "erasureCoding" -> "EC policy; replicationBaseline=2; 失效副本验证; 文件数统计; HDFS 磁盘占用";
-            case "erasureCodingConversion" -> "replication 到 EC; EC 到 replication; policy-only; physical rewrite; 转换效率";
-            case "concurrentWrite" -> "多 writer; 同/异分区提交; 冲突检测; 读写隔离";
-            case "rowLevelMutation" -> "UPDATE; DELETE; MERGE; delete files; 历史快照读取";
-            case "acidTransaction" -> "快照原子发布; 失败写入不可见; 冲突隔离; reader snapshot isolation";
-            case "incrementalPull" -> "snapshot window; append-only 增量; update/delete 边界; 过期快照";
-            case "timeTravel" -> "snapshot id; timestamp; schema 演进后读取; expire snapshots 行为";
-            case "smallFileCompaction" -> "多 snapshot; 小文件数量; data file compaction; manifest rewrite; snapshot expiration";
-            default -> scenario;
-        };
-    }
-
     private static List<ScenarioSection> scenarioSections() {
         return List.of(
             new ScenarioSection("schemaEvolution", "Schema 长期演进",
@@ -221,7 +191,7 @@ public class IcebergValidationReportWriter {
                 ecFileCountMetrics(result),
                 ecDiskUsageMetrics(result),
                 ecQueryEfficiencyCell(result),
-                result.conclusion(),
+                escapeHtml(result.conclusion()),
                 status,
                 evidenceDetails(result)
             );
@@ -232,7 +202,7 @@ public class IcebergValidationReportWriter {
                 conversionHdfsUsage(result),
                 conversionDurationAndThroughput(result),
                 conversionQueryAndChecksum(result),
-                result.conclusion(),
+                escapeHtml(result.conclusion()),
                 status,
                 evidenceDetails(result)
             );
@@ -244,18 +214,18 @@ public class IcebergValidationReportWriter {
                 metricOrEmpty(result, "successfulCommits", "failedCommits", "retryCount", "conflictCount"),
                 joinList(result.assertions()),
                 auditMetricPlan(result),
-                result.conclusion(),
+                escapeHtml(result.conclusion()),
                 status,
                 evidenceDetails(result)
             );
             case "rowLevelMutation" -> List.of(
                 code(result.caseId()),
                 metricOrEmpty(result, "operation"),
-                result.purpose(),
+                escapeHtml(result.purpose()),
                 metricOrAudit(result, "dataFilesBefore", "dataFilesAfter", "deleteFilesBefore", "deleteFilesAfter"),
                 joinList(result.assertions()),
                 metricOrAudit(result, "querySecondsBefore", "querySecondsAfter"),
-                result.conclusion(),
+                escapeHtml(result.conclusion()),
                 status,
                 evidenceDetails(result)
             );
@@ -265,7 +235,7 @@ public class IcebergValidationReportWriter {
                 atomicAssertion(result),
                 isolationAssertion(result),
                 appendWithBreak(skipReason(result), auditMetricPlan(result)),
-                result.conclusion(),
+                escapeHtml(result.conclusion()),
                 status,
                 evidenceDetails(result)
             );
@@ -275,7 +245,7 @@ public class IcebergValidationReportWriter {
                 metricOrEmpty(result, "changeType"),
                 metricOrAudit(result, "fullScanRows", "incrementalRows", "fullScanSeconds", "incrementalSeconds", "savingRatio"),
                 expiredSnapshotBehavior(result),
-                result.conclusion(),
+                escapeHtml(result.conclusion()),
                 status,
                 evidenceDetails(result)
             );
@@ -286,7 +256,7 @@ public class IcebergValidationReportWriter {
                 joinList(result.assertions()),
                 expiredSnapshotBehavior(result),
                 metricOrAudit(result, "currentQuerySeconds", "historicalQuerySeconds", "expiredSnapshotUnavailable"),
-                result.conclusion(),
+                escapeHtml(result.conclusion()),
                 status,
                 evidenceDetails(result)
             );
@@ -297,21 +267,12 @@ public class IcebergValidationReportWriter {
                 metricOrEmpty(result, "maintenancePlan"),
                 metricOrEmpty(result, "dataFileCountBefore", "dataFileCountAfter", "manifestCountBefore", "manifestCountAfter", "metadataJsonCountBefore", "metadataJsonCountAfter", "hdfsDiskBytesBefore", "hdfsDiskBytesAfter") + "<br>" + auditMetricPlan(result),
                 queryMetrics(result),
-                result.conclusion(),
+                escapeHtml(result.conclusion()),
                 status,
                 evidenceDetails(result)
             );
-            default -> List.of(code(result.caseId()), result.conclusion(), status, evidenceDetails(result));
+            default -> List.of(code(result.caseId()), escapeHtml(result.conclusion()), status, evidenceDetails(result));
         };
-    }
-
-    private static String requirementElements(IcebergValidationResult result) {
-        StringBuilder builder = new StringBuilder();
-        builder.append(escapeHtml(scenarioRequirement(result.scenario())));
-        if (!result.dataScale().isEmpty()) {
-            builder.append("<br>").append(joinMap(result.dataScale()));
-        }
-        return builder.toString();
     }
 
     private static String schemaChangeSummary(IcebergValidationResult result) {
@@ -327,18 +288,6 @@ public class IcebergValidationReportWriter {
             return ddlSummary;
         }
         return metrics + "<br>" + ddlSummary;
-    }
-
-    private static String schemaHistoricalReadSummary(IcebergValidationResult result) {
-        String values = mapValues(result.metrics(), "baselineRows", "currentRows", "snapshotCount");
-        String assertions = joinList(result.assertions());
-        if (assertions.isEmpty()) {
-            return values;
-        }
-        if (values.isEmpty()) {
-            return assertions;
-        }
-        return values + "<br>" + assertions;
     }
 
     private static String schemaHistoricalQueryCell(IcebergValidationResult result) {
@@ -426,14 +375,6 @@ public class IcebergValidationReportWriter {
         );
     }
 
-    private static String ecSkipReason(IcebergValidationResult result) {
-        String skipReason = result.metrics().get("skipReason");
-        if (skipReason != null && !skipReason.isBlank()) {
-            return escapeHtml("skipReason=" + skipReason);
-        }
-        return skipReason(result);
-    }
-
     private static String metricOrEmpty(IcebergValidationResult result, String... keys) {
         return mapValues(result.metrics(), keys);
     }
@@ -484,32 +425,6 @@ public class IcebergValidationReportWriter {
         return builder.toString();
     }
 
-    private static String firstPresent(IcebergValidationResult result, String evidencePrefix, String metricKey, String fallback) {
-        if (evidencePrefix != null) {
-            for (String evidence : result.evidence()) {
-                if (evidence.startsWith(evidencePrefix + "=")) {
-                    return escapeHtml(evidence.substring((evidencePrefix + "=").length()));
-                }
-            }
-        }
-        if (metricKey != null && result.metrics().containsKey(metricKey) && !isPlaceholderMetricKey(metricKey)) {
-            return escapeHtml(result.metrics().get(metricKey));
-        }
-        return fallback == null ? "" : escapeHtml(fallback);
-    }
-
-    private static String joinBaselineAndComparison(IcebergValidationResult result) {
-        String baseline = joinMap(result.baseline());
-        String comparison = joinMap(result.comparison());
-        if (baseline.isEmpty()) {
-            return comparison;
-        }
-        if (comparison.isEmpty()) {
-            return baseline;
-        }
-        return "Before/Baseline: " + baseline + "<br>After/Comparison: " + comparison;
-    }
-
     private static String queryMetrics(IcebergValidationResult result) {
         String values = metricOrEmpty(
             result,
@@ -522,11 +437,6 @@ public class IcebergValidationReportWriter {
             "historicalQuerySeconds"
         );
         return values.isEmpty() ? auditMetricPlan(result) : values;
-    }
-
-    private static String diskMetrics(IcebergValidationResult result) {
-        String values = metricOrEmpty(result, "hdfsDiskBytes", "diskBytesBefore", "diskBytesAfter", "convertedDiskBytesBefore", "convertedDiskBytesAfter");
-        return values.isEmpty() ? joinMap(result.metrics()) : values;
     }
 
     private static String skipReason(IcebergValidationResult result) {
@@ -658,55 +568,6 @@ public class IcebergValidationReportWriter {
         return result.caseId().contains("policy-only") ? "policy-only" : "physical rewrite";
     }
 
-    private static String writeMode(IcebergValidationResult result) {
-        if (result.caseId().contains("same-partition")) {
-            return "same partition append";
-        }
-        if (result.caseId().contains("disjoint-partitions")) {
-            return "disjoint partition append";
-        }
-        if (result.caseId().contains("mixed")) {
-            return "read + write";
-        }
-        return result.purpose();
-    }
-
-    private static String conflictType(IcebergValidationResult result) {
-        if (result.caseId().contains("overlap")) {
-            return "overlapping update conflict";
-        }
-        if (result.caseId().contains("same-partition")) {
-            return "same partition commit contention";
-        }
-        return "";
-    }
-
-    private static String mutationOperation(IcebergValidationResult result) {
-        if (result.caseId().contains("merge")) {
-            return "MERGE";
-        }
-        if (result.caseId().contains("update")) {
-            return "UPDATE";
-        }
-        if (result.caseId().contains("delete")) {
-            return "DELETE";
-        }
-        return "";
-    }
-
-    private static String acidType(IcebergValidationResult result) {
-        if (result.caseId().contains("kill-before")) {
-            return "kill before commit";
-        }
-        if (result.caseId().contains("kill-during")) {
-            return "kill during commit";
-        }
-        if (result.caseId().contains("conflicting")) {
-            return "conflicting commits";
-        }
-        return "reader isolation";
-    }
-
     private static String atomicAssertion(IcebergValidationResult result) {
         return result.assertions().stream()
             .filter(value -> value.contains("snapshot") || value.contains("half-visible") || value.contains("old snapshot"))
@@ -719,62 +580,10 @@ public class IcebergValidationReportWriter {
         return assertions.isEmpty() ? joinList(result.evidence()) : assertions;
     }
 
-    private static String incrementalChangeType(IcebergValidationResult result) {
-        if (result.caseId().contains("append-only")) {
-            return "append-only";
-        }
-        if (result.caseId().contains("delete-update")) {
-            return "update/delete boundary";
-        }
-        if (result.caseId().contains("expired")) {
-            return "expired base snapshot";
-        }
-        return "multi-snapshot";
-    }
-
     private static String expiredSnapshotBehavior(IcebergValidationResult result) {
         return result.caseId().contains("expired") || result.caseId().contains("expire")
-            ? result.conclusion()
+            ? escapeHtml(result.conclusion())
             : joinList(result.assertions());
-    }
-
-    private static String timeTravelSelector(IcebergValidationResult result) {
-        if (result.caseId().contains("snapshot-id")) {
-            return "snapshot id";
-        }
-        if (result.caseId().contains("timestamp")) {
-            return "timestamp";
-        }
-        if (result.caseId().contains("schema")) {
-            return "after schema evolution";
-        }
-        return "after expire";
-    }
-
-    private static String compactionType(IcebergValidationResult result) {
-        if (result.caseId().contains("data-compaction")) {
-            return "rewrite_data_files";
-        }
-        if (result.caseId().contains("manifest")) {
-            return "rewrite_manifests";
-        }
-        if (result.caseId().contains("expire")) {
-            return "expire_snapshots";
-        }
-        if (result.caseId().contains("query")) {
-            return "query degradation measurement";
-        }
-        return "multi-snapshot build";
-    }
-
-    private static String joinMap(Map<String, String> values) {
-        if (values == null || values.isEmpty()) {
-            return "";
-        }
-        return values.entrySet().stream()
-            .filter(entry -> !isPlaceholderMetricKey(entry.getKey()))
-            .map(entry -> escapeHtml(entry.getKey()) + "=" + escapeHtml(entry.getValue()))
-            .collect(Collectors.joining("<br>"));
     }
 
     private static boolean isPlaceholderMetricKey(String key) {
