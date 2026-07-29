@@ -18,7 +18,8 @@ public record IcebergValidationResult(
     IcebergConclusion.PerformanceStatus performanceStatus,
     String conclusion,
     List<String> evidence,
-    List<String> errors
+    List<String> errors,
+    List<IcebergExecutionEvidence> executionResults
 ) {
     public boolean successful() {
         return functionStatus == IcebergConclusion.FunctionStatus.PASS

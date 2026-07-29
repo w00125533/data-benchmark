@@ -173,6 +173,7 @@ class IcebergValidationReportWriterTest {
             IcebergConclusion.PerformanceStatus.ACCEPTABLE,
             conclusion,
             evidence,
+            List.of(),
             List.of()
         );
     }

@@ -121,7 +121,7 @@ class IcebergValidateCommandTest {
                     List.of(), List.of(), List.of(), java.util.Map.of(), java.util.Map.of(), java.util.Map.of(),
                     com.example.databenchmark.iceberg.IcebergConclusion.FunctionStatus.PASS,
                     com.example.databenchmark.iceberg.IcebergConclusion.PerformanceStatus.ACCEPTABLE,
-                    "ok", List.of(), List.of()
+                    "ok", List.of(), List.of(), List.of()
                 )));
         }
     }

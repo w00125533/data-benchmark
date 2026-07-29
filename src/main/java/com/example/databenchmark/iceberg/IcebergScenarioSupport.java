@@ -52,6 +52,34 @@ public final class IcebergScenarioSupport {
         String conclusion,
         List<String> evidence
     ) {
+        return pass(
+            testCase,
+            context,
+            setupCommands,
+            actionCommands,
+            assertions,
+            metrics,
+            baseline,
+            comparison,
+            conclusion,
+            evidence,
+            List.of()
+        );
+    }
+
+    public static IcebergValidationResult pass(
+        IcebergValidationCase testCase,
+        IcebergValidationContext context,
+        List<String> setupCommands,
+        List<String> actionCommands,
+        List<String> assertions,
+        Map<String, String> metrics,
+        Map<String, String> baseline,
+        Map<String, String> comparison,
+        String conclusion,
+        List<String> evidence,
+        List<IcebergExecutionEvidence> executionResults
+    ) {
         return new IcebergValidationResult(
             testCase.scenario(),
             testCase.caseId(),
@@ -67,7 +95,8 @@ public final class IcebergScenarioSupport {
             IcebergConclusion.PerformanceStatus.ACCEPTABLE,
             conclusion,
             evidence,
-            List.of()
+            List.of(),
+            executionResults
         );
     }
 
@@ -92,6 +121,7 @@ public final class IcebergScenarioSupport {
             IcebergConclusion.PerformanceStatus.NOT_COMPARABLE,
             reason,
             evidence,
+            List.of(),
             List.of()
         );
     }
@@ -118,7 +148,8 @@ public final class IcebergScenarioSupport {
             IcebergConclusion.PerformanceStatus.NOT_COMPARABLE,
             conclusion,
             evidence,
-            errors
+            errors,
+            List.of()
         );
     }
 
