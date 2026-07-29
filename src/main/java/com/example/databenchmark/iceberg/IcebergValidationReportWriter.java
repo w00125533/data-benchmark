@@ -166,7 +166,7 @@ public class IcebergValidationReportWriter {
         return List.of(
             new ScenarioSection("schemaEvolution", "Schema 长期演进",
                 "通过多阶段 Schema 变更覆盖字段新增、删除、重命名、类型提升和复杂类型变化，验证历史快照、字段投影和字段 ID 兼容读取，并记录查询延迟变化。",
-                List.of("用例", "Schema 变化", "历史数据读取断言", "兼容性结论", "性能指标", "状态", "执行脚本与证据")),
+                List.of("用例", "Schema 变化", "历史数据读取断言", "兼容性结论", "元数据/性能指标", "状态", "执行脚本与证据")),
             new ScenarioSection("erasureCoding", "HDFS 纠删码",
                 "以 replication=2 作为基线，对比多种 EC policy 的读写结果、文件数和 HDFS 磁盘占用；具备足够 DataNode 时执行失效副本容错验证，不满足条件时记录跳过原因。",
                 List.of("用例", "EC Policy", "replication 基线", "DataNode 要求", "文件数统计", "HDFS 磁盘占用", "故障注入/Skip 原因", "结论", "状态", "执行脚本与证据")),
@@ -202,7 +202,7 @@ public class IcebergValidationReportWriter {
                 schemaChangeSummary(result),
                 schemaHistoricalReadSummary(result),
                 result.conclusion(),
-                schemaPerformanceMetrics(result),
+                schemaMetadataMetrics(result),
                 status,
                 evidenceDetails(result)
             );
@@ -334,7 +334,7 @@ public class IcebergValidationReportWriter {
         return values + "<br>" + assertions;
     }
 
-    private static String schemaPerformanceMetrics(IcebergValidationResult result) {
+    private static String schemaMetadataMetrics(IcebergValidationResult result) {
         return mapValues(
             result.metrics(),
             "currentQuerySeconds",

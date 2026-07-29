@@ -57,8 +57,34 @@ class SchemaEvolutionScenarioTest {
             assertThat(result.comparison()).doesNotContainKey("scriptedActions");
         });
         assertThat(results).extracting(result -> result.metrics().get("changeCount"))
-            .containsExactly("3", "3", "3", "3", "100");
+            .containsExactly("4", "3", "3", "3", "100");
         assertThat(results).extracting(IcebergValidationResult::actionCommands).doesNotHaveDuplicates();
         assertThat(results).extracting(IcebergValidationResult::conclusion).doesNotHaveDuplicates();
+
+        IcebergValidationResult addDropRename = resultByCaseId(results, "schema-add-drop-rename");
+        int addCategoryIndex = commandIndex(addDropRename.actionCommands(), " ADD COLUMN category STRING");
+        int dropCategoryIndex = commandIndex(addDropRename.actionCommands(), " DROP COLUMN category");
+        assertThat(addCategoryIndex).isNotNegative();
+        assertThat(dropCategoryIndex).isGreaterThan(addCategoryIndex);
+
+        IcebergValidationResult nestedStruct = resultByCaseId(results, "schema-nested-struct");
+        assertThat(nestedStruct.actionCommands())
+            .noneMatch(command -> command.matches(".*ADD COLUMN\\s+\\S+\\s+payload\\s+STRUCT<.*"));
+    }
+
+    private static IcebergValidationResult resultByCaseId(List<IcebergValidationResult> results, String caseId) {
+        return results.stream()
+            .filter(result -> caseId.equals(result.caseId()))
+            .findFirst()
+            .orElseThrow();
+    }
+
+    private static int commandIndex(List<String> commands, String expectedSuffix) {
+        for (int index = 0; index < commands.size(); index++) {
+            if (commands.get(index).endsWith(expectedSuffix)) {
+                return index;
+            }
+        }
+        return -1;
     }
 }

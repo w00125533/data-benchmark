@@ -79,6 +79,7 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
                 "add/drop/rename",
                 List.of(
                     "ALTER TABLE " + table + " ADD COLUMN added_text STRING",
+                    "ALTER TABLE " + table + " ADD COLUMN category STRING",
                     "ALTER TABLE " + table + " RENAME COLUMN region TO service_region",
                     "ALTER TABLE " + table + " DROP COLUMN category"
                 ),
@@ -98,8 +99,8 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
             case "schema-nested-struct" -> new SchemaPlan(
                 "nested struct",
                 List.of(
-                    "ALTER TABLE " + table + " ADD COLUMN payload STRUCT<vendor_code: STRING, confidence: DOUBLE>",
-                    "ALTER TABLE " + table + " ADD COLUMN payload.source_system STRING",
+                    "ALTER TABLE " + table + " ADD COLUMN payload.vendor_code STRING",
+                    "ALTER TABLE " + table + " ADD COLUMN payload.quality_score DOUBLE",
                     "ALTER TABLE " + table + " RENAME COLUMN payload.vendor_code TO vendor_id"
                 ),
                 List.of("nested field projection remains compatible", "nested field IDs preserve historical values"),
