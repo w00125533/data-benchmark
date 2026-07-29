@@ -79,3 +79,11 @@ JSON 和 HTML 报告会同时生成。JSON 便于自动化消费，HTML 用表�
 - 执行结果：exit code、duration seconds、stdout、stderr。未执行场景会显式显示 `exitCode=-1`、`notExecuted=true` 和 `notExecutedReason`。
 
 未接入真实执行链路的场景必须使用 `SKIPPED` 和 `NOT_COMPARABLE`，并通过 `expectedMetricFields` 列出后续真实执行需要采集的字段。小文件 Compaction 场景需要覆盖多 snapshot、多小文件提交下的 snapshot、data file、manifest、metadata JSON、HDFS disk、planning 和 query 前后指标。EC 场景如果当前共享 HDFS DataNode 数量不足以验证 `RS-10-4-1024k`，报告会显示 `liveDataNodes`、`requiredDataNodes` 和 skip reason。
+
+## 单 DataNode EC 报告模式
+
+当共享 HDFS 只有 1 个 DataNode 时，报告会增加 `hdfs-replication-1-actual` 行，用于展示真实可落盘的 HDFS 单副本文件数、磁盘占用和查询耗时。`replication=2` 行作为目标双副本基线展示，但在 1 个 DataNode 下需要标记 `underReplicated=true`，避免把双副本目标误读为已完整落盘。
+
+EC policy 行会展示 `-setErasureCodingPolicy` 和 `-getErasureCodingPolicy` 的设置位置、DataNode 条件和理论存储估算。`theoreticalEcDiskBytes` 与 `theoreticalSavingVsReplication2` 不是 HDFS `du` 的真实落盘值；当 `physicalEcWritable=false` 时，查询性能会标记为 `notRepresentative`。
+
+这种模式下可真实比较的是同一数据量下的 HDFS 单副本实际指标，以及 replication=2 目标基线的欠副本状态；EC 行用于说明不同 policy 的 DataNode 门槛、理论磁盘收益和为什么当前 1 DataNode 环境不能代表 EC 真实查询性能。
