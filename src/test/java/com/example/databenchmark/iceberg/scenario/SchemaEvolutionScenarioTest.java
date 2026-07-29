@@ -41,6 +41,17 @@ class SchemaEvolutionScenarioTest {
 
         assertThat(results).extracting(result -> result.metrics().get("schemaChangeType"))
             .containsExactly("add/drop/rename", "type promotion", "nested struct", "map/list/struct", "long chain");
+        List<String> validationPoints = results.stream()
+            .map(result -> result.metrics().get("validationPoint"))
+            .toList();
+        assertThat(validationPoints).allSatisfy(validationPoint ->
+            assertThat(validationPoint).isNotBlank().contains("验证"));
+        assertThat(validationPoints.stream().distinct().toList()).hasSameSizeAs(results);
+        assertThat(validationPoints).anySatisfy(validationPoint -> assertThat(validationPoint).contains("字段新增"));
+        assertThat(validationPoints).anySatisfy(validationPoint -> assertThat(validationPoint).contains("数值类型提升"));
+        assertThat(validationPoints).anySatisfy(validationPoint -> assertThat(validationPoint).contains("嵌套 struct"));
+        assertThat(validationPoints).anySatisfy(validationPoint -> assertThat(validationPoint).contains("复杂类型"));
+        assertThat(validationPoints).anySatisfy(validationPoint -> assertThat(validationPoint).contains("长链路"));
         assertThat(results).allSatisfy(result -> {
             assertThat(result.metrics()).doesNotContainKey("schemaChangeTypes");
             assertThat(result.metrics()).containsKeys(
@@ -97,14 +108,23 @@ class SchemaEvolutionScenarioTest {
             "currentQuerySql",
             "historicalRowsStatus",
             "currentRowsStatus",
+            "historicalQuerySecondsStatus",
+            "currentQuerySecondsStatus",
             "historicalSampleRowsStatus",
             "currentSampleRowsStatus"
         );
         assertThat(result.metrics().get("validationPoint")).contains("历史快照");
-        assertThat(result.metrics().get("historicalQuerySql")).contains("VERSION AS OF");
-        assertThat(result.metrics().get("currentQuerySql")).contains("SELECT");
-        assertThat(result.evidence()).anyMatch(value -> value.startsWith("historicalSampleRows="));
-        assertThat(result.evidence()).anyMatch(value -> value.startsWith("currentSampleRows="));
+        assertThat(result.metrics()).containsEntry("historicalQuerySecondsStatus", "notExecuted");
+        assertThat(result.metrics()).containsEntry("currentQuerySecondsStatus", "notExecuted");
+        assertThat(result.metrics().get("historicalQuerySql")).contains("VERSION AS OF ${baselineSnapshotId}");
+        assertThat(result.metrics().get("currentQuerySql")).contains("ORDER BY id DESC LIMIT 20");
+        assertThat(result.evidence()).contains("historicalSampleRows=notExecuted", "currentSampleRows=notExecuted");
+        assertThat(result.evidence()).anySatisfy(value -> assertThat(value)
+            .startsWith("historicalQuerySql=")
+            .contains("VERSION AS OF ${baselineSnapshotId}"));
+        assertThat(result.evidence()).anySatisfy(value -> assertThat(value)
+            .startsWith("currentQuerySql=")
+            .contains("ORDER BY id DESC LIMIT 20"));
     }
 
     private static IcebergValidationResult resultByCaseId(List<IcebergValidationResult> results, String caseId) {
