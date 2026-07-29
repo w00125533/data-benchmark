@@ -222,9 +222,9 @@ public class IcebergValidationReportWriter {
                 code(result.caseId()),
                 conversionDirection(result),
                 conversionMode(result),
-                joinBaselineAndComparison(result),
-                metricOrEmpty(result, "conversionSeconds", "throughputMbPerSecond", "conversionMetrics"),
-                queryMetrics(result),
+                conversionHdfsUsage(result),
+                conversionDurationAndThroughput(result),
+                conversionQueryAndChecksum(result),
                 result.conclusion(),
                 status,
                 evidenceDetails(result)
@@ -489,7 +489,42 @@ public class IcebergValidationReportWriter {
             + "</div>";
     }
 
+    private static String conversionHdfsUsage(IcebergValidationResult result) {
+        String values = mapValues(result.metrics(), "fileCountBefore", "fileCountAfter", "diskBytesBefore", "diskBytesAfter");
+        if (!values.isEmpty()) {
+            return values;
+        }
+        return conversionPending(result, "hdfsUsageStatus");
+    }
+
+    private static String conversionDurationAndThroughput(IcebergValidationResult result) {
+        if (result.metrics().containsKey("conversionSeconds") || result.metrics().containsKey("throughputMbPerSecond")) {
+            return mapValues(result.metrics(), "conversionSeconds", "throughputMbPerSecond", "policyCommandStatus");
+        }
+        return conversionPending(result, "conversionStatus", "policyCommandStatus");
+    }
+
+    private static String conversionQueryAndChecksum(IcebergValidationResult result) {
+        String values = mapValues(result.metrics(), "querySecondsBefore", "querySecondsAfter", "checksumMatched");
+        if (!values.isEmpty()) {
+            return values;
+        }
+        return conversionPending(result, "checksumStatus");
+    }
+
+    private static String conversionPending(IcebergValidationResult result, String... keys) {
+        String values = mapValues(result.metrics(), keys);
+        if (values.isEmpty()) {
+            return "待真实执行采集";
+        }
+        return values + "<br>待真实执行采集";
+    }
+
     private static String conversionDirection(IcebergValidationResult result) {
+        String direction = result.metrics().get("conversionDirection");
+        if (direction != null && !direction.isBlank()) {
+            return escapeHtml("conversionDirection=" + direction);
+        }
         if (result.caseId().startsWith("replication-to-ec")) {
             return "replication -> EC";
         }
@@ -500,6 +535,10 @@ public class IcebergValidationReportWriter {
     }
 
     private static String conversionMode(IcebergValidationResult result) {
+        String values = mapValues(result.metrics(), "conversionMode", "targetPolicy", "targetReplication");
+        if (!values.isEmpty()) {
+            return values;
+        }
         return result.caseId().contains("policy-only") ? "policy-only" : "physical rewrite";
     }
 

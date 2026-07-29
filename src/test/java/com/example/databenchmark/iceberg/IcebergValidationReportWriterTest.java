@@ -77,12 +77,20 @@ class IcebergValidationReportWriterTest {
                     Map.of("scriptedActions", "4", "ecPolicies", "RS-3-2"),
                     "HDFS 用量对比已采集。",
                     List.of("policy=RS-3-2-1024k")),
-                result("erasureCodingConversion", "replication-to-ec-rewrite", "verify EC conversion",
-                    List.of("INSERT INTO target SELECT * FROM source"),
-                    List.of("checksum matches after conversion"),
-                    Map.of("conversionSeconds", "12", "throughputMbPerSecond", "30", "conversionMetrics", "seconds,throughputMbPerSecond"),
-                    Map.of("fileCountBefore", "128"),
-                    Map.of("fileCountAfter", "64", "scriptedActions", "5"),
+                result("erasureCodingConversion", "replication-to-ec-policy-only", "verify EC conversion",
+                    List.of("hdfs ec -setPolicy -path /target -policy RS-10-4-1024k"),
+                    List.of("conversion not executed until real HDFS collection is wired"),
+                    Map.of(
+                        "conversionDirection", "replication->ec",
+                        "conversionMode", "policy-only",
+                        "targetPolicy", "RS-10-4-1024k",
+                        "conversionStatus", "notExecuted",
+                        "policyCommandStatus", "notExecuted",
+                        "hdfsUsageStatus", "notCollected",
+                        "checksumStatus", "notCollected"
+                    ),
+                    Map.of(),
+                    Map.of(),
                     "转换效率符合预期。",
                     List.of("direction=replication->ec")),
                 result("concurrentWrite", "concurrent-append-same-partition", "verify concurrent append",
@@ -200,6 +208,14 @@ class IcebergValidationReportWriterTest {
             .contains("diskSavingRatio=40.0%")
             .contains("liveDataNodes=1")
             .contains("requiredDataNodes=14")
+            .contains("conversionDirection=replication-&gt;ec")
+            .contains("conversionMode=policy-only")
+            .contains("targetPolicy=RS-10-4-1024k")
+            .contains("hdfsUsageStatus=notCollected")
+            .contains("conversionStatus=notExecuted")
+            .contains("policyCommandStatus=notExecuted")
+            .contains("checksumStatus=notCollected")
+            .contains("待真实执行采集")
             .contains("status-SKIPPED")
             .contains("NOT_COMPARABLE")
             .contains("元数据/性能指标")
@@ -207,6 +223,15 @@ class IcebergValidationReportWriterTest {
             .doesNotContain("scriptedActions=")
             .doesNotContain("ecPolicies=RS-3-2")
             .doesNotContain("conversionMetrics=seconds,throughputMbPerSecond")
+            .doesNotContain("conversionSeconds=")
+            .doesNotContain("throughputMbPerSecond=")
+            .doesNotContain("fileCountBefore=")
+            .doesNotContain("fileCountAfter=")
+            .doesNotContain("diskBytesBefore=")
+            .doesNotContain("diskBytesAfter=")
+            .doesNotContain("querySecondsBefore=")
+            .doesNotContain("querySecondsAfter=")
+            .doesNotContain("checksumMatched=")
             .doesNotContain("mutationMetrics=duration,rewriteFiles,deleteFiles,queryMsAfter")
             .doesNotContain("incrementalMetrics=fullScanMs,incrementalMs,savingRatio,snapshotWindow")
             .doesNotContain("timeTravelMetrics=currentQueryMs,historicalQueryMs,planningMs")
