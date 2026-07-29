@@ -37,7 +37,7 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
         SchemaPlan plan = schemaPlan(testCase.caseId(), table, context);
         long baselineEnd = rows;
         long postAlterEnd = rows + Math.min(rows, 1000);
-        String postAlterInsert = postAlterInsert(table, baselineEnd, postAlterEnd);
+        String postAlterInsert = postAlterInsert(table, testCase.caseId(), baselineEnd, postAlterEnd);
         String historicalQuerySql = "SELECT id, event_day, metric_int FROM " + table
             + " VERSION AS OF ${baselineSnapshotId} ORDER BY id LIMIT 20";
         String currentQuerySql = "SELECT id, event_day, metric_int FROM " + table
@@ -172,7 +172,7 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
         );
     }
 
-    private static String postAlterInsert(String table, long startInclusive, long endExclusive) {
+    private static String postAlterInsert(String table, String caseId, long startInclusive, long endExclusive) {
         return """
             INSERT INTO %s (id, event_day, metric_int, metric_float, amount, payload, tags, attrs)
             SELECT id,
@@ -180,11 +180,22 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
                    CAST(id AS INT),
                    CAST(id * 1.0 AS FLOAT),
                    CAST(id * 1.25 AS DECIMAL(12, 2)),
-                   named_struct('vendor', CONCAT('vendor-', CAST(id %% 3 AS STRING)), 'score', CAST(id %% 100 AS INT)),
+                   %s,
                    array('kpi', 'iceberg'),
                    map('source', 'validation')
             FROM range(%d, %d)
-            """.formatted(table, startInclusive, endExclusive);
+            """.formatted(table, postAlterPayload(caseId), startInclusive, endExclusive);
+    }
+
+    private static String postAlterPayload(String caseId) {
+        if ("schema-nested-struct".equals(caseId)) {
+            return "named_struct("
+                + "'vendor', CONCAT('vendor-', CAST(id % 3 AS STRING)), "
+                + "'score', CAST(id % 100 AS INT), "
+                + "'vendor_id', CONCAT('vendor-', CAST(id % 3 AS STRING)), "
+                + "'quality_score', CAST(id % 100 AS DOUBLE))";
+        }
+        return "named_struct('vendor', CONCAT('vendor-', CAST(id % 3 AS STRING)), 'score', CAST(id % 100 AS INT))";
     }
 
     private record SchemaPlan(

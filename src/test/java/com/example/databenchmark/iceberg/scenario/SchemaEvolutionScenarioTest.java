@@ -98,6 +98,14 @@ class SchemaEvolutionScenarioTest {
         IcebergValidationResult nestedStruct = resultByCaseId(results, "schema-nested-struct");
         assertThat(nestedStruct.actionCommands())
             .noneMatch(command -> command.matches(".*ADD COLUMN\\s+\\S+\\s+payload\\s+STRUCT<.*"));
+        String nestedStructPostAlterInsert = nestedStruct.actionCommands().stream()
+            .filter(command -> command.startsWith("INSERT INTO "))
+            .findFirst()
+            .orElseThrow();
+        assertThat(nestedStructPostAlterInsert)
+            .contains("'vendor_id'")
+            .contains("'quality_score'")
+            .doesNotContain("'vendor_code'");
     }
 
     @Test
