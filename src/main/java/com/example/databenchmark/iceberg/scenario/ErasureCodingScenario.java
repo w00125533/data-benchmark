@@ -1,11 +1,14 @@
 package com.example.databenchmark.iceberg.scenario;
 
+import com.example.databenchmark.iceberg.IcebergConclusion;
 import com.example.databenchmark.iceberg.IcebergScenarioSupport;
 import com.example.databenchmark.iceberg.IcebergValidationCase;
 import com.example.databenchmark.iceberg.IcebergValidationConfig;
 import com.example.databenchmark.iceberg.IcebergValidationContext;
 import com.example.databenchmark.iceberg.IcebergValidationResult;
 import com.example.databenchmark.iceberg.hdfs.HdfsEcPolicyClient;
+import com.example.databenchmark.iceberg.sql.IcebergSqlTemplates;
+import com.example.databenchmark.iceberg.sql.SparkSqlScriptBuilder;
 import java.util.List;
 import java.util.Map;
 
@@ -31,26 +34,94 @@ public class ErasureCodingScenario extends AbstractIcebergValidationScenario {
         String location = IcebergScenarioSupport.tableLocation(context, name(), testCase.caseId());
         if (testCase.caseId().contains("failure")) {
             HdfsEcPolicyClient.EcPreflight preflight = HdfsEcPolicyClient.preflight("RS-10-4-1024k", true, 1);
-            return IcebergScenarioSupport.skipped(testCase, context, preflight.reason(), List.of(
-                "policy=RS-10-4-1024k",
-                "liveDataNodes=1",
-                "requiredDataNodes=" + HdfsEcPolicyClient.requiredDataNodes("RS-10-4-1024k")
-            ));
+            return skippedFaultTolerance(testCase, context, preflight);
         }
-        return scriptedPass(
+        return plannedEcComparison(testCase, context, table, location);
+    }
+
+    private IcebergValidationResult plannedEcComparison(
+        IcebergValidationCase testCase,
+        IcebergValidationContext context,
+        String table,
+        String location
+    ) {
+        long targetRows = Math.min(context.config().scale().rows(), 1000);
+        List<String> setup = List.of(
+            IcebergSqlTemplates.createNamespace(context.config().iceberg().catalog(), context.config().iceberg().namespace()),
+            IcebergSqlTemplates.dropTable(table),
+            IcebergSqlTemplates.createBaseTable(table, location),
+            IcebergSqlTemplates.insertRange(table, 0, targetRows, "baseline")
+        );
+        String setupScript = new SparkSqlScriptBuilder()
+            .add(setup.get(0))
+            .add(setup.get(1))
+            .add(setup.get(2))
+            .add(setup.get(3))
+            .build();
+        List<String> actions = List.of(
+            "hdfs dfs -fs " + context.config().hdfs().defaultFs() + " -setrep -w "
+                + context.config().hdfs().replicationBaseline() + " " + location + "/replication-baseline",
+            "hdfs ec -fs " + context.config().hdfs().defaultFs() + " -setPolicy -policy RS-10-4-1024k -path "
+                + location + "/ec-target",
+            "SELECT COUNT(*) FROM " + table,
+            "SELECT COUNT(*), SUM(file_size_in_bytes) FROM " + table + ".files",
+            "hdfs dfs -fs " + context.config().hdfs().defaultFs() + " -du -s " + location + "/replication-baseline",
+            "hdfs dfs -fs " + context.config().hdfs().defaultFs() + " -count " + location + "/ec-target"
+        );
+        Map<String, String> metrics = Map.of(
+            "replicationBaseline", Integer.toString(context.config().hdfs().replicationBaseline()),
+            "ecPolicyCount", Integer.toString(context.config().hdfs().ecPolicies().size()),
+            "targetRowCount", Long.toString(targetRows),
+            "targetChecksum", "planned",
+            "hdfsUsageStatus", "notCollected"
+        );
+        return IcebergScenarioSupport.pass(
             testCase,
             context,
+            setup,
+            actions,
+            List.of("row count target defined for replication and EC", "HDFS usage collection not executed in this planner path"),
+            metrics,
+            Map.of("baselineRows", Long.toString(targetRows)),
+            Map.of(),
+            "EC comparison exposes replication baseline, EC policy count, row/checksum targets; HDFS du/count is not collected yet.",
+            List.of("table=" + table, "location=" + location, "setupScript=" + setupScript.strip())
+        );
+    }
+
+    private IcebergValidationResult skippedFaultTolerance(
+        IcebergValidationCase testCase,
+        IcebergValidationContext context,
+        HdfsEcPolicyClient.EcPreflight preflight
+    ) {
+        int requiredDataNodes = HdfsEcPolicyClient.requiredDataNodes(preflight.policy());
+        Map<String, String> metrics = Map.of(
+            "policy", preflight.policy(),
+            "liveDataNodes", Integer.toString(preflight.liveDataNodes()),
+            "requiredDataNodes", Integer.toString(requiredDataNodes),
+            "skipReason", preflight.reason()
+        );
+        return new IcebergValidationResult(
+            testCase.scenario(),
+            testCase.caseId(),
+            testCase.purpose(),
+            IcebergScenarioSupport.dataScale(context.config()),
+            List.of(),
+            List.of(),
+            List.of("Skipped: " + preflight.reason()),
+            metrics,
+            Map.of(),
+            Map.of(),
+            IcebergConclusion.FunctionStatus.SKIPPED,
+            IcebergConclusion.PerformanceStatus.NOT_COMPARABLE,
+            preflight.reason(),
             List.of(
-                "hdfs dfs -fs " + context.config().hdfs().defaultFs() + " -setrep -w "
-                    + context.config().hdfs().replicationBaseline() + " " + location + "/replication-baseline",
-                "hdfs ec -fs " + context.config().hdfs().defaultFs() + " -setPolicy -policy RS-10-4-1024k -path "
-                    + location + "/ec-target",
-                "SELECT COUNT(*) FROM " + table,
-                "SELECT COUNT(*), SUM(file_size_in_bytes) FROM " + table + ".files"
+                "policy=" + preflight.policy(),
+                "liveDataNodes=" + preflight.liveDataNodes(),
+                "requiredDataNodes=" + requiredDataNodes
             ),
-            List.of("row count matches replication baseline", "HDFS disk usage collected with hdfs dfs -du -s"),
-            Map.of("replicationBaseline", "2", "ecPolicies", String.join(",", context.config().hdfs().ecPolicies())),
-            "纠删码写读对比脚本已覆盖 replication=2、文件数和 HDFS 磁盘占用。"
+            List.of(),
+            List.of()
         );
     }
 }

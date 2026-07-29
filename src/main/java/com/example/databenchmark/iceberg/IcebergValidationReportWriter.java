@@ -208,12 +208,12 @@ public class IcebergValidationReportWriter {
             );
             case "erasureCoding" -> List.of(
                 code(result.caseId()),
-                firstPresent(result, "policy", "ecPolicies", "RS-10-4-1024k"),
-                "replicationBaseline=" + firstPresent(result, "replicationBaseline", "replicationBaseline", "2"),
-                firstPresent(result, "requiredDataNodes", null, ""),
-                firstPresent(result, "fileCount", null, joinMap(result.comparison())),
-                firstPresent(result, "hdfsDiskBytes", null, diskMetrics(result)),
-                skipReason(result),
+                ecPolicyCell(result),
+                ecReplicationBaseline(result),
+                ecDataNodeRequirements(result),
+                ecFileCountMetrics(result),
+                ecDiskUsageMetrics(result),
+                ecSkipReason(result),
                 result.conclusion(),
                 status,
                 evidenceDetails(result)
@@ -343,6 +343,38 @@ public class IcebergValidationReportWriter {
             "schemaHistoryLength",
             "metadataJsonCount"
         );
+    }
+
+    private static String ecPolicyCell(IcebergValidationResult result) {
+        String policy = result.metrics().get("policy");
+        if (policy != null && !policy.isBlank()) {
+            return escapeHtml(policy);
+        }
+        return mapValues(result.metrics(), "ecPolicyCount");
+    }
+
+    private static String ecReplicationBaseline(IcebergValidationResult result) {
+        return mapValues(result.metrics(), "replicationBaseline");
+    }
+
+    private static String ecDataNodeRequirements(IcebergValidationResult result) {
+        return mapValues(result.metrics(), "liveDataNodes", "requiredDataNodes");
+    }
+
+    private static String ecFileCountMetrics(IcebergValidationResult result) {
+        return mapValues(result.metrics(), "replicationFileCount", "ecFileCount", "targetRowCount", "targetChecksum");
+    }
+
+    private static String ecDiskUsageMetrics(IcebergValidationResult result) {
+        return mapValues(result.metrics(), "replicationDiskBytes", "ecDiskBytes", "diskSavingRatio", "hdfsUsageStatus");
+    }
+
+    private static String ecSkipReason(IcebergValidationResult result) {
+        String skipReason = result.metrics().get("skipReason");
+        if (skipReason != null && !skipReason.isBlank()) {
+            return escapeHtml("skipReason=" + skipReason);
+        }
+        return skipReason(result);
     }
 
     private static String metricOrEmpty(IcebergValidationResult result, String... keys) {

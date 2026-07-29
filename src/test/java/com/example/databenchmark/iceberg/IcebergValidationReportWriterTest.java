@@ -50,11 +50,33 @@ class IcebergValidationReportWriterTest {
                 result("erasureCoding", "ec-rs-10-4-failure-tolerance", "verify EC failure tolerance",
                     List.of("hdfs ec -setPolicy -policy RS-10-4-1024k /target"),
                     List.of("checksum matches"),
-                    Map.of("fileCount", "128", "hdfsDiskBytes", "2048", "replicationBaseline", "2"),
+                    Map.of(
+                        "policy", "RS-10-4-1024k",
+                        "replicationBaseline", "2",
+                        "liveDataNodes", "1",
+                        "requiredDataNodes", "14",
+                        "skipReason", "RS-10-4-1024k requires at least 14 live DataNodes"
+                    ),
                     Map.of("replicationBaseline", "2"),
-                    Map.of("diskSavingRatio", "0.42"),
+                    Map.of(),
                     "DataNode 数不足，跳过 RS-10-4 容错验证。",
                     List.of("policy=RS-10-4-1024k", "requiredDataNodes=14")),
+                result("erasureCoding", "ec-file-count-and-disk-usage", "verify EC disk usage",
+                    List.of("hdfs dfs -du -s /replication-baseline", "hdfs dfs -count /ec-target"),
+                    List.of("checksum matches"),
+                    Map.of(
+                        "policy", "RS-3-2-1024k",
+                        "replicationBaseline", "2",
+                        "replicationFileCount", "128",
+                        "ecFileCount", "96",
+                        "replicationDiskBytes", "4096",
+                        "ecDiskBytes", "2458",
+                        "diskSavingRatio", "40.0%"
+                    ),
+                    Map.of("replicationBaseline", "2"),
+                    Map.of("scriptedActions", "4", "ecPolicies", "RS-3-2"),
+                    "HDFS 用量对比已采集。",
+                    List.of("policy=RS-3-2-1024k")),
                 result("erasureCodingConversion", "replication-to-ec-rewrite", "verify EC conversion",
                     List.of("INSERT INTO target SELECT * FROM source"),
                     List.of("checksum matches after conversion"),
@@ -171,10 +193,17 @@ class IcebergValidationReportWriterTest {
             .contains("历史数据兼容读取通过")
             .contains("RS-10-4-1024k")
             .contains("replicationBaseline=2")
+            .contains("replicationFileCount=128")
+            .contains("ecFileCount=96")
+            .contains("replicationDiskBytes=4096")
+            .contains("ecDiskBytes=2458")
+            .contains("diskSavingRatio=40.0%")
+            .contains("liveDataNodes=1")
+            .contains("requiredDataNodes=14")
             .contains("元数据/性能指标")
-            .contains("fileCount")
-            .contains("hdfsDiskBytes")
+            .doesNotContain("<td>scriptedActions=4</td>")
             .doesNotContain("scriptedActions=")
+            .doesNotContain("ecPolicies=RS-3-2")
             .doesNotContain("conversionMetrics=seconds,throughputMbPerSecond")
             .doesNotContain("mutationMetrics=duration,rewriteFiles,deleteFiles,queryMsAfter")
             .doesNotContain("incrementalMetrics=fullScanMs,incrementalMs,savingRatio,snapshotWindow")
