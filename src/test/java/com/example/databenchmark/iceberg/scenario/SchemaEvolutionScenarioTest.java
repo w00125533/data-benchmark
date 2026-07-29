@@ -92,6 +92,11 @@ class SchemaEvolutionScenarioTest {
             .contains(".snapshots ORDER BY committed_at ASC ")
             .endsWith("LIMIT 1"));
         assertThat(addDropRename.actionCommands()).anySatisfy(command -> assertThat(command)
+            .startsWith("INSERT INTO ")
+            .contains("service_region")
+            .contains("added_text")
+            .contains("CONCAT('added-'"));
+        assertThat(addDropRename.actionCommands()).anySatisfy(command -> assertThat(command)
             .startsWith("SELECT snapshot_id AS postAlterSnapshotId FROM ")
             .contains(".snapshots ORDER BY committed_at DESC ")
             .endsWith("LIMIT 1"));
@@ -110,6 +115,29 @@ class SchemaEvolutionScenarioTest {
             .contains("'vendor_id'")
             .contains("'quality_score'")
             .doesNotContain("'vendor_code'");
+
+        IcebergValidationResult complexTypes = resultByCaseId(results, "schema-complex-types");
+        String complexTypesPostAlterInsert = complexTypes.actionCommands().stream()
+            .filter(command -> command.startsWith("INSERT INTO "))
+            .findFirst()
+            .orElseThrow();
+        assertThat(complexTypesPostAlterInsert)
+            .contains("attributes")
+            .contains("checkpoints")
+            .contains("owner")
+            .contains("map('tier', 'gold'")
+            .contains("array(named_struct(")
+            .contains("named_struct('team', 'validation'");
+
+        IcebergValidationResult longChain = resultByCaseId(results, "schema-long-chain-history");
+        String longChainPostAlterInsert = longChain.actionCommands().stream()
+            .filter(command -> command.startsWith("INSERT INTO "))
+            .findFirst()
+            .orElseThrow();
+        assertThat(longChainPostAlterInsert)
+            .contains("chain_col_1")
+            .contains("chain_col_100")
+            .contains("CONCAT('chain-100-'");
     }
 
     @Test
@@ -133,6 +161,7 @@ class SchemaEvolutionScenarioTest {
         assertThat(result.actionCommands()).anySatisfy(command -> assertThat(command)
             .startsWith("INSERT INTO " + table + " (")
             .contains("id, event_day, service_region, metric_int, metric_float, amount, payload, tags, attrs")
+            .contains("added_text")
             .contains("'after_evolution'")
             .contains("FROM range(1000, 2000)"));
         assertThat(result.actionCommands()).noneMatch(command -> command.contains("INSERT INTO " + table + "\nSELECT"));
@@ -254,6 +283,13 @@ class SchemaEvolutionScenarioTest {
         assertThat(result.functionStatus()).isEqualTo(com.example.databenchmark.iceberg.IcebergConclusion.FunctionStatus.PASS);
         assertThat(result.metrics()).containsEntry("historicalRows", "2");
         assertThat(result.metrics()).containsEntry("currentRows", "2");
+        assertThat(result.evidence()).contains(
+            "historicalSampleRows=id\n1\n2",
+            "currentSampleRows=id\n2000\n1999"
+        );
+        assertThat(String.join("\n", result.evidence()))
+            .doesNotContain("Hive Session ID")
+            .doesNotContain("Time taken:");
     }
 
     @Test
@@ -265,6 +301,16 @@ class SchemaEvolutionScenarioTest {
         assertThat(result.metrics()).containsEntry("postAlterSnapshotId", "222");
         assertThat(result.metrics().get("historicalQuerySql")).contains("VERSION AS OF 111");
         assertThat(executionByLabel(result, "historical query").script()).contains("VERSION AS OF 111");
+    }
+
+    @Test
+    void snapshotIdsUseHeaderlessNumericRowsAfterIvyNoise() throws Exception {
+        IcebergValidationResult result = runAddDropRenameWith(new FakeSparkSqlExecutor(SnapshotOutputMode.IVY_HEADERLESS));
+
+        assertThat(result.functionStatus()).isEqualTo(com.example.databenchmark.iceberg.IcebergConclusion.FunctionStatus.PASS);
+        assertThat(result.metrics()).containsEntry("baselineSnapshotId", "111");
+        assertThat(result.metrics()).containsEntry("postAlterSnapshotId", "222");
+        assertThat(result.metrics().get("historicalQuerySql")).contains("VERSION AS OF 111");
     }
 
     @Test
@@ -370,6 +416,7 @@ class SchemaEvolutionScenarioTest {
     private enum SnapshotOutputMode {
         SIMPLE,
         NOISY_ALIASED,
+        IVY_HEADERLESS,
         MISSING_BASELINE_VALUE
     }
 
@@ -456,6 +503,10 @@ class SchemaEvolutionScenarioTest {
                     +------------------+
                     Time taken: 0.100 seconds, Fetched 1 row(s)
                     """;
+                case IVY_HEADERLESS -> """
+                    :: loading settings :: url = jar:file:/opt/spark/jars/ivy-2.5.1.jar!/org/apache/ivy/core/settings/ivysettings.xml
+                    111
+                    """;
                 case MISSING_BASELINE_VALUE -> "baselineSnapshotId\n";
             };
         }
@@ -471,6 +522,10 @@ class SchemaEvolutionScenarioTest {
                     |222                |
                     +-------------------+
                     Time taken: 0.100 seconds, Fetched 1 row(s)
+                    """;
+                case IVY_HEADERLESS -> """
+                    :: loading settings :: url = jar:file:/opt/spark/jars/ivy-2.5.1.jar!/org/apache/ivy/core/settings/ivysettings.xml
+                    222
                     """;
             };
         }

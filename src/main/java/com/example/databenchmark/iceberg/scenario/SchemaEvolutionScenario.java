@@ -9,7 +9,6 @@ import com.example.databenchmark.iceberg.IcebergValidationConfig;
 import com.example.databenchmark.iceberg.IcebergValidationContext;
 import com.example.databenchmark.iceberg.IcebergValidationResult;
 import com.example.databenchmark.iceberg.exec.SparkSqlExecutor;
-import com.example.databenchmark.iceberg.metrics.IcebergMetricCollectors;
 import com.example.databenchmark.iceberg.sql.IcebergSqlTemplates;
 import com.example.databenchmark.iceberg.sql.SparkSqlScriptBuilder;
 import java.io.IOException;
@@ -23,6 +22,7 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
     private static final Pattern SPARK_LOG_LEVEL_LINE = Pattern.compile(
         "^(?:\\d{2}/\\d{2}/\\d{2}\\s+\\d{2}:\\d{2}:\\d{2}\\s+)?(?:INFO|WARN|ERROR)\\b.*"
     );
+    private static final Pattern LONG_VALUE_LINE = Pattern.compile("^-?\\d+$");
 
     private final SparkSqlExecutor sparkSqlExecutor;
     private final boolean executeSpark;
@@ -64,7 +64,7 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
         SchemaPlan plan = schemaPlan(testCase.caseId(), table, context);
         long baselineEnd = rows;
         long postAlterEnd = rows + Math.min(rows, 1000);
-        String postAlterInsert = postAlterInsert(table, testCase.caseId(), baselineEnd, postAlterEnd);
+        String postAlterInsert = postAlterInsert(table, testCase.caseId(), plan.changeCount(), baselineEnd, postAlterEnd);
         String historicalQuerySql = "SELECT id, event_day, metric_int FROM " + table
             + " VERSION AS OF ${baselineSnapshotId} ORDER BY id LIMIT 20";
         String currentQuerySql = "SELECT id, event_day, metric_int FROM " + table
@@ -236,8 +236,8 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
 
             evidence.add("historicalQuerySql=" + historicalQuerySqlWithId);
             evidence.add("currentQuerySql=" + currentQuerySql);
-            evidence.add("historicalSampleRows=" + historicalQuery.stdout().strip());
-            evidence.add("currentSampleRows=" + currentQuery.stdout().strip());
+            evidence.add("historicalSampleRows=" + sampleRows(historicalQuery.stdout()));
+            evidence.add("currentSampleRows=" + sampleRows(currentQuery.stdout()));
 
             return IcebergScenarioSupport.pass(
                 testCase,
@@ -320,7 +320,17 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
     }
 
     private static long dataRowCount(String stdout) {
-        List<String> dataLines = stdout.lines()
+        List<String> dataLines = normalizedDataLines(stdout);
+        int firstDataIndex = !dataLines.isEmpty() && looksLikeHeader(dataLines.get(0)) ? 1 : 0;
+        return dataLines.size() - firstDataIndex;
+    }
+
+    private static String sampleRows(String stdout) {
+        return String.join("\n", normalizedDataLines(stdout));
+    }
+
+    private static List<String> normalizedDataLines(String stdout) {
+        return stdout.lines()
             .map(String::trim)
             .filter(line -> !line.isBlank())
             .filter(line -> !isSeparator(line))
@@ -328,12 +338,21 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
             .map(SchemaEvolutionScenario::stripSparkTableBorders)
             .filter(line -> !line.isBlank())
             .toList();
-        int firstDataIndex = !dataLines.isEmpty() && looksLikeHeader(dataLines.get(0)) ? 1 : 0;
-        return dataLines.size() - firstDataIndex;
     }
 
     private static String parseSnapshotId(String stdout, String expectedColumn) {
-        return Long.toString(IcebergMetricCollectors.parseSingleLong(stdout, expectedColumn));
+        return stdout.lines()
+            .map(String::trim)
+            .filter(line -> !line.isBlank())
+            .filter(line -> !isSeparator(line))
+            .filter(line -> !isSparkMetadata(line))
+            .map(SchemaEvolutionScenario::stripSparkTableBorders)
+            .map(String::trim)
+            .filter(line -> !line.isBlank())
+            .filter(line -> !line.equalsIgnoreCase(expectedColumn))
+            .filter(line -> LONG_VALUE_LINE.matcher(line).matches())
+            .findFirst()
+            .orElseThrow(() -> new IllegalArgumentException("No data row for Spark SQL column " + expectedColumn));
     }
 
     private static boolean isSeparator(String line) {
@@ -344,6 +363,7 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
     private static boolean isSparkMetadata(String line) {
         return line.startsWith("Time taken:")
             || line.startsWith("Setting default log level to ")
+            || line.startsWith(":: ")
             || line.startsWith("Using Spark's default log4j profile")
             || line.startsWith("To adjust logging level")
             || line.startsWith("Spark session available as")
@@ -431,9 +451,16 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
         );
     }
 
-    private static String postAlterInsert(String table, String caseId, long startInclusive, long endExclusive) {
+    private static String postAlterInsert(
+        String table,
+        String caseId,
+        int changeCount,
+        long startInclusive,
+        long endExclusive
+    ) {
+        PostAlterProjection projection = postAlterProjection(caseId, changeCount);
         return """
-            INSERT INTO %s (id, event_day, %s, metric_int, metric_float, amount, payload, tags, attrs)
+            INSERT INTO %s (%s)
             SELECT id,
                    DATE_ADD(DATE '2026-01-01', CAST(id %% 7 AS INT)),
                    'after_evolution',
@@ -442,16 +469,57 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
                    CAST(id * 1.25 AS DECIMAL(12, 2)),
                    %s,
                    array('kpi', 'iceberg'),
-                   map('source', 'validation')
+                   map('source', 'validation')%s
             FROM range(%d, %d)
-            """.formatted(table, postAlterRegionColumn(caseId), postAlterPayload(caseId), startInclusive, endExclusive);
+            """.formatted(
+                table,
+                String.join(", ", projection.columns()),
+                postAlterPayload(caseId),
+                projection.extraSelectExpressions(),
+                startInclusive,
+                endExclusive
+            );
     }
 
-    private static String postAlterRegionColumn(String caseId) {
-        if ("schema-add-drop-rename".equals(caseId)) {
-            return "service_region";
+    private static PostAlterProjection postAlterProjection(String caseId, int longChainColumns) {
+        List<String> columns = new ArrayList<>(List.of(
+            "id",
+            "event_day",
+            "schema-add-drop-rename".equals(caseId) ? "service_region" : "region",
+            "metric_int",
+            "metric_float",
+            "amount",
+            "payload",
+            "tags",
+            "attrs"
+        ));
+        List<String> expressions = new ArrayList<>();
+        switch (caseId) {
+            case "schema-add-drop-rename" -> {
+                columns.add("added_text");
+                expressions.add("CONCAT('added-', CAST(id AS STRING))");
+            }
+            case "schema-complex-types" -> {
+                columns.add("attributes");
+                expressions.add("map('tier', 'gold', 'owner', 'iceberg-validation')");
+                columns.add("checkpoints");
+                expressions.add("array(named_struct('ts', TIMESTAMP '2026-01-01 00:00:00', 'status', 'ok'))");
+                columns.add("owner");
+                expressions.add("named_struct('team', 'validation', 'priority', CAST(1 AS INT))");
+            }
+            case "schema-long-chain-history" -> {
+                for (int index = 1; index <= longChainColumns; index++) {
+                    columns.add("chain_col_" + index);
+                    expressions.add("CONCAT('chain-" + index + "-', CAST(id AS STRING))");
+                }
+            }
+            default -> {
+            }
         }
-        return "region";
+        String extraSelectExpressions = expressions.isEmpty()
+            ? ""
+            : ",\n                   " + String.join(",\n                   ", expressions);
+        return new PostAlterProjection(columns, extraSelectExpressions);
     }
 
     private static String postAlterPayload(String caseId) {
@@ -483,5 +551,8 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
         int schemaHistoryLength() {
             return changeCount() + 1;
         }
+    }
+
+    private record PostAlterProjection(List<String> columns, String extraSelectExpressions) {
     }
 }
