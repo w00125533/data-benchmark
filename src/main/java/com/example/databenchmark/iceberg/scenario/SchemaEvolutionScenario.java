@@ -1,18 +1,40 @@
 package com.example.databenchmark.iceberg.scenario;
 
+import com.example.databenchmark.engine.CommandResult;
+import com.example.databenchmark.iceberg.IcebergConclusion;
+import com.example.databenchmark.iceberg.IcebergExecutionEvidence;
 import com.example.databenchmark.iceberg.IcebergScenarioSupport;
 import com.example.databenchmark.iceberg.IcebergValidationCase;
 import com.example.databenchmark.iceberg.IcebergValidationConfig;
 import com.example.databenchmark.iceberg.IcebergValidationContext;
 import com.example.databenchmark.iceberg.IcebergValidationResult;
+import com.example.databenchmark.iceberg.exec.SparkSqlExecutor;
+import com.example.databenchmark.iceberg.metrics.IcebergMetricCollectors;
 import com.example.databenchmark.iceberg.sql.IcebergSqlTemplates;
 import com.example.databenchmark.iceberg.sql.SparkSqlScriptBuilder;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
+    private final SparkSqlExecutor sparkSqlExecutor;
+    private final boolean executeSpark;
+
+    public SchemaEvolutionScenario() {
+        this(new SparkSqlExecutor(), false);
+    }
+
+    SchemaEvolutionScenario(SparkSqlExecutor sparkSqlExecutor) {
+        this(sparkSqlExecutor, true);
+    }
+
+    private SchemaEvolutionScenario(SparkSqlExecutor sparkSqlExecutor, boolean executeSpark) {
+        this.sparkSqlExecutor = sparkSqlExecutor;
+        this.executeSpark = executeSpark;
+    }
+
     @Override
     public String name() {
         return "schemaEvolution";
@@ -88,6 +110,25 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
             "currentSampleRows=notExecuted"
         );
 
+        if (executeSpark) {
+            return runWithSpark(
+                testCase,
+                context,
+                setup,
+                actions,
+                plan,
+                metrics,
+                rows,
+                postAlterEnd,
+                table,
+                location,
+                script,
+                postAlterInsert,
+                historicalQuerySql,
+                currentQuerySql
+            );
+        }
+
         return IcebergScenarioSupport.pass(
             testCase,
             context,
@@ -104,6 +145,178 @@ public class SchemaEvolutionScenario extends AbstractIcebergValidationScenario {
             plan.conclusion(),
             evidence
         );
+    }
+
+    private IcebergValidationResult runWithSpark(
+        IcebergValidationCase testCase,
+        IcebergValidationContext context,
+        List<String> setup,
+        List<String> actions,
+        SchemaPlan plan,
+        Map<String, String> metrics,
+        long rows,
+        long postAlterEnd,
+        String table,
+        String location,
+        String script,
+        String postAlterInsert,
+        String historicalQuerySql,
+        String currentQuerySql
+    ) {
+        List<IcebergExecutionEvidence> executionResults = new ArrayList<>();
+        List<String> evidence = new ArrayList<>();
+        evidence.add("table=" + table);
+        evidence.add("location=" + location);
+        evidence.add("setupScript=" + script.strip());
+
+        try {
+            runAndRequireSuccess(context.config(), executionResults, "setup", "create schema table", script);
+            for (String action : plan.actions()) {
+                runAndRequireSuccess(context.config(), executionResults, "action", "schema change", action);
+            }
+            runAndRequireSuccess(context.config(), executionResults, "action", "post alter insert", postAlterInsert);
+
+            String baselineSnapshotSql = "SELECT snapshot_id AS baselineSnapshotId FROM "
+                + table + ".snapshots ORDER BY committed_at ASC LIMIT 1";
+            String postAlterSnapshotSql = "SELECT snapshot_id AS postAlterSnapshotId FROM "
+                + table + ".snapshots ORDER BY committed_at DESC LIMIT 1";
+            IcebergExecutionEvidence baselineSnapshot = runAndRequireSuccess(
+                context.config(),
+                executionResults,
+                "metric",
+                "baseline snapshot id",
+                baselineSnapshotSql
+            );
+            IcebergExecutionEvidence postAlterSnapshot = runAndRequireSuccess(
+                context.config(),
+                executionResults,
+                "metric",
+                "post alter snapshot id",
+                postAlterSnapshotSql
+            );
+            String baselineSnapshotId = IcebergMetricCollectors.parseSingleString(baselineSnapshot.stdout());
+            String postAlterSnapshotId = IcebergMetricCollectors.parseSingleString(postAlterSnapshot.stdout());
+            String historicalQuerySqlWithId = historicalQuerySql.replace("${baselineSnapshotId}", baselineSnapshotId);
+            IcebergExecutionEvidence historicalQuery = runAndRequireSuccess(
+                context.config(),
+                executionResults,
+                "assertion",
+                "historical query",
+                historicalQuerySqlWithId
+            );
+            IcebergExecutionEvidence currentQuery = runAndRequireSuccess(
+                context.config(),
+                executionResults,
+                "assertion",
+                "current query",
+                currentQuerySql
+            );
+
+            metrics.remove("baselineSnapshotIdStatus");
+            metrics.remove("postAlterSnapshotIdStatus");
+            metrics.remove("historicalRowsStatus");
+            metrics.remove("currentRowsStatus");
+            metrics.remove("historicalQuerySecondsStatus");
+            metrics.remove("currentQuerySecondsStatus");
+            metrics.remove("historicalSampleRowsStatus");
+            metrics.remove("currentSampleRowsStatus");
+            metrics.put("baselineSnapshotId", baselineSnapshotId);
+            metrics.put("postAlterSnapshotId", postAlterSnapshotId);
+            metrics.put("historicalQuerySql", historicalQuerySqlWithId);
+            metrics.put("currentQuerySql", currentQuerySql);
+            metrics.put("historicalRows", Long.toString(dataRowCount(historicalQuery.stdout())));
+            metrics.put("currentRows", Long.toString(dataRowCount(currentQuery.stdout())));
+            metrics.put("historicalQuerySeconds", Double.toString(historicalQuery.durationSeconds()));
+            metrics.put("currentQuerySeconds", Double.toString(currentQuery.durationSeconds()));
+
+            evidence.add("historicalQuerySql=" + historicalQuerySqlWithId);
+            evidence.add("currentQuerySql=" + currentQuerySql);
+            evidence.add("historicalSampleRows=" + historicalQuery.stdout().strip());
+            evidence.add("currentSampleRows=" + currentQuery.stdout().strip());
+
+            return IcebergScenarioSupport.pass(
+                testCase,
+                context,
+                setup,
+                actions,
+                plan.assertions(),
+                metrics,
+                Map.of("baselineRows", Long.toString(rows)),
+                Map.of(
+                    "currentRows", Long.toString(postAlterEnd),
+                    "snapshotCount", Integer.toString(plan.snapshotCount()),
+                    "schemaHistoryLength", Integer.toString(plan.schemaHistoryLength())
+                ),
+                plan.conclusion(),
+                evidence,
+                executionResults
+            );
+        } catch (IOException | InterruptedException | RuntimeException exception) {
+            if (exception instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            String error = exception.getMessage() == null ? exception.toString() : exception.getMessage();
+            evidence.add("executionError=" + error);
+            return new IcebergValidationResult(
+                testCase.scenario(),
+                testCase.caseId(),
+                testCase.purpose(),
+                IcebergScenarioSupport.dataScale(context.config()),
+                setup,
+                actions,
+                plan.assertions(),
+                metrics,
+                Map.of("baselineRows", Long.toString(rows)),
+                Map.of(),
+                IcebergConclusion.FunctionStatus.FAIL,
+                IcebergConclusion.PerformanceStatus.NOT_COMPARABLE,
+                "Schema evolution Spark execution failed.",
+                evidence,
+                List.of(error),
+                executionResults
+            );
+        }
+    }
+
+    private IcebergExecutionEvidence runAndRequireSuccess(
+        IcebergValidationConfig config,
+        List<IcebergExecutionEvidence> executionResults,
+        String phase,
+        String label,
+        String sql
+    ) throws IOException, InterruptedException {
+        IcebergExecutionEvidence evidence = runSpark(config, phase, label, sql);
+        executionResults.add(evidence);
+        if (evidence.exitCode() != 0) {
+            throw new IllegalStateException("Spark SQL failed during " + label + ": " + evidence.stderr());
+        }
+        return evidence;
+    }
+
+    private IcebergExecutionEvidence runSpark(IcebergValidationConfig config, String phase, String label, String sql)
+        throws IOException, InterruptedException {
+        CommandResult result = sparkSqlExecutor.run(config, sql);
+        return new IcebergExecutionEvidence(
+            phase,
+            label,
+            sql,
+            result.exitCode(),
+            result.durationSeconds(),
+            result.stdout(),
+            result.stderr()
+        );
+    }
+
+    private static long dataRowCount(String stdout) {
+        return stdout.lines()
+            .map(String::trim)
+            .filter(line -> !line.isBlank())
+            .filter(line -> !line.chars().allMatch(character ->
+                character == '-' || character == '+' || character == '|' || Character.isWhitespace(character)))
+            .filter(line -> !line.startsWith("Time taken:"))
+            .filter(line -> !line.startsWith("Setting default log level to "))
+            .skip(1)
+            .count();
     }
 
     private static SchemaPlan schemaPlan(String caseId, String table, IcebergValidationContext context) {

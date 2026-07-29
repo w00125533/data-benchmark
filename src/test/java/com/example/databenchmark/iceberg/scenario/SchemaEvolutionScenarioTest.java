@@ -2,11 +2,14 @@ package com.example.databenchmark.iceberg.scenario;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.databenchmark.engine.CommandResult;
+import com.example.databenchmark.iceberg.IcebergExecutionEvidence;
 import com.example.databenchmark.iceberg.IcebergValidationCase;
 import com.example.databenchmark.iceberg.IcebergValidationConfig;
 import com.example.databenchmark.iceberg.IcebergValidationConfigLoader;
 import com.example.databenchmark.iceberg.IcebergValidationContext;
 import com.example.databenchmark.iceberg.IcebergValidationResult;
+import com.example.databenchmark.iceberg.exec.SparkSqlExecutor;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -160,6 +163,40 @@ class SchemaEvolutionScenarioTest {
             .contains("ORDER BY id DESC LIMIT 20"));
     }
 
+    @Test
+    void injectedSparkExecutorCapturesHistoricalAndCurrentQueryMetrics() throws Exception {
+        SchemaEvolutionScenario scenario = new SchemaEvolutionScenario(new FakeSparkSqlExecutor());
+        IcebergValidationConfig config = new IcebergValidationConfigLoader().load(Path.of("configs/iceberg-validation.yml"));
+        IcebergValidationContext context = new IcebergValidationContext(
+            config,
+            "schema-execution-test",
+            Path.of("work"),
+            Path.of("reports"),
+            false
+        );
+
+        IcebergValidationResult result = scenario.run(
+            scenario.cases(config).stream()
+                .filter(testCase -> testCase.caseId().equals("schema-add-drop-rename"))
+                .findFirst()
+                .orElseThrow(),
+            context
+        );
+
+        assertThat(result.metrics()).containsEntry("baselineSnapshotId", "111");
+        assertThat(result.metrics()).containsEntry("postAlterSnapshotId", "222");
+        assertThat(result.metrics()).containsEntry("historicalRows", "2");
+        assertThat(result.metrics()).containsEntry("currentRows", "2");
+        assertThat(result.metrics()).containsEntry("historicalQuerySeconds", "0.321");
+        assertThat(result.metrics()).containsEntry("currentQuerySeconds", "0.456");
+        assertThat(result.executionResults()).extracting(IcebergExecutionEvidence::label)
+            .contains("historical query", "current query");
+        assertThat(result.evidence()).contains(
+            "historicalSampleRows=id\n1\n2",
+            "currentSampleRows=id\n2000\n1999"
+        );
+    }
+
     private static IcebergValidationResult resultByCaseId(List<IcebergValidationResult> results, String caseId) {
         return results.stream()
             .filter(result -> caseId.equals(result.caseId()))
@@ -174,5 +211,24 @@ class SchemaEvolutionScenarioTest {
             }
         }
         return -1;
+    }
+
+    private static final class FakeSparkSqlExecutor extends SparkSqlExecutor {
+        @Override
+        public CommandResult run(IcebergValidationConfig config, String sql) {
+            if (sql.contains(".snapshots") && sql.contains("ASC")) {
+                return new CommandResult(List.of("spark-sql"), 0, "snapshot_id\n111\n", "", 0.100);
+            }
+            if (sql.contains(".snapshots") && sql.contains("DESC")) {
+                return new CommandResult(List.of("spark-sql"), 0, "snapshot_id\n222\n", "", 0.100);
+            }
+            if (sql.contains("VERSION AS OF")) {
+                return new CommandResult(List.of("spark-sql"), 0, "id\n1\n2\n", "", 0.321);
+            }
+            if (sql.contains("ORDER BY id DESC")) {
+                return new CommandResult(List.of("spark-sql"), 0, "id\n2000\n1999\n", "", 0.456);
+            }
+            return new CommandResult(List.of("spark-sql"), 0, "OK\n", "", 0.050);
+        }
     }
 }
